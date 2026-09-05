@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <LangVersion>13</LangVersion>
+        <Nullable>enable</Nullable>
+        <AssemblyName>MuSync</AssemblyName>
+        <RootNamespace>MuSync</RootNamespace>
+
+
+        <Version>0.1.0</Version>
+        <Description>MuSync - 把网易云音乐 / QQ 音乐 / LX Music 的播放状态同步到 Steam</Description>
+
+
+
+        <PlatformTarget>x64</PlatformTarget>
+        <UseWindowsForms>true</UseWindowsForms>
+        <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+        <ApplicationIcon>Resources\icon.ico</ApplicationIcon>
+
+        <Product>MuSync</Product>
+        <Title>MuSync</Title>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+        <DebugType>embedded</DebugType>
+        <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
+        <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+        <DebugType>embedded</DebugType>
+        <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
+        <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
+    </PropertyGroup>
+
+    <ItemGroup>
+
+        <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+
+        <PackageReference Include="SteamKit2" Version="3.4.0" />
+        <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+        <PackageReference Include="System.Security.AccessControl" Version="6.0.1" />
+        <PackageReference Include="System.Security.Principal.Windows" Version="5.0.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <EmbeddedResource Include="Resources\icon.ico">
+            <LogicalName>MuSync.Resources.icon.ico</LogicalName>
+        </EmbeddedResource>
+    </ItemGroup>
+
+    <!-- reference-yySync 仅为对照参考，不参与编译 -->
+    <ItemGroup>
+        <Compile Remove="reference-yySync\**\*.cs" />
+        <None Remove="reference-yySync\**" />
+        <Compile Remove="tests\**\*.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="MuSync.Tests" />
+    </ItemGroup>
+
+</Project>

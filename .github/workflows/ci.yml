@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore
+        run: dotnet restore MuSync.sln
+
+      - name: Build (Debug, warnings as errors)
+        run: dotnet build MuSync.sln -c Debug --no-restore
+
+      - name: Run tests
+        run: dotnet test MuSync.sln -c Debug --no-build
+
+      - name: Publish Release (framework-dependent, single file)
+        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MuSync-win-x64
+          path: publish/
