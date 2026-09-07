@@ -54,8 +54,21 @@ jobs:
 
       - name: Create Release
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "MuSync $GITHUB_REF_NAME" \
-            --generate-notes
+          TAG="${GITHUB_REF_NAME#v}"
+          # 从 CHANGELOG.md 提取当前版本段落作为 Release notes；找不到则退回自动生成
+          awk -v tag="$TAG" '
+            BEGIN { inSec = 0 }
+            /^## \[/ { if (inSec) exit; if ($0 ~ "^## \\[" tag "\\]") inSec = 1; next }
+            inSec { print }
+          ' CHANGELOG.md > notes.md
+          if [ -s notes.md ]; then
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "MuSync $GITHUB_REF_NAME" \
+              --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "MuSync $GITHUB_REF_NAME" \
+              --generate-notes
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
