@@ -38,6 +38,12 @@ dotnet test MuSync.sln                  # 运行单元测试
 
 GitHub Actions（`main` 分支 push/PR）会自动构建并上传单文件 Release 产物。
 
+## 🔀 与 yySync 的关系
+
+MuSync 基于 [wuyan1337/yySync](https://github.com/wuyan1337/yySync)（MIT）「半新写」：
+播放器内存逆向实现沿用原项目成果，状态仲裁、断线重连、日志与安全体系均为本项目独立实现。
+相对 yySync 的全部改动见 [CHANGELOG.md](CHANGELOG.md)（0.1.0）。
+
 ## 🗂️ 项目结构
 
 ```
