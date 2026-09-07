@@ -12,6 +12,8 @@ internal class SteamSessionManager : IDisposable
     // 断线自动重连：初始退避 5 秒，翻倍至上限 60 秒
     private const int ReconnectInitialDelaySeconds = 5;
     private const int ReconnectMaxDelaySeconds = 60;
+    // 启动后若长时间未连上 Steam（如开机时网络未就绪），进入自动重连的等待时间
+    private const int FirstConnectWatchdogDelaySeconds = 20;
 
     private SteamClient? _steamClient;
     private CallbackManager? _callbackManager;
@@ -29,6 +31,8 @@ internal class SteamSessionManager : IDisposable
     public bool IsConnected => _steamClient?.IsConnected ?? false;
     public bool IsLoggedOn { get; private set; }
     public bool IsRealGameActive { get; private set; }
+    /// <summary>密码登录成功后是否保存 refresh token（用于下次自动登录）；不保存则每次启动需手动登录。</summary>
+    public bool RememberSession { get; set; } = true;
     public string? Username { get; private set; }
     public string? LoginError { get; private set; }
     public event Action<bool>? OnSteamGuardRequired;
@@ -50,6 +54,7 @@ internal class SteamSessionManager : IDisposable
         _callbackTask = Task.Run(() => CallbackLoop(_cts.Token));
         _steamClient.Connect();
         Debug.WriteLine("[SteamSession] 正在连接到 Steam...");
+        StartFirstConnectWatchdog();
     }
 
     private void OnConnected(SteamClient.ConnectedCallback cb)
@@ -107,21 +112,43 @@ internal class SteamSessionManager : IDisposable
         }, _cts.Token);
     }
 
-    /// <summary>指数退避重连：反复 Connect 直到登录成功、令牌失效或程序退出。</summary>
+    /// <summary>启动 watchdog：首次连接长时间不成功（网络未就绪/服务器不可达）时自动进入退避重连。</summary>
+    private void StartFirstConnectWatchdog()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(FirstConnectWatchdogDelaySeconds), _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            if (!_isRunning || _steamClient?.IsConnected == true || _reconnectLoopRunning) return;
+            _reconnectLoopRunning = true;
+            try
+            {
+                Logger.Warn("[SteamSession] 首次连接超时，转入自动重连");
+                await AutoReconnectLoopAsync(_cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // 程序退出中，静默忽略
+            }
+            finally
+            {
+                _reconnectLoopRunning = false;
+            }
+        }, _cts.Token);
+    }
+
+    /// <summary>指数退避重连：反复 Connect 直到连上 Steam（无论是否已登录）。</summary>
     private async Task AutoReconnectLoopAsync(CancellationToken token)
     {
         var delaySeconds = ReconnectInitialDelaySeconds;
-        while (_isRunning && !IsLoggedOn && !token.IsCancellationRequested)
+        while (_isRunning && !token.IsCancellationRequested && _steamClient?.IsConnected != true)
         {
-            // 令牌已失效（LoginWithTokenAsync 失败会清空），不再自动重试，交给用户重新登录
-            var settings = Configurations.Instance.Settings;
-            if (string.IsNullOrEmpty(settings.SteamUsername) ||
-                string.IsNullOrEmpty(settings.SteamRefreshToken))
-            {
-                Debug.WriteLine("[SteamSession] 无有效登录令牌，停止自动重连");
-                Logger.Warn("[SteamSession] 无有效登录令牌，停止自动重连，需要重新登录");
-                return;
-            }
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(delaySeconds), token);
@@ -130,43 +157,32 @@ internal class SteamSessionManager : IDisposable
             {
                 return;
             }
-            if (!_isRunning || IsLoggedOn || token.IsCancellationRequested) return;
+            if (!_isRunning || token.IsCancellationRequested || _steamClient?.IsConnected == true) return;
             try
             {
+                _reconnectPending = true;
                 Debug.WriteLine($"[SteamSession] 尝试自动重连 (下次失败退避 {delaySeconds}s)...");
                 Logger.Info($"[SteamSession] 尝试自动重连 (下次失败退避 {delaySeconds}s)...");
-                _reconnectPending = true;
                 _steamClient?.Connect();
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[SteamSession] 自动重连异常: {ex.Message}");
+                Logger.Error($"[SteamSession] 自动重连异常: {ex.Message}");
+            }
+            // 等待连接结果（最多约 8 秒）；连上即退出循环，令牌重登由 ConnectedCallback 触发
+            for (var i = 0; i < 16 && !token.IsCancellationRequested && _steamClient?.IsConnected != true; i++)
+            {
+                try
+                {
+                    await Task.Delay(500, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
             }
             delaySeconds = Math.Min(delaySeconds * 2, ReconnectMaxDelaySeconds);
-            // 等待连接建立
-            for (var i = 0; i < 6 && !IsLoggedOn && _isRunning && _steamClient?.IsConnected == false; i++)
-            {
-                try
-                {
-                    await Task.Delay(500, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-            }
-            // 连接已建立：等待令牌重登完成（最多约 12 秒），失败则进入下一轮退避
-            for (var i = 0; i < 24 && !IsLoggedOn && _isRunning && _steamClient?.IsConnected == true; i++)
-            {
-                try
-                {
-                    await Task.Delay(500, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-            }
         }
     }
 
@@ -235,7 +251,7 @@ internal class SteamSessionManager : IDisposable
                 }
             ).ConfigureAwait(false);
             var pollResult = await authSession.PollingWaitForResultAsync().ConfigureAwait(false);
-            if (!string.IsNullOrEmpty(pollResult.NewGuardData))
+            if (!string.IsNullOrEmpty(pollResult.NewGuardData) && RememberSession)
             {
                 Configurations.Instance.Settings.SteamGuardData = pollResult.NewGuardData;
                 Configurations.Instance.Save();
@@ -253,8 +269,18 @@ internal class SteamSessionManager : IDisposable
                 await Task.Delay(500).ConfigureAwait(false);
                 if (IsLoggedOn)
                 {
-                    Configurations.Instance.Settings.SteamUsername = username;
-                    Configurations.Instance.Settings.SteamRefreshToken = pollResult.RefreshToken;
+                    var settings = Configurations.Instance.Settings;
+                    settings.SteamUsername = username;
+                    if (RememberSession)
+                    {
+                        settings.SteamRefreshToken = pollResult.RefreshToken;
+                    }
+                    else
+                    {
+                        // 未勾选“记住我”：不保存令牌与 Guard 数据，下次启动需手动登录
+                        settings.SteamRefreshToken = "";
+                        settings.SteamGuardData = "";
+                    }
                     Configurations.Instance.Save();
                     return true;
                 }
@@ -312,6 +338,8 @@ internal class SteamSessionManager : IDisposable
             await Task.Delay(500).ConfigureAwait(false);
             if (IsLoggedOn) return true;
             if (LoginError != null) break;
+            // 登录过程中网络断开：保留令牌不清除，等自动重连后再试
+            if (!IsConnected) return false;
         }
         Debug.WriteLine("[SteamSession] Token 登录失败，清除已保存令牌");
         Logger.Warn("[SteamSession] Token 登录失败，已清除保存的令牌，需要重新登录");

@@ -87,6 +87,15 @@ internal class Configurations
         catch (Exception e)
         {
             Logger.Error($"加载配置失败，使用默认值: {e.Message}");
+            try
+            {
+                File.Copy(_path, _path + ".bak", overwrite: true);
+                Logger.Warn($"已备份可能损坏的配置文件到 {_path}.bak");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"备份损坏配置文件失败: {ex.Message}");
+            }
             Save();
         }
     }

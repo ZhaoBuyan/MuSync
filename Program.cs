@@ -11,6 +11,7 @@ internal static class Program
     private static SteamSessionManager? _sessionManager;
     private static MainForm? _mainForm;
     private static NotifyIcon? TrayIcon { get; set; }
+    private static ToolStripMenuItem? TrayStatusItem { get; set; }
     public static RpcManager? GetRpcManager() => _rpcManager;
     public static SteamStatusManager? GetSteamManager() => _steamManager;
     public static SteamSessionManager? GetSessionManager() => _sessionManager;
@@ -100,12 +101,28 @@ internal static class Program
 
     private static NotifyIcon CreateTrayIcon()
     {
+        // 菜单顶部状态行（禁用态，由 UpdateTrayStatus 节流刷新）
+        TrayStatusItem = new ToolStripMenuItem("MuSync") { Enabled = false };
+        var pauseSyncItem = new ToolStripMenuItem("暂停同步") { CheckOnClick = true };
+        pauseSyncItem.Click += (_, _) =>
+        {
+            var steamManager = GetSteamManager();
+            if (steamManager == null) return;
+            steamManager.ManualPause = pauseSyncItem.Checked;
+            Logger.Info($"[Program] 手动暂停同步: {pauseSyncItem.Checked}");
+            if (!pauseSyncItem.Checked)
+            {
+                // 恢复后立即重新推送当前状态
+                GetRpcManager()?.RequestStateRefresh();
+            }
+        };
         var showSettingsItem = new ToolStripMenuItem("显示设置");
         var showMainWindowItem = new ToolStripMenuItem("显示主窗口");
         var exitMenuItem = new ToolStripMenuItem("退出");
         var contextMenu = new ContextMenuStrip();
         contextMenu.Items.AddRange(
-            showMainWindowItem, showSettingsItem, new ToolStripSeparator(),
+            TrayStatusItem, new ToolStripSeparator(),
+            showMainWindowItem, showSettingsItem, pauseSyncItem, new ToolStripSeparator(),
             exitMenuItem);
         showSettingsItem.Click += (_, _) =>
         {
@@ -135,6 +152,44 @@ internal static class Program
             _mainForm.Activate();
         };
         return notifyIcon;
+    }
+
+    /// <summary>刷新托盘悬停提示与右键菜单状态行（由主轮询循环节流调用，约每 5 秒）。</summary>
+    public static void UpdateTrayStatus()
+    {
+        if (TrayIcon == null) return;
+        try
+        {
+            string text;
+            var config = Configurations.Instance.Settings;
+            if (config.EnableSteamSync && config.PauseWhenPlayingGame &&
+                GetSteamManager()?.IsRealGameActive == true)
+            {
+                text = "游戏中，音乐同步已暂停";
+            }
+            else if (GetSteamManager()?.ManualPause == true)
+            {
+                text = "同步已手动暂停";
+            }
+            else
+            {
+                var current = GetRpcManager()?.GetCurrentPlayerInfo();
+                text = current?.PlayerInfo is { } song
+                    ? $"正在播放 {current.Value.PlayerName}: {song.Title}"
+                    : "未在播放音乐";
+            }
+            text = StringUtils.GetTruncatedStringByMaxByteLength(text, 60);
+            TrayIcon.Text = text;
+            if (TrayStatusItem != null && TrayStatusItem.Text != text)
+            {
+                TrayStatusItem.Text = text;
+            }
+        }
+        catch (Exception ex)
+        {
+            // 托盘刷新失败不影响主流程
+            Logger.Error($"[Program] 刷新托盘状态失败: {ex.Message}");
+        }
     }
 
     public static void ShowMinimizeToTrayNotification()

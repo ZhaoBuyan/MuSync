@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Threading.Tasks;
@@ -144,6 +145,7 @@ internal class MainForm : Form
             Text = "",
             Margin = new Padding(0)
         };
+        songTitleLabel.DoubleClick += (_, _) => OpenSongUrl(index);
         textFlowPanel.Controls.AddRange(songTitleLabel, artistLabel, albumLabel);
         var statusLabel = new Label
         {
@@ -475,6 +477,21 @@ internal class MainForm : Form
         base.OnLoad(e);
         _updateTimer.Start();
         UpdateDisplay(true);
+    }
+    /// <summary>双击歌曲标题时用默认浏览器打开歌曲链接（仅网易云/QQ 音乐提供）。</summary>
+    private void OpenSongUrl(int index)
+    {
+        if (index < 0 || index >= _lastPlayerInfos.Length) return;
+        var info = _lastPlayerInfos[index];
+        if (info is not { } playerInfo || string.IsNullOrEmpty(playerInfo.Url)) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(playerInfo.Url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"打开歌曲链接失败: {ex.Message}");
+        }
     }
     private static void MainForm_KeyDown(object? sender, KeyEventArgs e)
     {

@@ -53,6 +53,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     private static readonly TimeSpan ActivePollInterval = TimeSpan.FromMilliseconds(233);
     private static readonly TimeSpan IdlePollInterval = TimeSpan.FromMilliseconds(1200);
     private DateTime _lastProgressUpdateTime = DateTime.MinValue;
+    private DateTime _lastTrayStatusUpdateTime = DateTime.MinValue;
 
     public void RequestStateRefresh() => _stateRefreshRequested = true;
 
@@ -293,6 +294,11 @@ internal class RpcManager(SteamStatusManager steamManager)
                 {
                     await UpdateProgressForActivePlayers(currentTime);
                     _lastProgressUpdateTime = currentTime;
+                }
+                if ((currentTime - _lastTrayStatusUpdateTime).TotalSeconds >= 5)
+                {
+                    Program.UpdateTrayStatus();
+                    _lastTrayStatusUpdateTime = currentTime;
                 }
             }
             catch (Exception ex)

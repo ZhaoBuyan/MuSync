@@ -12,6 +12,17 @@ internal class SteamStatusManager
     private const int ProgressBarLength = 10;
     public bool IsReady => _session.IsLoggedOn;
     public bool IsRealGameActive => _session.IsRealGameActive;
+    /// <summary>托盘“暂停同步”手动开关：开启时立即清状态并停止推送。</summary>
+    public bool ManualPause
+    {
+        get => _manualPause;
+        set
+        {
+            _manualPause = value;
+            if (value) ClearStatus();
+        }
+    }
+    private bool _manualPause;
     public SteamStatusManager(SteamSessionManager session)
     {
         _session = session;
@@ -21,6 +32,7 @@ internal class SteamStatusManager
         if (!_session.IsLoggedOn) return;
         var config = Configurations.Instance.Settings;
         if (config.PauseWhenPlayingGame && _session.IsRealGameActive) return;
+        if (_manualPause) return;
         var newName = FormatStatusName(info, playerName, config);
         if (newName == _lastSetName) return;
         try
