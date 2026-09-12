@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using MuSync;
 using MuSync.Models;
@@ -41,6 +42,19 @@ public class ConfigCompatibilityTests
         Assert.Equal("someone", config.SteamUsername);
         Assert.True(config.MusicSyncEnabled);
         Assert.True(config.AllowWebSocketFallback);
+    }
+
+    [Fact]
+    public void JsonNodeLoadPath_WithAppRuleCategory_MustSucceed()
+    {
+        // 回归：配置读取曾走 JsonNode.Deserialize，导致含 Apps 枚举的配置每次都读取失败被重置
+        const string json = """{"Apps":[{"ExeName":"qq.exe","DisplayName":"QQ","Category":"Social","Mode":"Foreground","Override":"FollowCategory","Enabled":true,"IsUserConfirmed":true}]}""";
+        var options = CreateOptions();
+        var node = JsonNode.Parse(json);
+        var config = node!.Deserialize<ConfigData>(options);
+        Assert.NotNull(config);
+        Assert.Single(config!.Apps);
+        Assert.Equal(AppCategory.Social, config.Apps[0].Category);
     }
 
     [Fact]

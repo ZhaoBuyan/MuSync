@@ -358,7 +358,9 @@ internal class SteamSessionManager : IDisposable
         }
         catch (Exception ex)
         {
-            LoginError = $"登录异常: {ex.Message}";
+            LoginError = ex is AsyncJobFailedException
+                ? "登录流程被中断，请重试"
+                : $"登录异常: {ex.Message}";
             Debug.WriteLine($"[SteamSession] {LoginError}");
             Logger.Error($"[SteamSession] {LoginError}");
             return false;

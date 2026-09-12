@@ -14,6 +14,7 @@ internal sealed class SteamLoginForm : Form
     private Label _lblStatus;
     private readonly SteamSessionManager _session;
     private bool _isLoginInProgress;
+    private Action<bool> _guardHandler;
     public bool LoginSucceeded { get; private set; }
 
     public SteamLoginForm(SteamSessionManager session)
@@ -21,6 +22,15 @@ internal sealed class SteamLoginForm : Form
         _session = session;
         InitializeComponent();
         Load += async (s, e) => await AttemptAutoLogin();
+        FormClosed += (s, e) =>
+        {
+            // 窗体关闭时退订事件，避免向已销毁的窗口 Invoke（曾导致"句柄未创建"异常）
+            if (_guardHandler != null)
+            {
+                _session.OnSteamGuardRequired -= _guardHandler;
+                _guardHandler = null;
+            }
+        };
     }
 
     private void InitializeComponent()
@@ -88,6 +98,7 @@ internal sealed class SteamLoginForm : Form
         _lblStatus.ForeColor = Color.Blue;
         _lblStatus.Text = "正在自动登录...";
         var success = await Task.Run(() => _session.LoginWithTokenAsync(savedUser, savedToken));
+        if (IsDisposed || !IsHandleCreated) return;
         if (success)
         {
             LoginSucceeded = true;
@@ -118,10 +129,36 @@ internal sealed class SteamLoginForm : Form
         ShowStatus("正在登录...", Color.Blue);
         // 勾选"记住我"才保存令牌用于下次自动登录
         _session.RememberSession = _chkRemember.Checked;
-        _session.OnSteamGuardRequired += (isMobile) =>
+        if (_guardHandler == null)
+        {
+            _guardHandler = OnSteamGuardRequired;
+            _session.OnSteamGuardRequired += _guardHandler;
+        }
+        var success = await Task.Run(() => _session.LoginAsync(user, pass));
+        if (IsDisposed || !IsHandleCreated) return;
+        if (success)
+        {
+            LoginSucceeded = true;
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+        else
+        {
+            ShowStatus(_session.LoginError ?? "登录失败", Color.Red);
+            _isLoginInProgress = false;
+            UpdateUiState();
+        }
+    }
+
+    /// <summary>Steam Guard 验证回调（仅存活窗口响应；事件在窗体关闭时退订）。</summary>
+    private void OnSteamGuardRequired(bool isMobile)
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        try
         {
             Invoke(() =>
             {
+                if (IsDisposed) return;
                 if (isMobile)
                 {
                     ShowStatus("Steam Guard：请在手机 App 上确认登录！", Color.Blue);
@@ -141,30 +178,31 @@ internal sealed class SteamLoginForm : Form
                     }
                 }
             });
-        };
-        var success = await Task.Run(() => _session.LoginAsync(user, pass));
-        if (success)
-        {
-            LoginSucceeded = true;
-            DialogResult = DialogResult.OK;
-            Close();
         }
-        else
+        catch (InvalidOperationException)
         {
-            ShowStatus(_session.LoginError ?? "登录失败", Color.Red);
-            _isLoginInProgress = false;
-            UpdateUiState();
+            // 窗体正在销毁：忽略本次提示
         }
     }
 
     private void ShowStatus(string msg, Color color)
     {
-        if (InvokeRequired) Invoke(() => ShowStatus(msg, color));
-        else
+        if (IsDisposed) return;
+        if (InvokeRequired)
         {
-            _lblStatus.ForeColor = color;
-            _lblStatus.Text = msg;
+            if (!IsHandleCreated) return;
+            try
+            {
+                Invoke(() => ShowStatus(msg, color));
+            }
+            catch (InvalidOperationException)
+            {
+                // 窗体正在销毁
+            }
+            return;
         }
+        _lblStatus.ForeColor = color;
+        _lblStatus.Text = msg;
     }
 
     private void UpdateUiState()
@@ -194,6 +232,6 @@ internal sealed class SteamLoginForm : Form
         Button confirmation = new Button() { Text = "确定", Left = 210, Width = 80, Top = 85, DialogResult = DialogResult.OK };
         promptForm.Controls.AddRange(new Control[] { textLabel, textBox, confirmation });
         promptForm.AcceptButton = confirmation;
-        return promptForm.ShowDialog() == DialogResult.OK ? textBox.Text : null;
+        return promptForm.ShowDialog(this) == DialogResult.OK ? textBox.Text : null;
     }
 }
