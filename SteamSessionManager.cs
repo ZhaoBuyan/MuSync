@@ -15,7 +15,7 @@ internal class SteamSessionManager : IDisposable
     private const int ReconnectInitialDelaySeconds = 5;
     private const int ReconnectMaxDelaySeconds = 60;
     // 服务器要求更换节点（TryAnotherCM）时的自动重试上限
-    private const int MaxCmRetries = 2;
+    private const int MaxCmRetries = 4;
     private int _cmRetryCount;
     // 启动后若长时间未连上 Steam（如开机时网络未就绪），进入自动重连的等待时间
     private const int FirstConnectWatchdogDelaySeconds = 20;
@@ -325,7 +325,7 @@ internal class SteamSessionManager : IDisposable
             _cmRetryCount = 0;
             LoginError = null;
             _steamUser!.LogOn(logOnDetails);
-            var waitResult = await WaitForLogOnResultAsync(logOnDetails, 120);
+            var waitResult = await WaitForLogOnResultAsync(logOnDetails, 360);
             if (waitResult == LogOnWaitResult.Success)
             {
                 var settings = Configurations.Instance.Settings;
@@ -394,7 +394,7 @@ internal class SteamSessionManager : IDisposable
         _cmRetryCount = 0;
         LoginError = null;
         _steamUser!.LogOn(logOnDetails);
-        var waitResult = await WaitForLogOnResultAsync(logOnDetails, 120);
+        var waitResult = await WaitForLogOnResultAsync(logOnDetails, 360);
         if (waitResult == LogOnWaitResult.Success) return true;
         if (waitResult != LogOnWaitResult.Rejected)
         {

@@ -58,6 +58,34 @@ public class ConfigCompatibilityTests
     }
 
     [Fact]
+    public void EnumNumberValue_DefaultConverter_Behavior()
+    {
+        // 调查：旧版保存的配置里 Category 是数字时，默认 JsonStringEnumConverter 能否读取
+        const string json = """{"Apps":[{"ExeName":"x.exe","Category":4}]}""";
+        var config = JsonSerializer.Deserialize<ConfigData>(json, CreateOptions());
+        Assert.NotNull(config);
+        Assert.Equal(AppCategory.Social, config!.Apps[0].Category);
+    }
+
+    [Fact]
+    public void SavePath_SerializeToNode_Then_Deserialize_RoundTrip()
+    {
+        // 调查：Save 走的 SerializeToNode -> ToJsonString 链路是否与读取兼容
+        var settings = new ConfigData
+        {
+            Apps = [new AppRule { ExeName = "x.exe", DisplayName = "X", Category = AppCategory.Social, Enabled = true }]
+        };
+        var options = CreateOptions();
+        var node = JsonSerializer.SerializeToNode(settings, options);
+        Assert.NotNull(node);
+        var json = node!.ToJsonString(options);
+        Assert.Contains("Social", json); // 若失败说明 SerializeToNode 未应用枚举转换器（写成了数字）
+        var back = JsonSerializer.Deserialize<ConfigData>(json, options);
+        Assert.NotNull(back);
+        Assert.Equal(AppCategory.Social, back!.Apps[0].Category);
+    }
+
+    [Fact]
     public void Config_RoundTrip_PreservesAppsAndPlayerPriority()
     {
         var original = new ConfigData
