@@ -46,6 +46,9 @@ internal class ConfigData
     public string MusicFormat { get; set; } = "{song}{artistPart}{progress}";
     public string ProgramFormat { get; set; } = "{app}";
     public string CombinedFormat { get; set; } = "{app} {sep} {song}{artistPart}";
+    /// <summary>进度条填充/空白字符（支持 emoji，各取一个字符）。</summary>
+    public string ProgressBarFillChar { get; set; } = "#";
+    public string ProgressBarEmptyChar { get; set; } = "-";
     /// <summary>程序同步规则列表。</summary>
     public List<AppRule> Apps { get; set; } = [];
 

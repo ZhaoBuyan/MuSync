@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Text;
 using System.Windows.Forms;
 using MuSync.Models;
 using MuSync.Utils;
@@ -21,6 +22,9 @@ internal sealed class AppSyncSettingsForm : Form
     private TextBox _combinedFormatBox = null!;
     private ComboBox _separatorCombo = null!;
     private Label _previewLabel = null!;
+    private ComboBox _templatePresetCombo = null!;
+    private ComboBox _progressBarStyleCombo = null!;
+    private bool _updatingTemplatePreset;
     private DataGridView _rulesGrid = null!;
     private TextBox _aiEndpointBox = null!;
     private TextBox _aiKeyBox = null!;
@@ -38,7 +42,7 @@ internal sealed class AppSyncSettingsForm : Form
     private void InitializeComponent()
     {
         Text = "程序同步设置 - MuSync";
-        Size = new Size(660, 780);
+        Size = new Size(660, 802);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -90,7 +94,7 @@ internal sealed class AppSyncSettingsForm : Form
         {
             Text = "显示模板（变量：{app} {song} {artist} {artistPart} {progress} {sep}）",
             Location = new Point(12, 92),
-            Size = new Size(620, 168),
+            Size = new Size(620, 190),
             BackColor = Color.White
         };
         var musicFormatLabel = new Label { Text = "音乐格式:", Location = new Point(15, 28), AutoSize = true };
@@ -129,18 +133,37 @@ internal sealed class AppSyncSettingsForm : Form
             Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
             Padding = new Padding(5, 2, 5, 2)
         };
-        _musicFormatBox.TextChanged += (_, _) => UpdatePreview();
-        _programFormatBox.TextChanged += (_, _) => UpdatePreview();
-        _combinedFormatBox.TextChanged += (_, _) => UpdatePreview();
-        _separatorCombo.TextChanged += (_, _) => UpdatePreview();
+        var presetLabel = new Label { Text = "模板预设:", Location = new Point(15, 166), AutoSize = true };
+        _templatePresetCombo = new ComboBox
+        {
+            Location = new Point(90, 162),
+            Width = 220,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _templatePresetCombo.Items.AddRange(["自定义", "简洁（默认）", "带前缀：正在玩 / 正在听", "只要名字"]);
+        _templatePresetCombo.SelectedIndexChanged += (_, _) => ApplyTemplatePreset(_templatePresetCombo.SelectedIndex);
+        var barStyleLabel = new Label { Text = "进度条样式:", Location = new Point(330, 166), AutoSize = true };
+        _progressBarStyleCombo = new ComboBox
+        {
+            Location = new Point(420, 162),
+            Width = 180,
+            DropDownStyle = ComboBoxStyle.DropDown
+        };
+        _progressBarStyleCombo.Items.AddRange(["#-", "█░", "▰▱", "●○", "■□", "▮▯"]);
+        _progressBarStyleCombo.TextChanged += (_, _) => UpdatePreview();
+        _musicFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
+        _programFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
+        _combinedFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
+        _separatorCombo.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
         templateGroup.Controls.AddRange([musicFormatLabel, _musicFormatBox, programFormatLabel, _programFormatBox,
-            combinedFormatLabel, _combinedFormatBox, separatorLabel, _separatorCombo, _previewLabel]);
+            combinedFormatLabel, _combinedFormatBox, separatorLabel, _separatorCombo, _previewLabel,
+            presetLabel, _templatePresetCombo, barStyleLabel, _progressBarStyleCombo]);
 
         // ---- 程序列表 ----
         var rulesGroup = new GroupBox
         {
             Text = "程序列表（淡黄色 = AI 建议，改动任意项即视为确认）",
-            Location = new Point(12, 266),
+            Location = new Point(12, 288),
             Size = new Size(620, 300),
             BackColor = Color.White
         };
@@ -161,27 +184,13 @@ internal sealed class AppSyncSettingsForm : Form
             BackColor = Color.White
         };
         removeButton.Click += RemoveButton_Click;
-        var restoreFormatButton = new Button
-        {
-            Text = "恢复默认模板",
-            Location = new Point(490, 266),
-            Size = new Size(118, 26),
-            BackColor = Color.White
-        };
-        restoreFormatButton.Click += (_, _) =>
-        {
-            _musicFormatBox.Text = "{song}{artistPart}{progress}";
-            _programFormatBox.Text = "{app}";
-            _combinedFormatBox.Text = "{app} {sep} {song}{artistPart}";
-            _separatorCombo.Text = "‖";
-        };
-        rulesGroup.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton, restoreFormatButton]);
+        rulesGroup.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton]);
 
         // ---- AI 配置 ----
         var aiGroup = new GroupBox
         {
             Text = "AI 辅助分类（可选：填写 API 后可获得更聪明的程序识别；不填则使用本地规则）",
-            Location = new Point(12, 572),
+            Location = new Point(12, 594),
             Size = new Size(620, 122),
             BackColor = Color.White
         };
@@ -212,7 +221,7 @@ internal sealed class AppSyncSettingsForm : Form
         var okButton = new Button
         {
             Text = "确定",
-            Location = new Point(436, 706),
+            Location = new Point(436, 728),
             Size = new Size(80, 28),
             DialogResult = DialogResult.OK,
             BackColor = Color.White
@@ -220,7 +229,7 @@ internal sealed class AppSyncSettingsForm : Form
         var cancelButton = new Button
         {
             Text = "取消",
-            Location = new Point(526, 706),
+            Location = new Point(526, 728),
             Size = new Size(80, 28),
             DialogResult = DialogResult.Cancel,
             BackColor = Color.White
@@ -339,6 +348,69 @@ internal sealed class AppSyncSettingsForm : Form
         RefreshRulesGrid();
     }
 
+    /// <summary>根据当前格式内容匹配预设项，无匹配时显示“自定义”。</summary>
+    private void SyncPresetFromFormats()
+    {
+        _updatingTemplatePreset = true;
+        var index = 0;
+        if (_musicFormatBox.Text == "{song}{artistPart}{progress}" &&
+            _programFormatBox.Text == "{app}" &&
+            _combinedFormatBox.Text == "{app} {sep} {song}{artistPart}")
+        {
+            index = 1;
+        }
+        else if (_musicFormatBox.Text == "正在听：{song}{artistPart}" &&
+                 _programFormatBox.Text == "正在玩：{app}" &&
+                 _combinedFormatBox.Text == "正在玩：{app} {sep} 正在听：{song}{artistPart}")
+        {
+            index = 2;
+        }
+        else if (_musicFormatBox.Text == "{song}" && _programFormatBox.Text == "{app}" &&
+                 _combinedFormatBox.Text == "{app} {sep} {song}")
+        {
+            index = 3;
+        }
+        _templatePresetCombo.SelectedIndex = index;
+        _updatingTemplatePreset = false;
+    }
+
+    /// <summary>用户手动修改格式时，预设回到“自定义”。</summary>
+    private void MarkPresetCustom()
+    {
+        if (_updatingTemplatePreset) return;
+        if (_templatePresetCombo.SelectedIndex == 0) return;
+        _updatingTemplatePreset = true;
+        _templatePresetCombo.SelectedIndex = 0;
+        _updatingTemplatePreset = false;
+    }
+
+    /// <summary>应用模板预设（0=自定义不处理）。</summary>
+    private void ApplyTemplatePreset(int index)
+    {
+        if (_updatingTemplatePreset || index <= 0) return;
+        _updatingTemplatePreset = true;
+        switch (index)
+        {
+            case 1:
+                _musicFormatBox.Text = "{song}{artistPart}{progress}";
+                _programFormatBox.Text = "{app}";
+                _combinedFormatBox.Text = "{app} {sep} {song}{artistPart}";
+                break;
+            case 2:
+                _musicFormatBox.Text = "正在听：{song}{artistPart}";
+                _programFormatBox.Text = "正在玩：{app}";
+                _combinedFormatBox.Text = "正在玩：{app} {sep} 正在听：{song}{artistPart}";
+                break;
+            case 3:
+                _musicFormatBox.Text = "{song}";
+                _programFormatBox.Text = "{app}";
+                _combinedFormatBox.Text = "{app} {sep} {song}";
+                break;
+        }
+        _updatingTemplatePreset = false;
+        UpdatePreview();
+    }
+
     private void LoadSettings()
     {
         var settings = Configurations.Instance.Settings;
@@ -350,6 +422,7 @@ internal sealed class AppSyncSettingsForm : Form
         _programFormatBox.Text = settings.ProgramFormat;
         _combinedFormatBox.Text = settings.CombinedFormat;
         _separatorCombo.Text = settings.CombinedSeparator;
+        _progressBarStyleCombo.Text = settings.ProgressBarFillChar + settings.ProgressBarEmptyChar;
         _aiEndpointBox.Text = settings.AiApiEndpoint;
         _aiKeyBox.Text = settings.AiApiKey;
         _aiModelBox.Text = settings.AiApiModel;
@@ -359,6 +432,7 @@ internal sealed class AppSyncSettingsForm : Form
         }
         RefreshRulesGrid();
         UpdatePreview();
+        SyncPresetFromFormats();
     }
 
     private void SaveSettings()
@@ -372,6 +446,9 @@ internal sealed class AppSyncSettingsForm : Form
         settings.ProgramFormat = NonEmpty(_programFormatBox.Text, "{app}");
         settings.CombinedFormat = NonEmpty(_combinedFormatBox.Text, "{app} {sep} {song}{artistPart}");
         settings.CombinedSeparator = NonEmpty(_separatorCombo.Text, "‖");
+        var (barFill, barEmpty) = ParseBarStyle(_progressBarStyleCombo.Text);
+        settings.ProgressBarFillChar = barFill;
+        settings.ProgressBarEmptyChar = barEmpty;
         settings.AiApiEndpoint = _aiEndpointBox.Text.Trim();
         settings.AiApiKey = _aiKeyBox.Text.Trim();
         settings.AiApiModel = _aiModelBox.Text.Trim();
@@ -425,13 +502,16 @@ internal sealed class AppSyncSettingsForm : Form
             Url = "",
             Pause = false
         };
+        var (barFill, barEmpty) = ParseBarStyle(_progressBarStyleCombo.Text);
         var previewConfig = new ConfigData
         {
             MusicFormat = NonEmpty(_musicFormatBox.Text, "{song}{artistPart}{progress}"),
             ProgramFormat = NonEmpty(_programFormatBox.Text, "{app}"),
             CombinedFormat = NonEmpty(_combinedFormatBox.Text, "{app} {sep} {song}{artistPart}"),
             CombinedSeparator = NonEmpty(_separatorCombo.Text, "‖"),
-            HideMusicWhenPaused = false
+            HideMusicWhenPaused = false,
+            ProgressBarFillChar = barFill,
+            ProgressBarEmptyChar = barEmpty
         };
         var combined = SteamStatusManager.ComposeStatus(dummySong, "卡拉彼丘", previewConfig) ?? "(无)";
         var musicOnly = SteamStatusManager.ComposeStatus(dummySong, null, previewConfig) ?? "(无)";
@@ -441,6 +521,20 @@ internal sealed class AppSyncSettingsForm : Form
     private static string NonEmpty(string? value, string fallback)
     {
         return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+    }
+
+    /// <summary>解析进度条样式文本（两个字符：填充 + 空白），支持 emoji。</summary>
+    private static (string Fill, string Empty) ParseBarStyle(string? text)
+    {
+        var runes = new List<string>();
+        foreach (var rune in (text ?? "").EnumerateRunes())
+        {
+            runes.Add(rune.ToString());
+            if (runes.Count == 2) break;
+        }
+        var fill = runes.Count >= 1 && runes[0].Trim().Length > 0 ? runes[0] : "#";
+        var empty = runes.Count >= 2 ? runes[1] : "-";
+        return (fill, empty);
     }
 
     private static string CategoryToText(AppCategory category) => category switch

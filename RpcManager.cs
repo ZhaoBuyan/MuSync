@@ -53,7 +53,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     private DateTime _lastAppCheckTime = DateTime.MinValue;
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
-    private const double ProgressUpdateIntervalSeconds = 1.0;
+    // 进度条推送间隔：0.5 秒一次（Steam 端滚动更平滑）
+    private const double ProgressUpdateIntervalSeconds = 0.5;
     // 有播放器在跑时高频轮询；空闲时降低频率省电
     private static readonly TimeSpan ActivePollInterval = TimeSpan.FromMilliseconds(233);
     private static readonly TimeSpan IdlePollInterval = TimeSpan.FromMilliseconds(1200);
