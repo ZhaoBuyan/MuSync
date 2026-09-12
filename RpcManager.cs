@@ -46,6 +46,11 @@ internal class RpcManager(SteamStatusManager steamManager)
     private bool _realGameActivePreviously;
     private PlayerState? _lastActiveState;
     private bool _lastActiveInfoNull = true;
+    private string? _lastPushedAppDisplay;
+    private AppRule? _activeAppRule;
+    private string? _activeAppDisplay;
+    private string? _activeAppIconPath;
+    private DateTime _lastAppCheckTime = DateTime.MinValue;
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
     private const double ProgressUpdateIntervalSeconds = 1.0;
@@ -62,6 +67,24 @@ internal class RpcManager(SteamStatusManager steamManager)
         var (state, name) = ResolveActiveState();
         return (state?.LastPolledInfo, name);
     }
+
+    /// <summary>当前生效的程序同步显示名（无则 null）。</summary>
+    public string? GetActiveAppDisplay() => _activeAppDisplay;
+
+    /// <summary>当前生效程序的可执行文件路径（用于显示图标，可能为空）。</summary>
+    public string? GetActiveAppIconPath() => _activeAppIconPath;
+
+    /// <summary>当前生效程序的分类中文名（无则空串）。</summary>
+    public string GetActiveAppCategoryText() => _activeAppRule?.Category switch
+    {
+        AppCategory.Game => "游戏",
+        AppCategory.Work => "工作",
+        AppCategory.Media => "媒体",
+        AppCategory.Social => "社交",
+        AppCategory.Other => "其他",
+        AppCategory.Ignore => "忽略",
+        _ => ""
+    };
 
     public (PlayerInfo? PlayerInfo, string PlayerName, bool IsActive, ErrorCode LastError)[] GetAllPlayersStatus()
     {
@@ -109,24 +132,29 @@ internal class RpcManager(SteamStatusManager steamManager)
         return (null, "");
     }
 
-    /// <summary>活跃源（或其有无信息）变化时，同步一次 Steam 状态；force 则无条件推送当前活跃源。</summary>
+    /// <summary>活跃源（音乐/程序）变化时同步一次 Steam 状态；force 则无条件推送当前组合。</summary>
     private async Task SynchronizeActiveSourceAsync(bool force = false)
     {
         var (state, name) = ResolveActiveState();
         var infoNull = state?.LastPolledInfo is null;
-        if (!force && state == _lastActiveState && infoNull == _lastActiveInfoNull) return;
+        var appDisplay = _activeAppDisplay;
+        if (!force && state == _lastActiveState && infoNull == _lastActiveInfoNull &&
+            appDisplay == _lastPushedAppDisplay)
+        {
+            return;
+        }
         _lastActiveState = state;
         _lastActiveInfoNull = infoNull;
-        if (state?.LastPolledInfo is { } info)
+        _lastPushedAppDisplay = appDisplay;
+        var song = state?.LastPolledInfo;
+        if (song != null || appDisplay != null)
         {
-            Debug.WriteLine($"[MuSync] 活跃源切换为 {name}: {info.Title}");
-            Logger.Info($"[MuSync] 活跃源切换为 {name}: {info.Title}");
-            await UpdateOrClearSteamStatusAsync(info, name);
+            Logger.Info($"[MuSync] 状态合成: 程序={appDisplay ?? "(无)"} 音乐={song?.Title ?? "(无)"}");
+            await steamManager.UpdateStatusAsync(song, name, appDisplay);
         }
         else
         {
-            Debug.WriteLine("[MuSync] 无活跃播放器，清除 Steam 状态");
-            Logger.Info("[MuSync] 无活跃播放器，清除 Steam 状态");
+            Logger.Info("[MuSync] 无活跃源，清除 Steam 状态");
             steamManager.ClearStatus();
         }
     }
@@ -263,6 +291,15 @@ internal class RpcManager(SteamStatusManager steamManager)
                     RecordPollSuccess(_lxMusicState);
                 }
 
+                // 程序同步：每秒检测前台程序（含自动发现），变化时立即刷新状态
+                if ((currentTime - _lastAppCheckTime).TotalSeconds >= 1)
+                {
+                    _lastAppCheckTime = currentTime;
+                    if (UpdateActiveApp(currentTime))
+                    {
+                        await SynchronizeActiveSourceAsync(force: true);
+                    }
+                }
                 // 活跃源仲裁：变化时自动切换 Steam 状态
                 await SynchronizeActiveSourceAsync();
 
@@ -348,6 +385,52 @@ internal class RpcManager(SteamStatusManager steamManager)
         state.LastPollTime = currentTime;
     }
 
+    /// <summary>更新当前生效的程序（前台匹配 / 运行即显示），返回显示名是否变化。</summary>
+    private bool UpdateActiveApp(DateTime currentTime)
+    {
+        var config = Configurations.Instance.Settings;
+        var previous = _activeAppDisplay;
+        if (!config.AppSyncEnabled)
+        {
+            _activeAppRule = null;
+            _activeAppDisplay = null;
+            _activeAppIconPath = null;
+        }
+        else
+        {
+            var applied = false;
+            var foreground = ForegroundWatcher.GetCurrent();
+            if (foreground != null)
+            {
+                var (rule, isIgnored) = AppRuleManager.Match(foreground, config);
+                if (rule != null && AppRuleManager.IsAllowedToDisplay(rule, config))
+                {
+                    _activeAppRule = rule;
+                    _activeAppDisplay = AppRuleManager.DisplayNameOf(rule);
+                    _activeAppIconPath = foreground.ExePath;
+                    applied = true;
+                }
+                else if (isIgnored)
+                {
+                    // 忽略类程序在前台：保持现状不动（不清除、不切换）
+                    applied = true;
+                }
+            }
+            if (!applied)
+            {
+                var alwaysRule = AppRuleManager.FindRunningAlwaysRule(config, currentTime);
+                _activeAppRule = alwaysRule;
+                _activeAppDisplay = alwaysRule == null ? null : AppRuleManager.DisplayNameOf(alwaysRule);
+                _activeAppIconPath = alwaysRule == null
+                    ? null
+                    : AppRuleManager.GetRunningProcessPath(alwaysRule.ExeName);
+            }
+        }
+        if (previous == _activeAppDisplay) return false;
+        Logger.Info($"[MuSync] 程序同步: {previous ?? "(无)"} -> {_activeAppDisplay ?? "(无)"}");
+        return true;
+    }
+
     private void CleanupPlayerState(PlayerState state, string playerName)
     {
         if (state.Player is null) return;
@@ -364,6 +447,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         CleanupPlayerState(_lxMusicState, "LX Music");
         _lastActiveState = null;
         _lastActiveInfoNull = true;
+        _lastPushedAppDisplay = null;
         steamManager.ClearStatus();
     }
 
@@ -402,16 +486,24 @@ internal class RpcManager(SteamStatusManager steamManager)
 
     private async Task UpdateOrClearSteamStatusAsync(PlayerInfo? info, string playerName)
     {
+        var appDisplay = _activeAppDisplay;
         if (info is not { } playerInfo)
         {
-            steamManager.ClearStatus();
+            if (appDisplay == null)
+            {
+                steamManager.ClearStatus();
+            }
+            else
+            {
+                await steamManager.UpdateStatusAsync(null, playerName, appDisplay);
+            }
             return;
         }
         Debug.WriteLine(
             $"pause: {playerInfo.Pause}, progress: {playerInfo.Schedule}, duration: {playerInfo.Duration}");
         Debug.WriteLine(
             $"id: {playerInfo.Identity}, name: {playerInfo.Title}, singer: {playerInfo.Artists}, album: {playerInfo.Album}");
-        await steamManager.UpdateStatusAsync(info, playerName);
+        await steamManager.UpdateStatusAsync(info, playerName, appDisplay);
     }
 
     private async Task UpdateProgressForActivePlayers(DateTime currentTime)
@@ -423,7 +515,7 @@ internal class RpcManager(SteamStatusManager steamManager)
             var interpolatedSchedule = info.Schedule + elapsedSincePoll;
             var clampedSchedule = Math.Min(interpolatedSchedule, info.Duration);
             var updatedInfo = info with { Schedule = clampedSchedule };
-            await steamManager.UpdateStatusAsync(updatedInfo, name);
+            await steamManager.UpdateStatusAsync(updatedInfo, name, _activeAppDisplay);
         }
     }
 }

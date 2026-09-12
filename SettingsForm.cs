@@ -69,10 +69,10 @@ internal class SettingsForm : Form
         {
             Text = "程序设置",
             Location = new Point(GetHorizontalCenterOffset(410), yOffset),
-            Size = new Size(410, 105),
+            Size = new Size(410, 138),
             BackColor = Color.White
         };
-        yOffset += 115;
+        yOffset += 148;
         _autoStartCheckBox = new CheckBox
         {
             Text = "开机自启",
@@ -94,7 +94,20 @@ internal class SettingsForm : Form
             AutoSize = true,
             BackColor = Color.White
         };
-        groupBox.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox]);
+        var appSyncButton = new Button
+        {
+            Text = "程序同步设置...",
+            Location = new Point(15, 103),
+            Size = new Size(130, 26),
+            BackColor = Color.White,
+            Font = new Font("Microsoft YaHei", 9)
+        };
+        appSyncButton.Click += (_, _) =>
+        {
+            using var appSettingsForm = new AppSyncSettingsForm();
+            appSettingsForm.ShowDialog(this);
+        };
+        groupBox.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox, appSyncButton]);
         return groupBox;
     }
     private GroupBox CreateSteamDisplaySettingsGroup(ref int yOffset)
@@ -396,9 +409,14 @@ internal class SettingsForm : Form
             Identity = ""
         };
         var tempConfig = new ConfigData();
-        _steamStatusPreviewLabel.Text = SteamStatusManager.GetStatusPreview(dummyInfo, "MuSync", new ConfigData
+        var settings = Configurations.Instance.Settings;
+        var musicFormat = settings.MusicFormat;
+        if (!showArtist) musicFormat = musicFormat.Replace("{artistPart}", "").Replace("{artist}", "");
+        if (!showProgress) musicFormat = musicFormat.Replace("{progress}", "");
+        _steamStatusPreviewLabel.Text = SteamStatusManager.GetStatusPreview(dummyInfo, null, new ConfigData
         {
-            ShowArtistName = showArtist,
+            MusicFormat = musicFormat,
+            CombinedSeparator = settings.CombinedSeparator,
             ShowProgressBar = showProgress,
             StatusPriority = _priorityArtistRadioButton?.Checked == true ? SteamStatusPriority.Artist : SteamStatusPriority.ProgressBar,
             EnableCustomPrefix = _enableCustomPrefixCheckBox?.Checked ?? false,

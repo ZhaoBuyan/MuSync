@@ -21,6 +21,12 @@ internal class MainForm : Form
     private readonly Label[] _playerNameLabels = new Label[3];
     private Label _lastUpdateLabel = null!;
     private Label _steamStateLabel = null!;
+    private Panel _appSyncPanel = null!;
+    private Label _appNameLabel = null!;
+    private Label _appCategoryLabel = null!;
+    private Label _appStatusLabel = null!;
+    private PictureBox _appIconBox = null!;
+    private string _appIconPath = "";
     private Button _settingsButton = null!;
     private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐"];
     private readonly Color[] _playerColors =
@@ -49,12 +55,13 @@ internal class MainForm : Form
         {
             CreatePlayerPanel(i);
         }
+        CreateAppSyncPanel();
         _lastUpdateLabel = new Label
         {
             AutoSize = true,
             Font = new Font("Microsoft YaHei", 8),
             ForeColor = Color.Gray,
-            Location = new Point(10, 490),
+            Location = new Point(10, 655),
             Size = new Size(150, 13),
             Text = "最后更新: --:--:--"
         };
@@ -62,7 +69,7 @@ internal class MainForm : Form
         {
             Text = "设置",
             Size = new Size(75, 30),
-            Location = new Point(516, 485),
+            Location = new Point(516, 650),
             BackColor = Color.White,
             ForeColor = Color.Black,
             Font = new Font("Microsoft YaHei", 9),
@@ -75,9 +82,128 @@ internal class MainForm : Form
             AutoSize = true,
             Font = new Font("Microsoft YaHei", 8),
             ForeColor = Color.Gray,
-            Location = new Point(170, 491)
+            Location = new Point(170, 656)
         };
         Controls.AddRange([_lastUpdateLabel, _settingsButton, _steamStateLabel]);
+    }
+    /// <summary>第 4 面板：程序同步状态。</summary>
+    private void CreateAppSyncPanel()
+    {
+        var panel = new Panel
+        {
+            Size = new Size(580, 155),
+            Location = new Point(10, 480),
+            BorderStyle = BorderStyle.FixedSingle,
+            BackColor = Color.FromArgb(248, 248, 248)
+        };
+        var titleLabel = new Label
+        {
+            AutoSize = true,
+            Font = new Font("Microsoft YaHei", 10, FontStyle.Bold),
+            ForeColor = Color.FromArgb(122, 120, 220),
+            Location = new Point(10, 15),
+            Text = "程序同步"
+        };
+        _appNameLabel = new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(460, 0),
+            Font = new Font("Microsoft YaHei", 11, FontStyle.Bold),
+            ForeColor = Color.Black,
+            Location = new Point(100, 15),
+            Text = "未检测到程序"
+        };
+        _appCategoryLabel = new Label
+        {
+            AutoSize = true,
+            Font = new Font("Microsoft YaHei", 9),
+            ForeColor = Color.DarkGray,
+            Location = new Point(100, 50),
+            Text = ""
+        };
+        _appStatusLabel = new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(460, 0),
+            Font = new Font("Microsoft YaHei", 9),
+            ForeColor = Color.Gray,
+            Location = new Point(100, 80),
+            Text = "前台出现新程序会自动加入设置列表"
+        };
+        _appIconBox = new PictureBox
+        {
+            Location = new Point(12, 45),
+            Size = new Size(52, 52),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Color.Transparent
+        };
+        var hintLabel = new Label
+        {
+            AutoSize = true,
+            Font = new Font("Microsoft YaHei", 8),
+            ForeColor = Color.Gray,
+            Location = new Point(10, 130),
+            Text = "在 设置 → 程序同步设置 中管理分类与显示名"
+        };
+        panel.Controls.AddRange(titleLabel, _appNameLabel, _appCategoryLabel, _appStatusLabel, _appIconBox, hintLabel);
+        _appSyncPanel = panel;
+        Controls.Add(panel);
+    }
+
+    /// <summary>程序图标按需更新（仅在路径变化时提取）。</summary>
+    private void UpdateAppIcon()
+    {
+        if (_appIconBox == null) return;
+        var path = Program.GetRpcManager()?.GetActiveAppIconPath() ?? "";
+        if (path == _appIconPath) return;
+        _appIconPath = path;
+        _appIconBox.Image?.Dispose();
+        _appIconBox.Image = LoadAppIcon(path);
+    }
+
+    private static Image? LoadAppIcon(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return null;
+        try
+        {
+            using var icon = Icon.ExtractAssociatedIcon(path);
+            return icon?.ToBitmap();
+        }
+        catch (Exception ex)
+        {
+            Logger.Diagnose($"提取程序图标失败: {ex.Message}");
+            return null;
+        }
+    }
+
+    private void UpdateAppSyncDisplay()
+    {
+        if (_appSyncPanel == null) return;
+        var rpc = Program.GetRpcManager();
+        var config = Configurations.Instance.Settings;
+        if (rpc == null || !config.AppSyncEnabled)
+        {
+            _appNameLabel.Text = "程序同步未启用";
+            _appCategoryLabel.Text = "";
+            _appStatusLabel.Text = "";
+            _appStatusLabel.ForeColor = Color.Gray;
+            return;
+        }
+        var display = rpc.GetActiveAppDisplay();
+        if (display == null)
+        {
+            _appNameLabel.Text = "未检测到程序";
+            _appCategoryLabel.Text = "";
+            _appStatusLabel.Text = "切到已启用的程序后将在 Steam 中显示";
+            _appStatusLabel.ForeColor = Color.Gray;
+        }
+        else
+        {
+            _appNameLabel.Text = display;
+            _appCategoryLabel.Text = $"分类：{rpc.GetActiveAppCategoryText()}";
+            _appStatusLabel.Text = "已作为当前 Steam 状态显示";
+            _appStatusLabel.ForeColor = Color.Green;
+        }
     }
     private void CreatePlayerPanel(int index)
     {
@@ -188,7 +314,7 @@ internal class MainForm : Form
     private void SetupForm()
     {
         Text = "MuSync - 播放器状态";
-        Size = new Size(620, 570);
+        Size = new Size(620, 735);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -242,6 +368,8 @@ internal class MainForm : Form
             ImageCacheManager.SetActiveKeys(_currentCacheKeys.Where(k => !string.IsNullOrEmpty(k)));
             _lastUpdateLabel.Text = $"最后更新: {DateTime.Now:HH:mm:ss}";
             UpdateSteamStateLabel();
+            UpdateAppSyncDisplay();
+            UpdateAppIcon();
         }
         catch (Exception ex)
         {

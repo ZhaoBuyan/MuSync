@@ -10,6 +10,8 @@ internal sealed class ForegroundAppInfo
     /// <summary>可执行文件名（含 .exe 后缀，如 "strinova.exe"）。</summary>
     public string ExeName { get; init; } = "";
     public string WindowTitle { get; init; } = "";
+    /// <summary>可执行文件完整路径（可能因权限获取失败而为空）。</summary>
+    public string ExePath { get; init; } = "";
     /// <summary>窗口是否覆盖所在显示器全屏（全屏无边框常为游戏）。</summary>
     public bool IsFullscreen { get; init; }
 }
@@ -50,10 +52,20 @@ internal static class ForegroundWatcher
     {
         if (User32.GetWindowThreadProcessId(hwnd, out var pid) == 0 || pid <= 0) return null;
         string exeName;
+        var exePath = "";
         try
         {
             using var process = Process.GetProcessById(pid);
             exeName = process.ProcessName + ".exe";
+            try
+            {
+                exePath = process.MainModule?.FileName ?? "";
+            }
+            catch
+            {
+                // 提权/受保护进程可能读不到路径，不影响进程名使用
+                exePath = "";
+            }
         }
         catch
         {
@@ -66,6 +78,7 @@ internal static class ForegroundWatcher
             ProcessId = pid,
             ExeName = exeName,
             WindowTitle = title,
+            ExePath = exePath,
             IsFullscreen = IsFullscreen(hwnd)
         };
     }

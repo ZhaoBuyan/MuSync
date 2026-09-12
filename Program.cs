@@ -173,10 +173,24 @@ internal static class Program
             }
             else
             {
+                var appDisplay = GetRpcManager()?.GetActiveAppDisplay();
                 var current = GetRpcManager()?.GetCurrentPlayerInfo();
-                text = current?.PlayerInfo is { } song
-                    ? $"正在播放 {current.Value.PlayerName}: {song.Title}"
-                    : "未在播放音乐";
+                if (appDisplay != null && current?.PlayerInfo is { } song)
+                {
+                    text = $"{appDisplay} + {song.Title}";
+                }
+                else if (appDisplay != null)
+                {
+                    text = appDisplay;
+                }
+                else if (current?.PlayerInfo is { } onlySong)
+                {
+                    text = $"正在播放 {current.Value.PlayerName}: {onlySong.Title}";
+                }
+                else
+                {
+                    text = "未在播放音乐";
+                }
             }
             text = StringUtils.GetTruncatedStringByMaxByteLength(text, 60);
             TrayIcon.Text = text;

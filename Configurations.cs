@@ -37,6 +37,11 @@ internal class ConfigData
     public bool SyncNonGameApps { get; set; }
     /// <summary>程序与音乐组合显示时的分隔符。</summary>
     public string CombinedSeparator { get; set; } = "‖";
+
+    // —— 显示格式模板（变量：{app} {song} {artist} {artistPart} {progress} {sep}）——
+    public string MusicFormat { get; set; } = "{song}{artistPart}{progress}";
+    public string ProgramFormat { get; set; } = "{app}";
+    public string CombinedFormat { get; set; } = "{app} {sep} {song}{artistPart}";
     /// <summary>程序同步规则列表。</summary>
     public List<AppRule> Apps { get; set; } = [];
 

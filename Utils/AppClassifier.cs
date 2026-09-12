@@ -17,7 +17,9 @@ internal static class AppClassifier
         "explorer.exe", "dwm.exe", "taskmgr.exe", "searchhost.exe",
         "startmenuexperiencehost.exe", "shellexperiencehost.exe", "applicationframehost.exe",
         "lockapp.exe", "textinputhost.exe", "sihost.exe", "ctfmon.exe",
-        "musync.exe"
+        "musync.exe",
+        // 音乐播放器（走音乐同步逻辑，不参与程序同步）
+        "cloudmusic.exe", "qqmusic.exe", "lx-music-desktop.exe"
     };
 
     /// <summary>常见程序字典：exe -> (分类, 建议显示名)。</summary>
