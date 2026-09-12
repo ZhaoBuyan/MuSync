@@ -41,6 +41,8 @@ internal class SteamSessionManager : IDisposable
     public bool RememberSession { get; set; } = true;
     public string? Username { get; private set; }
     public string? LoginError { get; private set; }
+    /// <summary>最近一次 LogOn 结果的原始错误码（用于 TryAnotherCM 等分支判定）。</summary>
+    private EResult? _lastLogOnResult;
     public event Action<bool>? OnSteamGuardRequired;
     private TaskCompletionSource<string>? _guardCodeTcs;
 
@@ -257,7 +259,8 @@ internal class SteamSessionManager : IDisposable
         else
         {
             IsLoggedOn = false;
-            LoginError = cb.Result.ToString();
+            _lastLogOnResult = cb.Result;
+            LoginError = DescribeAuthResult(cb.Result);
             Debug.WriteLine($"[SteamSession] 登录失败: {cb.Result} / {cb.ExtendedResult}");
             Logger.Error($"[SteamSession] 登录失败: {cb.Result} / {cb.ExtendedResult}");
         }
@@ -348,9 +351,9 @@ internal class SteamSessionManager : IDisposable
         }
         catch (AuthenticationException ex)
         {
-            LoginError = $"认证失败: {ex.Result} - {ex.Message}";
-            Debug.WriteLine($"[SteamSession] {LoginError}");
-            Logger.Error($"[SteamSession] {LoginError}");
+            LoginError = DescribeAuthResult(ex.Result);
+            Debug.WriteLine($"[SteamSession] 认证失败: {ex.Result} - {ex.Message}");
+            Logger.Error($"[SteamSession] 认证失败: {ex.Result} - {ex.Message}");
             return false;
         }
         catch (Exception ex)
@@ -405,6 +408,23 @@ internal class SteamSessionManager : IDisposable
         return false;
     }
 
+    /// <summary>把 Steam 错误码翻译成用户可见的友好提示。</summary>
+    private static string DescribeAuthResult(EResult result) => result switch
+    {
+        EResult.InvalidPassword => "账号或密码错误",
+        EResult.InvalidLoginAuthCode => "邮箱验证码错误",
+        EResult.TwoFactorCodeMismatch => "手机令牌验证码错误",
+        EResult.AccountLoginDeniedNeedTwoFactor => "该账号需要手机令牌（请先在 Steam 绑定令牌）",
+        EResult.AccountLogonDenied => "需要邮箱验证码验证",
+        EResult.RateLimitExceeded => "操作过于频繁，请稍后再试",
+        EResult.Expired => "验证码已过期，请重新登录",
+        EResult.AccessDenied => "访问被拒绝（可能受 IP / 地区限制）",
+        EResult.Timeout => "服务器响应超时，请重试",
+        EResult.ServiceUnavailable => "Steam 服务暂不可用，请稍后再试",
+        EResult.TryAnotherCM => "服务器繁忙，正在自动重试…",
+        _ => $"登录失败（{result}）"
+    };
+
     private enum LogOnWaitResult
     {
         Success,
@@ -422,7 +442,7 @@ internal class SteamSessionManager : IDisposable
             if (IsLoggedOn) return LogOnWaitResult.Success;
             if (LoginError != null)
             {
-                if (LoginError == nameof(EResult.TryAnotherCM) && _cmRetryCount < MaxCmRetries)
+                if (_lastLogOnResult == EResult.TryAnotherCM && _cmRetryCount < MaxCmRetries)
                 {
                     _cmRetryCount++;
                     Logger.Info($"[SteamSession] 服务器要求更换节点 (TryAnotherCM)，自动重试 {_cmRetryCount}/{MaxCmRetries}");
