@@ -53,6 +53,11 @@ reference-yySync/         # 上游参考源码（MIT，不参与编译，仅对�
 Utils/TokenProtector.cs   # DPAPI 令牌加密
 ```
 
+## 🔐 安全与隐私
+
+把账号授权给 MuSync 前请先阅读 [SECURITY.md](SECURITY.md)：
+登录流程、读取范围、网络流量、风险坦白与撤销方法，全部明档交代。
+
 ## 🙏 致谢与许可
 
 MuSync 是 [wuyan1337/yySync](https://github.com/wuyan1337/yySync) 的「半新写」重构版：
