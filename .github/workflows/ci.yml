@@ -32,11 +32,21 @@ jobs:
       - name: Publish Release (self-contained, single file)
         run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish
 
+      - name: Publish Lite (framework-dependent, single file)
+        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish-lite
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MuSync-win-x64
           path: publish/
+          if-no-files-found: error
+
+      - name: Upload lite artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MuSync-win-x64-lite
+          path: publish-lite/
           if-no-files-found: error
 
   release:
@@ -51,6 +61,14 @@ jobs:
         with:
           name: MuSync-win-x64
           path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: MuSync-win-x64-lite
+          path: dist-lite
+
+      - name: Merge lite into dist
+        run: mv dist-lite/MuSync.exe dist/MuSync-lite.exe
 
       - name: Create Release
         run: |
