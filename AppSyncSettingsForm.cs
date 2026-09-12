@@ -25,6 +25,9 @@ internal sealed class AppSyncSettingsForm : Form
     private ComboBox _templatePresetCombo = null!;
     private ComboBox _progressBarStyleCombo = null!;
     private bool _updatingTemplatePreset;
+    private readonly List<ComboBox> _playerPriorityCombos = [];
+    private bool _updatingPriorityCombos;
+    private List<int> _lastPrioritySelection = [0, 1, 2];
     private DataGridView _rulesGrid = null!;
     private TextBox _aiEndpointBox = null!;
     private TextBox _aiKeyBox = null!;
@@ -42,7 +45,7 @@ internal sealed class AppSyncSettingsForm : Form
     private void InitializeComponent()
     {
         Text = "程序同步设置 - MuSync";
-        Size = new Size(660, 802);
+        Size = new Size(660, 834);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -55,7 +58,7 @@ internal sealed class AppSyncSettingsForm : Form
         {
             Text = "同步开关",
             Location = new Point(12, 8),
-            Size = new Size(620, 78),
+            Size = new Size(620, 110),
             BackColor = Color.White
         };
         _enableAppSyncCheckBox = new CheckBox
@@ -86,14 +89,33 @@ internal sealed class AppSyncSettingsForm : Form
             AutoSize = true,
             BackColor = Color.White
         };
+        var priorityLabel = new Label
+        {
+            Text = "播放器优先级:",
+            Location = new Point(15, 82),
+            AutoSize = true
+        };
+        for (var i = 0; i < 3; i++)
+        {
+            var priorityCombo = new ComboBox
+            {
+                Location = new Point(115 + i * 115, 78),
+                Width = 105,
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            priorityCombo.Items.AddRange(["网易云音乐", "QQ音乐", "LX Music"]);
+            priorityCombo.SelectedIndexChanged += (_, _) => ApplyPriorityFromCombos();
+            _playerPriorityCombos.Add(priorityCombo);
+        }
         switchGroup.Controls.AddRange([_enableAppSyncCheckBox, _syncNonGameCheckBox,
-            _musicSyncCheckBox, _hidePausedMusicCheckBox]);
+            _musicSyncCheckBox, _hidePausedMusicCheckBox, priorityLabel,
+            _playerPriorityCombos[0], _playerPriorityCombos[1], _playerPriorityCombos[2]]);
 
         // ---- 显示模板 ----
         var templateGroup = new GroupBox
         {
             Text = "显示模板（变量：{app} {song} {artist} {artistPart} {progress} {sep}）",
-            Location = new Point(12, 92),
+            Location = new Point(12, 124),
             Size = new Size(620, 190),
             BackColor = Color.White
         };
@@ -163,7 +185,7 @@ internal sealed class AppSyncSettingsForm : Form
         var rulesGroup = new GroupBox
         {
             Text = "程序列表（淡黄色 = AI 建议，改动任意项即视为确认）",
-            Location = new Point(12, 288),
+            Location = new Point(12, 320),
             Size = new Size(620, 300),
             BackColor = Color.White
         };
@@ -190,7 +212,7 @@ internal sealed class AppSyncSettingsForm : Form
         var aiGroup = new GroupBox
         {
             Text = "AI 辅助分类（可选：填写 API 后可获得更聪明的程序识别；不填则使用本地规则）",
-            Location = new Point(12, 594),
+            Location = new Point(12, 626),
             Size = new Size(620, 122),
             BackColor = Color.White
         };
@@ -221,7 +243,7 @@ internal sealed class AppSyncSettingsForm : Form
         var okButton = new Button
         {
             Text = "确定",
-            Location = new Point(436, 728),
+            Location = new Point(436, 760),
             Size = new Size(80, 28),
             DialogResult = DialogResult.OK,
             BackColor = Color.White
@@ -229,7 +251,7 @@ internal sealed class AppSyncSettingsForm : Form
         var cancelButton = new Button
         {
             Text = "取消",
-            Location = new Point(526, 728),
+            Location = new Point(526, 760),
             Size = new Size(80, 28),
             DialogResult = DialogResult.Cancel,
             BackColor = Color.White
@@ -375,6 +397,63 @@ internal sealed class AppSyncSettingsForm : Form
     }
 
     /// <summary>用户手动修改格式时，预设回到“自定义”。</summary>
+    private static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic"];
+
+    /// <summary>从配置加载优先级到三个下拉框。</summary>
+    private void LoadPriorityCombos()
+    {
+        _updatingPriorityCombos = true;
+        var order = Configurations.Instance.Settings.PlayerPriority.Concat(PlayerOrderKeys).Distinct().Take(3).ToList();
+        for (var i = 0; i < _playerPriorityCombos.Count; i++)
+        {
+            var index = Array.IndexOf(PlayerOrderKeys, order[i]);
+            _playerPriorityCombos[i].SelectedIndex = index >= 0 ? index : i;
+        }
+        _lastPrioritySelection = _playerPriorityCombos.Select(c => c.SelectedIndex).ToList();
+        _updatingPriorityCombos = false;
+    }
+
+    /// <summary>用户调整优先级：与占用目标位置的其它下拉交换，保持互不重复。</summary>
+    private void ApplyPriorityFromCombos()
+    {
+        if (_updatingPriorityCombos || _playerPriorityCombos.Count == 0) return;
+        _updatingPriorityCombos = true;
+        for (var i = 0; i < _playerPriorityCombos.Count; i++)
+        {
+            var current = _playerPriorityCombos[i].SelectedIndex;
+            if (current < 0) continue;
+            for (var j = 0; j < i; j++)
+            {
+                if (_playerPriorityCombos[j].SelectedIndex == current)
+                {
+                    _playerPriorityCombos[j].SelectedIndex = _lastPrioritySelection[i];
+                    break;
+                }
+            }
+        }
+        _lastPrioritySelection = _playerPriorityCombos.Select(c => c.SelectedIndex).ToList();
+        _updatingPriorityCombos = false;
+    }
+
+    /// <summary>当前下拉组合对应的优先级顺序（去重补全）。</summary>
+    private List<string> CurrentPriorityOrder()
+    {
+        var order = new List<string>();
+        foreach (var combo in _playerPriorityCombos)
+        {
+            var index = combo.SelectedIndex;
+            if (index >= 0 && index < PlayerOrderKeys.Length && !order.Contains(PlayerOrderKeys[index]))
+            {
+                order.Add(PlayerOrderKeys[index]);
+            }
+        }
+        foreach (var key in PlayerOrderKeys)
+        {
+            if (!order.Contains(key)) order.Add(key);
+        }
+        return order;
+    }
+
     private void MarkPresetCustom()
     {
         if (_updatingTemplatePreset) return;
@@ -433,6 +512,7 @@ internal sealed class AppSyncSettingsForm : Form
         RefreshRulesGrid();
         UpdatePreview();
         SyncPresetFromFormats();
+        LoadPriorityCombos();
     }
 
     private void SaveSettings()
@@ -452,6 +532,7 @@ internal sealed class AppSyncSettingsForm : Form
         settings.AiApiEndpoint = _aiEndpointBox.Text.Trim();
         settings.AiApiKey = _aiKeyBox.Text.Trim();
         settings.AiApiModel = _aiModelBox.Text.Trim();
+        settings.PlayerPriority = CurrentPriorityOrder();
         settings.Apps = _rules;
         Configurations.Instance.Save();
         Program.GetRpcManager()?.RequestStateRefresh();

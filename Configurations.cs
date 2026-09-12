@@ -49,6 +49,8 @@ internal class ConfigData
     /// <summary>进度条填充/空白字符（支持 emoji，各取一个字符）。</summary>
     public string ProgressBarFillChar { get; set; } = "#";
     public string ProgressBarEmptyChar { get; set; } = "-";
+    /// <summary>音乐播放器优先级顺序（NetEase/Tencent/LxMusic；正在播放的始终优先于暂停的）。</summary>
+    public List<string> PlayerPriority { get; set; } = ["NetEase", "Tencent", "LxMusic"];
     /// <summary>程序同步规则列表。</summary>
     public List<AppRule> Apps { get; set; } = [];
 

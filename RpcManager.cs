@@ -51,6 +51,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     private string? _activeAppDisplay;
     private string? _activeAppIconPath;
     private DateTime _lastAppCheckTime = DateTime.MinValue;
+    private static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic"];
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
     // 进度条推送间隔：0.5 秒一次（Steam 端滚动更平滑）
@@ -124,14 +125,35 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// </summary>
     private (PlayerState? State, string Name) ResolveActiveState()
     {
-        if (_netEaseState is { Player: not null, LastPolledInfo: { Pause: false } }) return (_netEaseState, "网易云音乐");
-        if (_tencentState is { Player: not null, LastPolledInfo: { Pause: false } }) return (_tencentState, "QQ音乐");
-        if (_lxMusicState is { Player: not null, LastPolledInfo: { Pause: false } }) return (_lxMusicState, "LX Music");
-        if (_netEaseState is { Player: not null, LastPolledInfo: not null }) return (_netEaseState, "网易云音乐");
-        if (_tencentState is { Player: not null, LastPolledInfo: not null }) return (_tencentState, "QQ音乐");
-        if (_lxMusicState is { Player: not null, LastPolledInfo: not null }) return (_lxMusicState, "LX Music");
+        // 顺序来自设置（缺项自动补全），正在播放的始终优先于暂停的
+        var order = Configurations.Instance.Settings.PlayerPriority
+            .Concat(DefaultPlayerOrder)
+            .Distinct()
+            .ToList();
+        var playing = ResolveActiveStatePass(order, playingOnly: true);
+        return playing.State != null ? playing : ResolveActiveStatePass(order, playingOnly: false);
+    }
+
+    private (PlayerState? State, string Name) ResolveActiveStatePass(List<string> order, bool playingOnly)
+    {
+        foreach (var key in order)
+        {
+            var entry = GetPlayerEntry(key);
+            if (entry is not { } pair) continue;
+            if (pair.State is not { Player: not null, LastPolledInfo: not null }) continue;
+            if (playingOnly && pair.State.LastPolledInfo is { Pause: true }) continue;
+            return pair;
+        }
         return (null, "");
     }
+
+    private (PlayerState State, string Name)? GetPlayerEntry(string key) => key switch
+    {
+        "NetEase" => (_netEaseState, "网易云音乐"),
+        "Tencent" => (_tencentState, "QQ音乐"),
+        "LxMusic" => (_lxMusicState, "LX Music"),
+        _ => null
+    };
 
     /// <summary>活跃源（音乐/程序）变化时同步一次 Steam 状态；force 则无条件推送当前组合。</summary>
     private async Task SynchronizeActiveSourceAsync(bool force = false)
