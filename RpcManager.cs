@@ -126,7 +126,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     private (PlayerState? State, string Name) ResolveActiveState()
     {
         // 顺序来自设置（缺项自动补全），正在播放的始终优先于暂停的
-        var order = Configurations.Instance.Settings.PlayerPriority
+        var order = (Configurations.Instance.Settings.PlayerPriority ?? [])
             .Concat(DefaultPlayerOrder)
             .Distinct()
             .ToList();

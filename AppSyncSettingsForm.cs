@@ -403,7 +403,7 @@ internal sealed class AppSyncSettingsForm : Form
     private void LoadPriorityCombos()
     {
         _updatingPriorityCombos = true;
-        var order = Configurations.Instance.Settings.PlayerPriority.Concat(PlayerOrderKeys).Distinct().Take(3).ToList();
+        var order = (Configurations.Instance.Settings.PlayerPriority ?? []).Concat(PlayerOrderKeys).Distinct().Take(3).ToList();
         for (var i = 0; i < _playerPriorityCombos.Count; i++)
         {
             var index = Array.IndexOf(PlayerOrderKeys, order[i]);

@@ -16,8 +16,6 @@ internal class SettingsForm : Form
     private CheckBox? _showProgressBarCheckBox;
     private CheckBox? _pauseWhenPlayingGameCheckBox;
     private CheckBox? _enableSteamSyncCheckBox;
-    private CheckBox? _enableCustomPrefixCheckBox;
-    private TextBox? _customPrefixTextBox;
     private Label? _steamStatusPreviewLabel;
     private Button? _okButton;
     private Button? _cancelButton;
@@ -133,26 +131,6 @@ internal class SettingsForm : Form
             AutoSize = true,
             BackColor = Color.White
         };
-        _enableCustomPrefixCheckBox = new CheckBox
-        {
-            Text = "自定义前缀",
-            Location = new Point(15, 50),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        _customPrefixTextBox = new TextBox
-        {
-            Location = new Point(130, 48),
-            Size = new Size(260, 22),
-            PlaceholderText = "例如：正在听：",
-            Enabled = false
-        };
-        _enableCustomPrefixCheckBox.CheckedChanged += (_, _) =>
-        {
-            _customPrefixTextBox.Enabled = _enableCustomPrefixCheckBox.Checked;
-            UpdatePreview();
-        };
-        _customPrefixTextBox.TextChanged += (_, _) => UpdatePreview();
         _showArtistNameCheckBox = new CheckBox
         {
             Text = "显示歌手名称",
@@ -169,13 +147,6 @@ internal class SettingsForm : Form
         };
         _showProgressBarCheckBox.CheckedChanged += (_, _) => UpdatePreview();
         _showArtistNameCheckBox.CheckedChanged += (_, _) => UpdatePreview();
-        var priorityLabel = new Label
-        {
-            Text = "字数过多时优先显示:",
-            Location = new Point(15, 135),
-            AutoSize = true,
-            BackColor = Color.White
-        };
         _pauseWhenPlayingGameCheckBox = new CheckBox
         {
             Text = "正在玩真实 Steam 游戏时，自动暂停音乐同步",
@@ -186,11 +157,8 @@ internal class SettingsForm : Form
         groupBox.Controls.AddRange([
             _pauseWhenPlayingGameCheckBox,
             _enableSteamSyncCheckBox, 
-            _enableCustomPrefixCheckBox,
-            _customPrefixTextBox,
             _showArtistNameCheckBox, 
             _showProgressBarCheckBox,
-            priorityLabel,
         ]);
         return groupBox;
     }
@@ -367,9 +335,8 @@ internal class SettingsForm : Form
         _showProgressBarCheckBox!.Checked = _originalSettings.ShowProgressBar;
         _pauseWhenPlayingGameCheckBox!.Checked = _originalSettings.PauseWhenPlayingGame;
         _enableSteamSyncCheckBox!.Checked = _originalSettings.EnableSteamSync;
-        _enableCustomPrefixCheckBox!.Checked = _originalSettings.EnableCustomPrefix;
-        _customPrefixTextBox!.Text = _originalSettings.CustomPrefix;
-        _customPrefixTextBox.Enabled = _originalSettings.EnableCustomPrefix;
+        // 已移除（旧版前缀控件清理）
+        // 已移除（旧版前缀控件清理）
         UpdatePreview();
     }
     private void UpdatePreview()
@@ -399,8 +366,7 @@ internal class SettingsForm : Form
             MusicFormat = musicFormat,
             CombinedSeparator = settings.CombinedSeparator,
             ShowProgressBar = showProgress,
-            EnableCustomPrefix = _enableCustomPrefixCheckBox?.Checked ?? false,
-            CustomPrefix = _customPrefixTextBox?.Text ?? ""
+            // 已移除（旧版前缀控件清理）
         });
     }
     private void SaveSettings()
@@ -415,8 +381,7 @@ internal class SettingsForm : Form
         settings.ShowProgressBar = _showProgressBarCheckBox!.Checked;
         settings.PauseWhenPlayingGame = _pauseWhenPlayingGameCheckBox!.Checked;
         settings.EnableSteamSync = _enableSteamSyncCheckBox!.Checked;
-        settings.EnableCustomPrefix = _enableCustomPrefixCheckBox!.Checked;
-        settings.CustomPrefix = _customPrefixTextBox!.Text;
+        // 已移除（旧版前缀控件清理）
         Configurations.Instance.Save();
         Program.GetRpcManager()?.RequestStateRefresh();
         if (isAutoStartChecked == Win32Api.AutoStart.Check()) return;
