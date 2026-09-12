@@ -43,6 +43,7 @@ internal class SteamSessionManager : IDisposable
     public string? LoginError { get; private set; }
     /// <summary>最近一次 LogOn 结果的原始错误码（用于 TryAnotherCM 等分支判定）。</summary>
     private EResult? _lastLogOnResult;
+    private SteamUser.LogOnDetails? _lastLogOnDetails;
     public event Action<bool>? OnSteamGuardRequired;
     private TaskCompletionSource<string>? _guardCodeTcs;
 
@@ -263,6 +264,30 @@ internal class SteamSessionManager : IDisposable
             LoginError = DescribeAuthResult(cb.Result);
             Debug.WriteLine($"[SteamSession] 登录失败: {cb.Result} / {cb.ExtendedResult}");
             Logger.Error($"[SteamSession] 登录失败: {cb.Result} / {cb.ExtendedResult}");
+            // TryAnotherCM：不依赖任何等待者，回调里直接自动换节点重登
+            if (cb.Result == EResult.TryAnotherCM && _lastLogOnDetails is { } retryDetails)
+            {
+                var attempt = Interlocked.Increment(ref _cmRetryCount);
+                if (attempt <= MaxCmRetries)
+                {
+                    Logger.Info($"[SteamSession] 服务器要求更换节点 (TryAnotherCM)，自动重试 {attempt}/{MaxCmRetries}");
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            if (await ReconnectToAnotherCmAsync())
+                            {
+                                LoginError = null;
+                                _steamUser?.LogOn(retryDetails);
+                            }
+                        }
+                        catch (Exception retryEx)
+                        {
+                            Logger.Error($"[SteamSession] 换节点重试异常: {retryEx.Message}");
+                        }
+                    });
+                }
+            }
         }
     }
 
@@ -324,6 +349,7 @@ internal class SteamSessionManager : IDisposable
             };
             _cmRetryCount = 0;
             LoginError = null;
+            _lastLogOnDetails = logOnDetails;
             _steamUser!.LogOn(logOnDetails);
             var waitResult = await WaitForLogOnResultAsync(logOnDetails, 360);
             if (waitResult == LogOnWaitResult.Success)
@@ -393,9 +419,16 @@ internal class SteamSessionManager : IDisposable
         };
         _cmRetryCount = 0;
         LoginError = null;
+        _lastLogOnDetails = logOnDetails;
         _steamUser!.LogOn(logOnDetails);
         var waitResult = await WaitForLogOnResultAsync(logOnDetails, 360);
         if (waitResult == LogOnWaitResult.Success) return true;
+        if (waitResult == LogOnWaitResult.Rejected && _lastLogOnResult == EResult.TryAnotherCM)
+        {
+            // 多次换节点仍未成功：保留令牌，等待下一轮自动重连
+            Logger.Warn("[SteamSession] 多次更换节点仍未登录成功，保留令牌待下次重试");
+            return false;
+        }
         if (waitResult != LogOnWaitResult.Rejected)
         {
             // 网络断开/超时等非拒绝类失败：保留令牌，等自动重连后再试
@@ -444,17 +477,10 @@ internal class SteamSessionManager : IDisposable
             if (IsLoggedOn) return LogOnWaitResult.Success;
             if (LoginError != null)
             {
-                if (_lastLogOnResult == EResult.TryAnotherCM && _cmRetryCount < MaxCmRetries)
+                if (_lastLogOnResult == EResult.TryAnotherCM)
                 {
-                    _cmRetryCount++;
-                    Logger.Info($"[SteamSession] 服务器要求更换节点 (TryAnotherCM)，自动重试 {_cmRetryCount}/{MaxCmRetries}");
-                    if (!await ReconnectToAnotherCmAsync())
-                    {
-                        return LogOnWaitResult.NetworkLost;
-                    }
+                    // retry is handled by the OnLoggedOn callback; keep waiting for its result
                     LoginError = null;
-                    _steamUser!.LogOn(details);
-                    i = -1; // 更换节点后重新计时
                     continue;
                 }
                 return LogOnWaitResult.Rejected;

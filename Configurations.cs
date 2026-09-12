@@ -66,7 +66,7 @@ internal class Configurations
     private static readonly JsonSerializerOptions SJsonOptions = new()
     {
         WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() }
+        Converters = { new FlexibleEnumConverterFactory() }
     };
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly string _path;
@@ -137,8 +137,16 @@ internal class Configurations
             Logger.Error($"加载配置失败，使用默认值: {e.Message}");
             try
             {
+                File.Copy(_path, _path + ".failed.json", overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"归档损坏配置文件失败: {ex.Message}");
+            }
+            try
+            {
                 File.Copy(_path, _path + ".bak", overwrite: true);
-                Logger.Warn($"已备份可能损坏的配置文件到 {_path}.bak");
+                Logger.Warn($"已备份可能损坏的配置文件到 {_path}.bak（原始样本: {_path}.failed.json）");
             }
             catch (Exception ex)
             {

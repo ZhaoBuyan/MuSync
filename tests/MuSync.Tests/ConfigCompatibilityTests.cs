@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using MuSync;
 using MuSync.Models;
+using MuSync.Utils;
 using Xunit;
 
 namespace MuSync.Tests;
@@ -13,7 +14,7 @@ public class ConfigCompatibilityTests
     private static JsonSerializerOptions CreateOptions() => new()
     {
         WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() }
+        Converters = { new FlexibleEnumConverterFactory() }
     };
 
     [Fact]
@@ -55,6 +56,21 @@ public class ConfigCompatibilityTests
         Assert.NotNull(config);
         Assert.Single(config!.Apps);
         Assert.Equal(AppCategory.Social, config.Apps[0].Category);
+    }
+
+    [Theory]
+    [InlineData("\"game\"")]
+    [InlineData("4")]
+    [InlineData("\"4\"")]
+    [InlineData("\"NotARealValue\"")]
+    [InlineData("null")]
+    public void LenientEnumRead_AnyFormat_DoesNotThrow(string categoryJson)
+    {
+        // 宽容转换器：任何历史/异常格式的枚举值都不得导致整份配置读取失败
+        var json = "{\"Apps\":[{\"ExeName\":\"x.exe\",\"Category\":" + categoryJson + "}]}";
+        var config = JsonSerializer.Deserialize<ConfigData>(json, CreateOptions());
+        Assert.NotNull(config);
+        Assert.Single(config!.Apps);
     }
 
     [Fact]
