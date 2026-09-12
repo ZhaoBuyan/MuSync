@@ -36,7 +36,7 @@ internal sealed class SteamLoginForm : Form
     private void InitializeComponent()
     {
         Text = "Steam 登录";
-        Size = new Size(350, 280);
+        Size = new Size(350, 340);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -80,7 +80,16 @@ internal sealed class SteamLoginForm : Form
             Width = 300,
             ForeColor = Color.Red
         };
-        Controls.AddRange(new Control[] { lblUser, _txtUser, lblPass, _txtPass, _chkRemember, _btnLogin, _btnCancel, _lblStatus });
+        var lblPhoneHint = new Label
+        {
+            Text = "手机验证提示：打开手机端 Steam App → 选择「Steam 客户端」→ 确认实际所在地；\n未收到推送时，在 App 的「确认 → 登录请求」中手动批准。",
+            Location = new Point(20, 250),
+            Width = 310,
+            Height = 48,
+            Font = new Font("Microsoft YaHei", 8),
+            ForeColor = Color.FromArgb(130, 130, 130)
+        };
+        Controls.AddRange(new Control[] { lblUser, _txtUser, lblPass, _txtPass, _chkRemember, _btnLogin, _btnCancel, _lblStatus, lblPhoneHint });
         AcceptButton = _btnLogin;
         CancelButton = _btnCancel;
     }
@@ -161,7 +170,7 @@ internal sealed class SteamLoginForm : Form
                 if (IsDisposed) return;
                 if (isMobile)
                 {
-                    ShowStatus("请在手机 Steam App 批准登录（没收到推送：App → 确认 → 登录请求）", Color.Blue);
+                    ShowStatus("请在手机 Steam 端完成验证（步骤见下方提示）", Color.Blue);
                 }
                 else
                 {
