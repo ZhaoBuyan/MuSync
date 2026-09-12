@@ -1,9 +1,0 @@
-docs: v0.2.0 文档更新（README 翻新 / CHANGELOG 0.2.0 / 上游版权谱系补全）
-
-- README: 定位更新为"音乐 + 任意程序"，特性重写（程序同步/积木编辑器/
-  模板/连接自愈/双面板），使用指引加入免安装版与手机验证步骤
-- CHANGELOG: 新增 [0.2.0] 完整变更记录
-- THIRD-PARTY-NOTICES: 补全 Music-DiscordRPC 谱系版权信息（MIT, c 2018 Kyle）
-- .gitignore: 补充 publish-lite 输出目录
-
-Co-authored-by: Chatbox <chatbox@chatboxai.com>
