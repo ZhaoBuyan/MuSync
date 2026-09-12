@@ -56,7 +56,7 @@ internal sealed class FormatBlockEditorForm : Form
             TemplateKind.Program => "编辑「程序」模板 — 积木编辑",
             _ => "编辑「组合」模板 — 积木编辑"
         };
-        Size = new Size(560, 448);
+        Size = new Size(560, 520);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -96,9 +96,10 @@ internal sealed class FormatBlockEditorForm : Form
         var okButton = new Button
         {
             Text = "确定",
-            Location = new Point(400, 390),
+            Location = new Point(400, 440),
             Size = new Size(64, 28),
-            BackColor = Color.White
+            BackColor = Color.White,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
         okButton.Click += (_, _) =>
         {
@@ -109,9 +110,10 @@ internal sealed class FormatBlockEditorForm : Form
         var cancelButton = new Button
         {
             Text = "取消",
-            Location = new Point(472, 390),
+            Location = new Point(472, 440),
             Size = new Size(64, 28),
-            BackColor = Color.White
+            BackColor = Color.White,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
         cancelButton.Click += (_, _) =>
         {

@@ -272,7 +272,8 @@ internal sealed class AppSyncSettingsForm : Form
             Location = new Point(436, 760),
             Size = new Size(80, 28),
             DialogResult = DialogResult.OK,
-            BackColor = Color.White
+            BackColor = Color.White,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
         var cancelButton = new Button
         {
@@ -280,7 +281,8 @@ internal sealed class AppSyncSettingsForm : Form
             Location = new Point(526, 760),
             Size = new Size(80, 28),
             DialogResult = DialogResult.Cancel,
-            BackColor = Color.White
+            BackColor = Color.White,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
         okButton.Click += (_, _) => SaveSettings();
         Controls.AddRange([switchGroup, templateGroup, rulesGroup, aiGroup, okButton, cancelButton]);
