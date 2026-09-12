@@ -161,7 +161,7 @@ internal sealed class SteamLoginForm : Form
                 if (IsDisposed) return;
                 if (isMobile)
                 {
-                    ShowStatus("Steam Guard：请在手机 App 上确认登录！", Color.Blue);
+                    ShowStatus("请在手机 Steam App 批准登录（没收到推送：App → 确认 → 登录请求）", Color.Blue);
                 }
                 else
                 {
