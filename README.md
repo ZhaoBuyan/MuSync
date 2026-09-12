@@ -70,11 +70,21 @@ dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:Publ
 CI（`main` push / `v*` tag）自动构建双产物：
 `MuSync.exe`（免安装）+ `MuSync-lite.exe`（轻量版，需 .NET 9 运行时）。
 
-## 🔀 与 yySync 的关系
+## 🔀 与上游项目的关系
 
-MuSync 基于 [wuyan1337/yySync](https://github.com/wuyan1337/yySync)（MIT）「半新写」：
-仅播放器内存逆向实现沿用原项目成果；连接层、状态仲裁、显示引擎、程序同步、
-配置与安全体系均为本项目独立实现。相对 yySync 的全部改动见 [CHANGELOG.md](CHANGELOG.md)。
+MuSync 的播放器逆向实现立于一条开源谱系之上（均为 MIT 协议）：
+
+```
+MuSync（本项目）
+ └─ wuyan1337/yySync ............... 直接基础（Steam 同步版）
+     └─ kriYamiHikari/Music-DiscordRPC
+         └─ Kxnrl/NetEase-Cloud-Music-DiscordRPC
+             └─ Copyright (c) 2018 Kyle 的原始项目
+```
+
+仅播放器内存逆向实现（网易云特征码 / QQ 音乐偏移 / LX 接口）传承自该谱系；
+连接层、状态仲裁、显示引擎、程序同步、配置与安全体系均为本项目独立实现。
+相对 yySync 的全部改动见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 🗂️ 项目结构
 
@@ -99,8 +109,12 @@ reference-yySync/              # 上游参考源码（MIT，不参与编译，�
 
 ## 🙏 致谢与许可
 
-MuSync 是 [wuyan1337/yySync](https://github.com/wuyan1337/yySync) 的「半新写」重构版：
-播放器内存逆向实现沿用原项目成果（MIT），其余体系为本项目独立实现。
-第三方许可与版权声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+MuSync 立于一条开源谱系之上（见上文「与上游项目的关系」），感谢每一位铺路者：
+
+- [wuyan1337/yySync](https://github.com/wuyan1337/yySync) —— 直接基础
+- [kriYamiHikari/Music-DiscordRPC](https://github.com/kriYamiHikari/Music-DiscordRPC)
+- [Kxnrl/NetEase-Cloud-Music-DiscordRPC](https://github.com/Kxnrl/NetEase-Cloud-Music-DiscordRPC)
+- [SteamRE/SteamKit](https://github.com/SteamRE/SteamKit) —— Steam 网络协议支持
 
 本项目以 MIT 协议发布，见 [LICENSE](LICENSE)。
+第三方许可全文见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
