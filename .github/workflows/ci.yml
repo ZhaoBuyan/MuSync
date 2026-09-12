@@ -29,8 +29,8 @@ jobs:
       - name: Run tests
         run: dotnet test MuSync.sln -c Debug --no-build
 
-      - name: Publish Release (framework-dependent, single file)
-        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish
+      - name: Publish Release (self-contained, single file)
+        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
