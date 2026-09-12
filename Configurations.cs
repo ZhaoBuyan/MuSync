@@ -20,7 +20,6 @@ internal class ConfigData
     public string SteamUsername { get; set; } = "";
     public string SteamRefreshToken { get; set; } = "";
     public string SteamGuardData { get; set; } = "";
-    public SteamStatusPriority StatusPriority { get; set; } = SteamStatusPriority.Artist;
     public bool EnableCustomPrefix { get; set; }
     public string CustomPrefix { get; set; } = "";
 
@@ -58,11 +57,6 @@ internal class ConfigData
     public string AiApiEndpoint { get; set; } = "";
     public string AiApiKey { get; set; } = "";
     public string AiApiModel { get; set; } = "";
-}
-public enum SteamStatusPriority
-{
-    Artist,
-    ProgressBar
 }
 internal class Configurations
 {

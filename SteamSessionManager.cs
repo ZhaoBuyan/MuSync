@@ -325,7 +325,7 @@ internal class SteamSessionManager : IDisposable
             _cmRetryCount = 0;
             LoginError = null;
             _steamUser!.LogOn(logOnDetails);
-            var waitResult = await WaitForLogOnResultAsync(logOnDetails, 30);
+            var waitResult = await WaitForLogOnResultAsync(logOnDetails, 120);
             if (waitResult == LogOnWaitResult.Success)
             {
                 var settings = Configurations.Instance.Settings;
@@ -392,7 +392,7 @@ internal class SteamSessionManager : IDisposable
         _cmRetryCount = 0;
         LoginError = null;
         _steamUser!.LogOn(logOnDetails);
-        var waitResult = await WaitForLogOnResultAsync(logOnDetails, 20);
+        var waitResult = await WaitForLogOnResultAsync(logOnDetails, 120);
         if (waitResult == LogOnWaitResult.Success) return true;
         if (waitResult != LogOnWaitResult.Rejected)
         {

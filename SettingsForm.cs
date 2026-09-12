@@ -16,8 +16,6 @@ internal class SettingsForm : Form
     private CheckBox? _showProgressBarCheckBox;
     private CheckBox? _pauseWhenPlayingGameCheckBox;
     private CheckBox? _enableSteamSyncCheckBox;
-    private RadioButton? _priorityArtistRadioButton;
-    private RadioButton? _priorityProgressBarRadioButton;
     private CheckBox? _enableCustomPrefixCheckBox;
     private TextBox? _customPrefixTextBox;
     private Label? _steamStatusPreviewLabel;
@@ -178,22 +176,6 @@ internal class SettingsForm : Form
             AutoSize = true,
             BackColor = Color.White
         };
-        _priorityArtistRadioButton = new RadioButton
-        {
-            Text = "歌手名称",
-            Location = new Point(160, 133),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        _priorityProgressBarRadioButton = new RadioButton
-        {
-            Text = "进度条",
-            Location = new Point(250, 133),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        _priorityArtistRadioButton.CheckedChanged += (_, _) => UpdatePreview();
-        _priorityProgressBarRadioButton.CheckedChanged += (_, _) => UpdatePreview();
         _pauseWhenPlayingGameCheckBox = new CheckBox
         {
             Text = "正在玩真实 Steam 游戏时，自动暂停音乐同步",
@@ -209,8 +191,6 @@ internal class SettingsForm : Form
             _showArtistNameCheckBox, 
             _showProgressBarCheckBox,
             priorityLabel,
-            _priorityArtistRadioButton,
-            _priorityProgressBarRadioButton
         ]);
         return groupBox;
     }
@@ -390,14 +370,6 @@ internal class SettingsForm : Form
         _enableCustomPrefixCheckBox!.Checked = _originalSettings.EnableCustomPrefix;
         _customPrefixTextBox!.Text = _originalSettings.CustomPrefix;
         _customPrefixTextBox.Enabled = _originalSettings.EnableCustomPrefix;
-        if (_originalSettings.StatusPriority == SteamStatusPriority.Artist)
-        {
-            _priorityArtistRadioButton!.Checked = true;
-        }
-        else
-        {
-            _priorityProgressBarRadioButton!.Checked = true;
-        }
         UpdatePreview();
     }
     private void UpdatePreview()
@@ -427,7 +399,6 @@ internal class SettingsForm : Form
             MusicFormat = musicFormat,
             CombinedSeparator = settings.CombinedSeparator,
             ShowProgressBar = showProgress,
-            StatusPriority = _priorityArtistRadioButton?.Checked == true ? SteamStatusPriority.Artist : SteamStatusPriority.ProgressBar,
             EnableCustomPrefix = _enableCustomPrefixCheckBox?.Checked ?? false,
             CustomPrefix = _customPrefixTextBox?.Text ?? ""
         });
@@ -446,7 +417,6 @@ internal class SettingsForm : Form
         settings.EnableSteamSync = _enableSteamSyncCheckBox!.Checked;
         settings.EnableCustomPrefix = _enableCustomPrefixCheckBox!.Checked;
         settings.CustomPrefix = _customPrefixTextBox!.Text;
-        settings.StatusPriority = _priorityArtistRadioButton!.Checked ? SteamStatusPriority.Artist : SteamStatusPriority.ProgressBar;
         Configurations.Instance.Save();
         Program.GetRpcManager()?.RequestStateRefresh();
         if (isAutoStartChecked == Win32Api.AutoStart.Check()) return;
