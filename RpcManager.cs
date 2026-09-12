@@ -295,9 +295,18 @@ internal class RpcManager(SteamStatusManager steamManager)
                 if ((currentTime - _lastAppCheckTime).TotalSeconds >= 1)
                 {
                     _lastAppCheckTime = currentTime;
-                    if (UpdateActiveApp(currentTime))
+                    try
                     {
-                        await SynchronizeActiveSourceAsync(force: true);
+                        if (UpdateActiveApp(currentTime))
+                        {
+                            await SynchronizeActiveSourceAsync(force: true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // 程序检测异常不得影响音乐轮询
+                        Debug.WriteLine($"[MuSync] 程序检测异常: {ex.Message}");
+                        Logger.Error($"[MuSync] 程序检测异常: {ex.Message}");
                     }
                 }
                 // 活跃源仲裁：变化时自动切换 Steam 状态

@@ -30,7 +30,7 @@ internal static partial class User32
     private static partial int GetClassName(IntPtr hwnd, [Out] char[] lpClassName, int nMaxCount);
     [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW", StringMarshalling = StringMarshalling.Utf16)]
     private static partial int GetWindowText(IntPtr hWnd, [Out] char[] lpString, int nMaxCount);
-    [LibraryImport("user32.dll")]
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextLengthW")]
     private static partial int GetWindowTextLength(IntPtr hWnd);
     [LibraryImport("user32.dll")]
     internal static partial int GetWindowThreadProcessId(IntPtr handle, out int pid);

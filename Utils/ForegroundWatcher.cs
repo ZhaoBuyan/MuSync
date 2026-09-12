@@ -33,18 +33,27 @@ internal static class ForegroundWatcher
     {
         lock (SyncRoot)
         {
-            var hwnd = User32.GetForegroundWindow();
-            if (hwnd == IntPtr.Zero) return null;
-            var now = DateTime.UtcNow;
-            if (hwnd == _lastHwnd && _lastInfo != null && now - _lastQueryUtc < CacheDuration)
+            try
             {
+                var hwnd = User32.GetForegroundWindow();
+                if (hwnd == IntPtr.Zero) return null;
+                var now = DateTime.UtcNow;
+                if (hwnd == _lastHwnd && _lastInfo != null && now - _lastQueryUtc < CacheDuration)
+                {
+                    return _lastInfo;
+                }
+                var info = Query(hwnd);
+                _lastHwnd = hwnd;
+                _lastInfo = info;
+                _lastQueryUtc = now;
+                return info;
+            }
+            catch (Exception ex)
+            {
+                // 检测本身不应影响主循环：失败时退回上次结果
+                Debug.WriteLine($"[ForegroundWatcher] 检测异常: {ex.Message}");
                 return _lastInfo;
             }
-            var info = Query(hwnd);
-            _lastHwnd = hwnd;
-            _lastInfo = info;
-            _lastQueryUtc = now;
-            return info;
         }
     }
 
