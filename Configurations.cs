@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using MuSync.Models;
 using MuSync.Utils;
 namespace MuSync;
 internal class ConfigData
@@ -21,6 +23,27 @@ internal class ConfigData
     public SteamStatusPriority StatusPriority { get; set; } = SteamStatusPriority.Artist;
     public bool EnableCustomPrefix { get; set; }
     public string CustomPrefix { get; set; } = "";
+
+    // —— 音乐同步 ——
+    /// <summary>音乐同步总开关（独立于程序同步）。</summary>
+    public bool MusicSyncEnabled { get; set; } = true;
+    /// <summary>音乐暂停时不在 Steam 状态中显示。</summary>
+    public bool HideMusicWhenPaused { get; set; } = true;
+
+    // —— 程序同步 ——
+    /// <summary>程序同步总开关。</summary>
+    public bool AppSyncEnabled { get; set; } = true;
+    /// <summary>同步非游戏应用（关闭时仅游戏类参与同步）。</summary>
+    public bool SyncNonGameApps { get; set; }
+    /// <summary>程序与音乐组合显示时的分隔符。</summary>
+    public string CombinedSeparator { get; set; } = "‖";
+    /// <summary>程序同步规则列表。</summary>
+    public List<AppRule> Apps { get; set; } = [];
+
+    // —— AI 辅助分类（可选，用户自备 API）——
+    public string AiApiEndpoint { get; set; } = "";
+    public string AiApiKey { get; set; } = "";
+    public string AiApiModel { get; set; } = "";
 }
 public enum SteamStatusPriority
 {
@@ -30,7 +53,11 @@ public enum SteamStatusPriority
 internal class Configurations
 {
     public static readonly Configurations Instance = new();
-    private static readonly JsonSerializerOptions SJsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions SJsonOptions = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
     public ConfigData Settings { get; private set; }
     [JsonIgnore] public bool IsFirstLoad { get; }
     [JsonIgnore] private readonly string _path;

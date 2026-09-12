@@ -12,7 +12,7 @@ internal static partial class User32
         public int Bottom;
     }
     [LibraryImport("user32.dll")]
-    private static partial IntPtr GetForegroundWindow();
+    internal static partial IntPtr GetForegroundWindow();
     [LibraryImport("user32.dll")]
     private static partial IntPtr GetDesktopWindow();
     [LibraryImport("user32.dll")]
@@ -40,13 +40,24 @@ internal static partial class User32
         var charsCopied = GetClassName(hwnd, buffer, buffer.Length);
         return charsCopied > 0 ? new string(buffer, 0, charsCopied) : string.Empty;
     }
-    private static string GetWindowTitle(IntPtr hwnd)
+    internal static string GetWindowTitle(IntPtr hwnd)
     {
         var length = GetWindowTextLength(hwnd);
         if (length == 0) return string.Empty;
         var buffer = new char[length + 1];
         var charsCopied = GetWindowText(hwnd, buffer, buffer.Length);
         return charsCopied > 0 ? new string(buffer, 0, charsCopied) : string.Empty;
+    }
+    /// <summary>获取窗口屏幕边界（用于全屏判定）。</summary>
+    public static bool TryGetWindowBounds(IntPtr hwnd, out System.Drawing.Rectangle bounds)
+    {
+        if (GetWindowRect(hwnd, out var rc) != 0)
+        {
+            bounds = new System.Drawing.Rectangle(rc.Left, rc.Top, rc.Right - rc.Left, rc.Bottom - rc.Top);
+            return bounds.Width > 0 && bounds.Height > 0;
+        }
+        bounds = System.Drawing.Rectangle.Empty;
+        return false;
     }
     public static bool GetWindowTitle(string match, out string text, out int pid)
     {
