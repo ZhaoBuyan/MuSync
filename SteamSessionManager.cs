@@ -19,7 +19,8 @@ internal class SteamSessionManager : IDisposable
     private const int FirstConnectWatchdogDelaySeconds = 20;
 
     private SteamClient? _steamClient;
-    private CallbackManager? _callbackManager;
+    private volatile CallbackManager? _callbackManager;
+    private ProtocolTypes _currentProtocol = ProtocolTypes.Tcp;
     private SteamUser? _steamUser;
     private SteamFriends? _steamFriends;
     private readonly CancellationTokenSource _cts = new();
@@ -45,19 +46,49 @@ internal class SteamSessionManager : IDisposable
     {
         if (_isRunning) return;
         _isRunning = true;
-        _steamClient = new SteamClient();
-        _callbackManager = new CallbackManager(_steamClient);
-        _steamUser = _steamClient.GetHandler<SteamUser>()!;
-        _steamFriends = _steamClient.GetHandler<SteamFriends>()!;
-        _callbackManager.Subscribe<SteamClient.ConnectedCallback>(OnConnected);
-        _callbackManager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnected);
-        _callbackManager.Subscribe<SteamUser.LoggedOnCallback>(OnLoggedOn);
-        _callbackManager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
-        _callbackManager.Subscribe<SteamFriends.PersonaStateCallback>(OnPersonaState);
+        InitializeClient(ProtocolTypes.Tcp);
         _callbackTask = Task.Run(() => CallbackLoop(_cts.Token));
-        _steamClient.Connect();
+        _steamClient?.Connect();
         Debug.WriteLine("[SteamSession] 正在连接到 Steam...");
         StartFirstConnectWatchdog();
+    }
+
+    /// <summary>初始化连接客户端（TCP 或 WebSocket 协议）。切换协议时重建客户端与回调订阅。</summary>
+    private void InitializeClient(ProtocolTypes protocol)
+    {
+        try
+        {
+            _steamClient?.Disconnect();
+        }
+        catch
+        {
+            // 旧客户端可能处于任意状态，忽略清理异常
+        }
+        _currentProtocol = protocol;
+        var configuration = SteamConfiguration.Create(builder => builder.WithProtocolTypes(protocol));
+        _steamClient = new SteamClient(configuration);
+        var callbackManager = new CallbackManager(_steamClient);
+        _callbackManager = callbackManager;
+        _steamUser = _steamClient.GetHandler<SteamUser>()!;
+        _steamFriends = _steamClient.GetHandler<SteamFriends>()!;
+        callbackManager.Subscribe<SteamClient.ConnectedCallback>(OnConnected);
+        callbackManager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnected);
+        callbackManager.Subscribe<SteamUser.LoggedOnCallback>(OnLoggedOn);
+        callbackManager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
+        callbackManager.Subscribe<SteamFriends.PersonaStateCallback>(OnPersonaState);
+        _connectedEvent.Reset();
+        Logger.Info($"[SteamSession] 连接客户端已就绪（协议：{protocol}）");
+    }
+
+    /// <summary>TCP 连接持续失败且允许回退时，改用 WebSocket (443 端口) 重连。</summary>
+    private bool TryFallbackToWebSocketIfNeeded()
+    {
+        if (_currentProtocol != ProtocolTypes.Tcp) return false;
+        if (!Configurations.Instance.Settings.AllowWebSocketFallback) return false;
+        Logger.Warn("[SteamSession] TCP 连接持续失败，自动切换 WebSocket (443 端口) 重试");
+        _reconnectPending = true;
+        InitializeClient(ProtocolTypes.WebSocket);
+        return true;
     }
 
     private void OnConnected(SteamClient.ConnectedCallback cb)
@@ -133,6 +164,7 @@ internal class SteamSessionManager : IDisposable
             try
             {
                 Logger.Warn("[SteamSession] 首次连接超时，转入自动重连");
+                TryFallbackToWebSocketIfNeeded();
                 await AutoReconnectLoopAsync(_cts.Token);
             }
             catch (OperationCanceledException)
@@ -150,6 +182,7 @@ internal class SteamSessionManager : IDisposable
     private async Task AutoReconnectLoopAsync(CancellationToken token)
     {
         var delaySeconds = ReconnectInitialDelaySeconds;
+        var failedAttempts = 0;
         while (_isRunning && !token.IsCancellationRequested && _steamClient?.IsConnected != true)
         {
             try
@@ -184,6 +217,15 @@ internal class SteamSessionManager : IDisposable
                 {
                     return;
                 }
+            }
+            if (_steamClient?.IsConnected == true) return;
+            failedAttempts++;
+            // 连续多次失败：可能是当前网络对 TCP 27017 端口不友好，尝试切换到 WebSocket (443)
+            if (failedAttempts >= 3 && TryFallbackToWebSocketIfNeeded())
+            {
+                failedAttempts = 0;
+                delaySeconds = ReconnectInitialDelaySeconds;
+                continue;
             }
             delaySeconds = Math.Min(delaySeconds * 2, ReconnectMaxDelaySeconds);
         }

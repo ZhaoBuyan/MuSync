@@ -11,6 +11,7 @@ internal class SettingsForm : Form
     private CheckBox? _autoStartCheckBox;
     private CheckBox? _closeToTrayCheckBox;
     private CheckBox? _startInTrayCheckBox;
+    private CheckBox? _allowWebSocketFallbackCheckBox;
     private CheckBox? _showArtistNameCheckBox;
     private CheckBox? _showProgressBarCheckBox;
     private CheckBox? _pauseWhenPlayingGameCheckBox;
@@ -94,6 +95,13 @@ internal class SettingsForm : Form
             AutoSize = true,
             BackColor = Color.White
         };
+        _allowWebSocketFallbackCheckBox = new CheckBox
+        {
+            Text = "TCP 失败时用 WebSocket 重试",
+            Location = new Point(200, 75),
+            AutoSize = true,
+            BackColor = Color.White
+        };
         var appSyncButton = new Button
         {
             Text = "程序同步设置...",
@@ -107,7 +115,7 @@ internal class SettingsForm : Form
             using var appSettingsForm = new AppSyncSettingsForm();
             appSettingsForm.ShowDialog(this);
         };
-        groupBox.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox, appSyncButton]);
+        groupBox.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox, _allowWebSocketFallbackCheckBox, appSyncButton]);
         return groupBox;
     }
     private GroupBox CreateSteamDisplaySettingsGroup(ref int yOffset)
@@ -374,6 +382,7 @@ internal class SettingsForm : Form
         _originalSettings.AutoStart = isAutoStartEnabled;
         _closeToTrayCheckBox!.Checked = _originalSettings.CloseToTray;
         _startInTrayCheckBox!.Checked = _originalSettings.StartInTray;
+        _allowWebSocketFallbackCheckBox!.Checked = _originalSettings.AllowWebSocketFallback;
         _showArtistNameCheckBox!.Checked = _originalSettings.ShowArtistName;
         _showProgressBarCheckBox!.Checked = _originalSettings.ShowProgressBar;
         _pauseWhenPlayingGameCheckBox!.Checked = _originalSettings.PauseWhenPlayingGame;
@@ -430,6 +439,7 @@ internal class SettingsForm : Form
         settings.AutoStart = isAutoStartChecked;
         settings.CloseToTray = _closeToTrayCheckBox!.Checked;
         settings.StartInTray = _startInTrayCheckBox!.Checked;
+        settings.AllowWebSocketFallback = _allowWebSocketFallbackCheckBox!.Checked;
         settings.ShowArtistName = _showArtistNameCheckBox!.Checked;
         settings.ShowProgressBar = _showProgressBarCheckBox!.Checked;
         settings.PauseWhenPlayingGame = _pauseWhenPlayingGameCheckBox!.Checked;

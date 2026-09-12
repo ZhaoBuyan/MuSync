@@ -24,6 +24,10 @@ internal class ConfigData
     public bool EnableCustomPrefix { get; set; }
     public string CustomPrefix { get; set; } = "";
 
+    // —— 连接 ——
+    /// <summary>TCP 连接失败时自动切换 WebSocket (443 端口) 重试。</summary>
+    public bool AllowWebSocketFallback { get; set; } = true;
+
     // —— 音乐同步 ——
     /// <summary>音乐同步总开关（独立于程序同步）。</summary>
     public bool MusicSyncEnabled { get; set; } = true;
