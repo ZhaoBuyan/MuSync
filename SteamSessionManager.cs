@@ -12,6 +12,9 @@ internal class SteamSessionManager : IDisposable
     // 断线自动重连：初始退避 5 秒，翻倍至上限 60 秒
     private const int ReconnectInitialDelaySeconds = 5;
     private const int ReconnectMaxDelaySeconds = 60;
+    // 服务器要求更换节点（TryAnotherCM）时的自动重试上限
+    private const int MaxCmRetries = 2;
+    private int _cmRetryCount;
     // 启动后若长时间未连上 Steam（如开机时网络未就绪），进入自动重连的等待时间
     private const int FirstConnectWatchdogDelaySeconds = 20;
 
@@ -256,40 +259,39 @@ internal class SteamSessionManager : IDisposable
                 Configurations.Instance.Settings.SteamGuardData = pollResult.NewGuardData;
                 Configurations.Instance.Save();
             }
-            _steamUser!.LogOn(new SteamUser.LogOnDetails
+            var logOnDetails = new SteamUser.LogOnDetails
             {
                 Username = username,
                 AccessToken = pollResult.RefreshToken,
                 LoginID = 1243,
                 ShouldRememberPassword = true,
                 MachineName = "MuSync"
-            });
-            for (var i = 0; i < 30; i++)
+            };
+            _cmRetryCount = 0;
+            LoginError = null;
+            _steamUser!.LogOn(logOnDetails);
+            var waitResult = await WaitForLogOnResultAsync(logOnDetails, 30);
+            if (waitResult == LogOnWaitResult.Success)
             {
-                await Task.Delay(500).ConfigureAwait(false);
-                if (IsLoggedOn)
+                var settings = Configurations.Instance.Settings;
+                settings.SteamUsername = username;
+                if (RememberSession)
                 {
-                    var settings = Configurations.Instance.Settings;
-                    settings.SteamUsername = username;
-                    if (RememberSession)
-                    {
-                        settings.SteamRefreshToken = pollResult.RefreshToken;
-                    }
-                    else
-                    {
-                        // 未勾选“记住我”：不保存令牌与 Guard 数据，下次启动需手动登录
-                        settings.SteamRefreshToken = "";
-                        settings.SteamGuardData = "";
-                    }
-                    Configurations.Instance.Save();
-                    return true;
+                    settings.SteamRefreshToken = pollResult.RefreshToken;
                 }
-                if (LoginError != null)
+                else
                 {
-                    return false;
+                    // 未勾选“记住我”：不保存令牌与 Guard 数据，下次启动需手动登录
+                    settings.SteamRefreshToken = "";
+                    settings.SteamGuardData = "";
                 }
+                Configurations.Instance.Save();
+                return true;
             }
-            LoginError = "登录超时";
+            if (waitResult == LogOnWaitResult.Timeout)
+            {
+                LoginError = "登录超时";
+            }
             return false;
         }
         catch (AuthenticationException ex)
@@ -324,28 +326,84 @@ internal class SteamSessionManager : IDisposable
             }
         }
         Username = username;
-        LoginError = null;
-        _steamUser!.LogOn(new SteamUser.LogOnDetails
+        var logOnDetails = new SteamUser.LogOnDetails
         {
             Username = username,
             AccessToken = refreshToken,
             LoginID = 1243,
             ShouldRememberPassword = true,
             MachineName = "MuSync"
-        });
-        for (var i = 0; i < 20; i++)
+        };
+        _cmRetryCount = 0;
+        LoginError = null;
+        _steamUser!.LogOn(logOnDetails);
+        var waitResult = await WaitForLogOnResultAsync(logOnDetails, 20);
+        if (waitResult == LogOnWaitResult.Success) return true;
+        if (waitResult == LogOnWaitResult.NetworkLost)
         {
-            await Task.Delay(500).ConfigureAwait(false);
-            if (IsLoggedOn) return true;
-            if (LoginError != null) break;
             // 登录过程中网络断开：保留令牌不清除，等自动重连后再试
-            if (!IsConnected) return false;
+            return false;
         }
         Debug.WriteLine("[SteamSession] Token 登录失败，清除已保存令牌");
         Logger.Warn("[SteamSession] Token 登录失败，已清除保存的令牌，需要重新登录");
         Configurations.Instance.Settings.SteamRefreshToken = "";
         Configurations.Instance.Save();
         return false;
+    }
+
+    private enum LogOnWaitResult
+    {
+        Success,
+        Rejected,
+        NetworkLost,
+        Timeout
+    }
+
+    /// <summary>等待登录结果；服务器返回 TryAnotherCM 时自动更换节点重试（最多 MaxCmRetries 次）。</summary>
+    private async Task<LogOnWaitResult> WaitForLogOnResultAsync(SteamUser.LogOnDetails details, int maxPolls)
+    {
+        for (var i = 0; i < maxPolls; i++)
+        {
+            await Task.Delay(500).ConfigureAwait(false);
+            if (IsLoggedOn) return LogOnWaitResult.Success;
+            if (LoginError != null)
+            {
+                if (LoginError == nameof(EResult.TryAnotherCM) && _cmRetryCount < MaxCmRetries)
+                {
+                    _cmRetryCount++;
+                    Logger.Info($"[SteamSession] 服务器要求更换节点 (TryAnotherCM)，自动重试 {_cmRetryCount}/{MaxCmRetries}");
+                    if (!await ReconnectToAnotherCmAsync())
+                    {
+                        return LogOnWaitResult.NetworkLost;
+                    }
+                    LoginError = null;
+                    _steamUser!.LogOn(details);
+                    i = -1; // 更换节点后重新计时
+                    continue;
+                }
+                return LogOnWaitResult.Rejected;
+            }
+            if (!IsConnected) return LogOnWaitResult.NetworkLost;
+        }
+        return LogOnWaitResult.Timeout;
+    }
+
+    private async Task<bool> ReconnectToAnotherCmAsync()
+    {
+        try
+        {
+            _steamClient?.Disconnect();
+            _connectedEvent.Reset();
+            await Task.Delay(1500).ConfigureAwait(false);
+            if (!_isRunning) return false;
+            _steamClient?.Connect();
+            return await Task.Run(() => _connectedEvent.Wait(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"[SteamSession] 更换节点失败: {ex.Message}");
+            return false;
+        }
     }
 
     public Task SetGameNameAsync(string gameName)
