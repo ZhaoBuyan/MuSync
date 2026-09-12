@@ -123,25 +123,49 @@ internal sealed class AppSyncSettingsForm : Form
         _musicFormatBox = new TextBox
         {
             Location = new Point(120, 24),
-            Width = 485
+            Width = 435
         };
+        var musicBlocksButton = new Button
+        {
+            Text = "积木",
+            Location = new Point(560, 22),
+            Size = new Size(42, 26),
+            BackColor = Color.White
+        };
+        musicBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Music, _musicFormatBox);
         var programFormatLabel = new Label { Text = "程序格式:", Location = new Point(15, 58), AutoSize = true };
         _programFormatBox = new TextBox
         {
             Location = new Point(120, 54),
-            Width = 485
+            Width = 435
         };
+        var programBlocksButton = new Button
+        {
+            Text = "积木",
+            Location = new Point(560, 52),
+            Size = new Size(42, 26),
+            BackColor = Color.White
+        };
+        programBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Program, _programFormatBox);
         var combinedFormatLabel = new Label { Text = "组合格式:", Location = new Point(15, 88), AutoSize = true };
         _combinedFormatBox = new TextBox
         {
             Location = new Point(120, 84),
-            Width = 360
+            Width = 330
         };
-        var separatorLabel = new Label { Text = "分隔符:", Location = new Point(490, 88), AutoSize = true };
+        var combinedBlocksButton = new Button
+        {
+            Text = "积木",
+            Location = new Point(563, 82),
+            Size = new Size(42, 26),
+            BackColor = Color.White
+        };
+        combinedBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Combined, _combinedFormatBox);
+        var separatorLabel = new Label { Text = "分隔符:", Location = new Point(458, 88), AutoSize = true };
         _separatorCombo = new ComboBox
         {
-            Location = new Point(545, 84),
-            Width = 60,
+            Location = new Point(513, 84),
+            Width = 45,
             DropDownStyle = ComboBoxStyle.DropDown
         };
         _separatorCombo.Items.AddRange(SeparatorPresets);
@@ -177,8 +201,10 @@ internal sealed class AppSyncSettingsForm : Form
         _programFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
         _combinedFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
         _separatorCombo.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
-        templateGroup.Controls.AddRange([musicFormatLabel, _musicFormatBox, programFormatLabel, _programFormatBox,
-            combinedFormatLabel, _combinedFormatBox, separatorLabel, _separatorCombo, _previewLabel,
+        templateGroup.Controls.AddRange([musicFormatLabel, _musicFormatBox, musicBlocksButton,
+            programFormatLabel, _programFormatBox, programBlocksButton,
+            combinedFormatLabel, _combinedFormatBox, combinedBlocksButton,
+            separatorLabel, _separatorCombo, _previewLabel,
             presetLabel, _templatePresetCombo, barStyleLabel, _progressBarStyleCombo]);
 
         // ---- 程序列表 ----
@@ -452,6 +478,14 @@ internal sealed class AppSyncSettingsForm : Form
             if (!order.Contains(key)) order.Add(key);
         }
         return order;
+    }
+
+    /// <summary>打开积木编辑器，确定后用编译结果回写模板框（TextChanged 会刷新预览）。</summary>
+    private void OpenBlockEditor(TemplateKind kind, TextBox formatBox)
+    {
+        using var editor = new FormatBlockEditorForm(kind, formatBox.Text, NonEmpty(_separatorCombo.Text, "‖"));
+        if (editor.ShowDialog(this) != DialogResult.OK) return;
+        formatBox.Text = editor.ResultFormat;
     }
 
     private void MarkPresetCustom()

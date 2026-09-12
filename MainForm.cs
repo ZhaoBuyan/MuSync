@@ -40,6 +40,7 @@ internal class MainForm : Form
     private readonly string[] _currentCacheKeys = ["", "", ""];
     private readonly PlayerInfo?[] _lastPlayerInfos = new PlayerInfo?[3];
     private readonly bool[] _lastActiveStates = new bool[3];
+    private string _lastMusicSourceName = "";
     public MainForm()
     {
         InitializeComponent();
@@ -51,17 +52,14 @@ internal class MainForm : Form
     }
     private void InitializeComponent()
     {
-        for (var i = 0; i < 3; i++)
-        {
-            CreatePlayerPanel(i);
-        }
+        CreatePlayerPanel(0);
         CreateAppSyncPanel();
         _lastUpdateLabel = new Label
         {
             AutoSize = true,
             Font = new Font("Microsoft YaHei", 8),
             ForeColor = Color.Gray,
-            Location = new Point(10, 655),
+            Location = new Point(10, 345),
             Size = new Size(150, 13),
             Text = "最后更新: --:--:--"
         };
@@ -69,7 +67,7 @@ internal class MainForm : Form
         {
             Text = "设置",
             Size = new Size(75, 30),
-            Location = new Point(516, 650),
+            Location = new Point(516, 340),
             BackColor = Color.White,
             ForeColor = Color.Black,
             Font = new Font("Microsoft YaHei", 9),
@@ -82,7 +80,7 @@ internal class MainForm : Form
             AutoSize = true,
             Font = new Font("Microsoft YaHei", 8),
             ForeColor = Color.Gray,
-            Location = new Point(170, 656)
+            Location = new Point(170, 346)
         };
         Controls.AddRange([_lastUpdateLabel, _settingsButton, _steamStateLabel]);
     }
@@ -92,7 +90,7 @@ internal class MainForm : Form
         var panel = new Panel
         {
             Size = new Size(580, 155),
-            Location = new Point(10, 480),
+            Location = new Point(10, 160),
             BorderStyle = BorderStyle.FixedSingle,
             BackColor = Color.FromArgb(248, 248, 248)
         };
@@ -280,7 +278,7 @@ internal class MainForm : Form
             ForeColor = Color.Gray,
             Location = new Point(350, 15),
             Size = new Size(80, 14),
-            Text = "未运行"
+            Text = "未在播放"
         };
         var progressBar = new ProgressBar
         {
@@ -313,8 +311,8 @@ internal class MainForm : Form
     }
     private void SetupForm()
     {
-        Text = "MuSync - 播放器状态";
-        Size = new Size(620, 735);
+        Text = "MuSync - 音乐状态同步";
+        Size = new Size(620, 430);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -359,12 +357,8 @@ internal class MainForm : Form
         {
             var rpcManager = Program.GetRpcManager();
             if (rpcManager == null) return;
-            var allPlayersStatus = rpcManager.GetAllPlayersStatus();
-            for (var i = 0; i < 3; i++)
-            {
-                var (playerInfo, playerName, isActive, lastError) = allPlayersStatus[i];
-                UpdatePlayerDisplay(i, playerInfo, playerName, isActive, forceRefresh, lastError);
-            }
+            var (currentInfo, currentName) = rpcManager.GetCurrentPlayerInfo();
+            UpdateMusicPanel(currentInfo, currentName, forceRefresh);
             ImageCacheManager.SetActiveKeys(_currentCacheKeys.Where(k => !string.IsNullOrEmpty(k)));
             _lastUpdateLabel.Text = $"最后更新: {DateTime.Now:HH:mm:ss}";
             UpdateSteamStateLabel();
@@ -414,6 +408,24 @@ internal class MainForm : Form
             _steamStateLabel.ForeColor = color;
         }
     }
+    /// <summary>首页音乐面板：跟随当前活跃源（受播放器优先级与"正在播放优先"规则影响）。</summary>
+    private void UpdateMusicPanel(PlayerInfo? playerInfo, string playerName, bool forceRefresh)
+    {
+        if (!string.IsNullOrEmpty(playerName) && _lastMusicSourceName != playerName)
+        {
+            _lastMusicSourceName = playerName;
+            _playerNameLabels[0].Text = playerName;
+            _playerNameLabels[0].ForeColor = playerName switch
+            {
+                "网易云音乐" => _playerColors[0],
+                "QQ音乐" => _playerColors[1],
+                "LX Music" => _playerColors[2],
+                _ => Color.FromArgb(122, 120, 220)
+            };
+        }
+        UpdatePlayerDisplay(0, playerInfo, playerName, playerInfo != null, forceRefresh, RpcManager.ErrorCode.None);
+    }
+
     private void UpdatePlayerDisplay(int index, PlayerInfo? playerInfo, string playerName, bool isActive,
         bool forceRefresh, RpcManager.ErrorCode lastError)
     {
@@ -513,7 +525,7 @@ internal class MainForm : Form
         }
         else
         {
-            var defaultTitle = StringUtils.GetTruncatedStringByMaxByteLength("播放器未运行", 128);
+            var defaultTitle = StringUtils.GetTruncatedStringByMaxByteLength("未在播放音乐", 128);
             if (_songTitleLabels[index].Text != defaultTitle) _songTitleLabels[index].Text = defaultTitle;
             if (_artistLabels[index].Text != "") _artistLabels[index].Text = "";
             if (_albumLabels[index].Text != "") _albumLabels[index].Text = "";
@@ -530,7 +542,7 @@ internal class MainForm : Form
                     statusText = "⚠️ 版本不支持/特征码失效";
                     break;
                 default:
-                    statusText = "未运行";
+                    statusText = "未在播放";
                     break;
             }
             if (_statusLabels[index].Text != statusText)
