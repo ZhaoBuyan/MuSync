@@ -4,6 +4,7 @@ obj/
 .vs/
 publish/
 publish-sc/
+publish-lite/
 
 # 本地数据双保险（正常位于 %LocalAppData%\MuSync，即使被拷进项目目录也不会被 git 跟踪）
 config.json

@@ -35,10 +35,14 @@ MuSync 的代码与设计大量借鉴/沿用了以下开源项目，特此致谢
 > SOFTWARE.
 > ```
 
-## Music-DiscordRPC（yySync 的上游参考）
+## Music-DiscordRPC 谱系（yySync 的上游参考）
 
-> https://github.com/kriYamiHikari/Music-DiscordRPC
-> https://github.com/Kxnrl/NetEase-Cloud-Music-DiscordRPC
+> yySync 的播放器逆向读取与 RPC 设计继承自这条谱系（均已核实为 MIT 协议）：
+>
+> - https://github.com/kriYamiHikari/Music-DiscordRPC
+> - https://github.com/Kxnrl/NetEase-Cloud-Music-DiscordRPC
+>
+> 版权行：`Copyright (c) 2018 Kyle`（MIT 全文与上方 yySync 附带的一致）。
 
 ## SteamKit2
 

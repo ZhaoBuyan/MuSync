@@ -1,56 +1,95 @@
 # MuSync
 
-> 把「音乐软件正在播什么」同步到你的 Steam 状态 —— **Mu**sic **Sync**（音乐软件状态同步 Steam）。
+> 把「**音乐软件 + 任意程序**正在干什么」同步到你的 Steam 状态。
+> （名字源自最初的目标 **Mu**sic **Sync**，现已不止音乐 😉）
 
-登录 Steam 后，好友看到你的状态是「正在玩」，内容是当前播放的歌曲、歌手与实时进度：
-`稻香 - 周杰伦 [#####-----] 2:30/4:15`
+好友视角看到的例子：
+
+```
+非 Steam 游戏中
+正在听：稻香 - 周杰伦 [#####-----] 2:30/4:15      ← 听歌时
+VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代码一边听歌（组合模板）
+卡拉彼丘                                           ← 在玩非 Steam 启动的游戏
+```
 
 ## ✨ 特性
 
-- 🎵 **多播放器**：网易云音乐 / QQ 音乐 / LX Music（洛雪）
-  - 多个播放器同时运行时自动仲裁：**正在播放的优先**，关闭其一不影响另一个的状态
-- 📡 **Steam 同步**：SteamKit2 直连，无需 Steam 客户端在线
-  - 断线自动重连 + 令牌自动重新登录（指数退避）
-  - 检测到你在玩真实 Steam 游戏时自动暂停音乐同步，退出游戏自动恢复
-- 🎨 **可自定义**：歌手名 / 进度条 / 前缀文案 / 超长时优先保留哪部分，设置内实时预览
-- 🪟 **托盘常驻**：开机自启、关闭最小化到托盘、启动隐藏到托盘
-- 🛡️ **隐私**：Steam 登录令牌以 Windows DPAPI 加密落盘（非明文）
-- 📋 **日志**：关键事件写入 `%LocalAppData%\MuSync\logs\`（按天滚动），出问题可查
-- 📊 设置内性能监控面板：进程内存 / GC / 缓存占用（每 2 秒自动刷新）
+### 🎮 程序同步
+- **任意程序 → Steam**：游戏（卡拉彼丘等）、工作软件（VS Code）、任何你想展示的东西
+- **智能分类**：内置约 50 个常见程序字典 + 全屏检测，自动判别游戏 / 工作 / 媒体 / 社交等（可手动改）
+- **自动发现**：新程序首次出现即自动进入列表待确认；也可「添加当前前台程序」一键录入
+- **双模式**：`前台时显示`（切走就撤）/ `运行即显示`（挂机也能持续显示）
+- **忽略名单**：系统进程、音乐播放器自动排除；「忽略」类程序在前台时不影响当前状态
+
+### 🎵 多播放器音乐同步
+- 支持 网易云音乐 / QQ 音乐 / LX Music（洛雪）
+- 多播放器自动仲裁：**正在播放的优先**；优先级顺序可在设置中调整，即时生效
+- 音乐 / 程序两套**独立开关**；「暂停时自动隐藏」→ 好友看不到你在挂机
+
+### 🎨 显示自定义（拉满）
+- **积木编辑器**：像搭积木一样拼状态文本——歌名 / 歌手 / 进度条 / 程序名 / 分隔符 / 自定义文字，
+  无限块自由排序，实时预览
+- **模板预设**：一键切换「简洁 / 带前缀（正在玩·正在听）/ 只要名字」
+- **进度条样式**：`█░` `▰▱` `●○` `#-` …… 预设 + 任意字符（emoji 也行）
+- 组合显示、分隔符均可自定义；文本上限 128 字节智能截断
+
+### 📡 Steam 同步（稳字当头）
+- SteamKit2 直连，无需 Steam 客户端在线；断线自动重连（指数退避）+ 令牌自动重登
+- **连接自愈**：TCP 失败自动切换 WebSocket (443)；服务器列表本地持久化（官方接口不可达也能连）；
+  服务器「劝退」时自动换节点重试（最多 4 轮）
+- **真实游戏保护**：检测到你在玩真实 Steam 游戏时自动暂停同步，退出即恢复
+- 令牌 DPAPI 加密落盘；网络波动不会误清登录态
+
+### 🪟 桌面体验
+- 首页双面板：**音乐**（动态跟随当前播放器）+ **程序**，实时显示同步状态
+- 托盘常驻：悬停显示当前状态、右键「暂停同步」一键隐身、开机自启
+- 双击歌曲名打开歌曲页；关键日志本地可查（`%LocalAppData%\MuSync\logs\`）
 
 ## 📥 使用
 
-1. 安装 [.NET 9](https://dotnet.microsoft.com/download/dotnet/9.0)
-2. 运行 `MuSync.exe`，首次启动会弹出 Steam 登录（支持手机令牌 / 邮箱验证码，登录后自动保存会话）
-3. 打开音乐播放器即可自动同步；LX Music 需在设置中启用「开放 API」（设置 → 开放API → 启用服务）
+1. 从 [Releases](https://github.com/ZhaoBuyan/MuSync/releases) 下载 **MuSync.exe**
+   （免安装单文件，**无需安装任何运行时**，双击即用）
+2. 首次启动登录 Steam（支持手机令牌 / 邮箱验证码）。若遇到「异常登录」提示，
+   按登录窗里的指引操作：**手机 Steam App → 选择「Steam 客户端」→ 确认实际所在地**
+3. 打开音乐播放器即可自动同步；LX Music 需在设置中启用「开放 API」
+4. 想让好友看到你在用什么程序：设置 → 程序同步设置 → 打开「同步非游戏应用」
 
 > 与 Steam 客户端同账号共存不会被顶下线（与 ArchiSteamFarm 同为 SteamKit 会话）；
-> 首次登录后，Steam 账号管理里会出现名为 `MuSync` 的设备会话，属正常现象。
+> Steam 账号管理里会出现名为 `MuSync` 的设备会话，属正常现象。
 
 ## 🔨 构建与测试
 
 ```powershell
 dotnet build MuSync.sln -c Release     # 编译
-dotnet test MuSync.sln                  # 运行单元测试
+dotnet test  MuSync.sln                # 单元测试（35 个）
+
+# 免安装单文件发布（内置 .NET 运行时）
+dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
 ```
 
-产物：`bin/Release/net9.0-windows10.0.19041.0/MuSync.exe`
-
-GitHub Actions（`main` 分支 push/PR）会自动构建并上传单文件 Release 产物。
+CI（`main` push / `v*` tag）自动构建双产物：
+`MuSync.exe`（免安装）+ `MuSync-lite.exe`（轻量版，需 .NET 9 运行时）。
 
 ## 🔀 与 yySync 的关系
 
 MuSync 基于 [wuyan1337/yySync](https://github.com/wuyan1337/yySync)（MIT）「半新写」：
-播放器内存逆向实现沿用原项目成果，状态仲裁、断线重连、日志与安全体系均为本项目独立实现。
-相对 yySync 的全部改动见 [CHANGELOG.md](CHANGELOG.md)（0.1.0）。
+仅播放器内存逆向实现沿用原项目成果；连接层、状态仲裁、显示引擎、程序同步、
+配置与安全体系均为本项目独立实现。相对 yySync 的全部改动见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 🗂️ 项目结构
 
 ```
-MuSync.csproj             # 主程序（WinForms 单工程）
-tests/MuSync.Tests/       # xUnit 单元测试
-reference-yySync/         # 上游参考源码（MIT，不参与编译，仅对照）
-Utils/TokenProtector.cs   # DPAPI 令牌加密
+MuSync.csproj                  # 主程序（WinForms）
+MainForm / SettingsForm        # 主界面 / 设置窗口
+AppSyncSettingsForm            # 程序同步设置
+FormatBlockEditorForm          # 积木编辑器
+SteamLoginForm                 # Steam 登录窗口
+Players/                       # 播放器读取（网易云 / QQ / LX Music）
+Utils/                         # 前台检测 / 分类器 / 模板编解码 / 日志 / DPAPI 等
+Models/                        # 数据模型
+Win32Api/                      # Win32 / 进程内存访问
+tests/MuSync.Tests/            # xUnit 单元测试（35 个）
+reference-yySync/              # 上游参考源码（MIT，不参与编译，仅对照）
 ```
 
 ## 🔐 安全与隐私
@@ -61,7 +100,7 @@ Utils/TokenProtector.cs   # DPAPI 令牌加密
 ## 🙏 致谢与许可
 
 MuSync 是 [wuyan1337/yySync](https://github.com/wuyan1337/yySync) 的「半新写」重构版：
-播放器内存逆向实现沿用原项目成果（MIT），代码结构、状态仲裁、重连与日志体系为本项目独立实现。
+播放器内存逆向实现沿用原项目成果（MIT），其余体系为本项目独立实现。
 第三方许可与版权声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 
 本项目以 MIT 协议发布，见 [LICENSE](LICENSE)。
