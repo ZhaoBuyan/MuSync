@@ -2,10 +2,12 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using System.IO;
 using MuSync.Utils;
 using SteamKit2;
 using SteamKit2.Authentication;
 using SteamKit2.Internal;
+using SteamKit2.Discovery;
 namespace MuSync;
 internal class SteamSessionManager : IDisposable
 {
@@ -65,7 +67,15 @@ internal class SteamSessionManager : IDisposable
             // 旧客户端可能处于任意状态，忽略清理异常
         }
         _currentProtocol = protocol;
-        var configuration = SteamConfiguration.Create(builder => builder.WithProtocolTypes(protocol));
+        var configuration = SteamConfiguration.Create(builder =>
+        {
+            builder.WithProtocolTypes(protocol);
+            // 持久化服务器列表：api.steampowered.com 不可达时仍可用缓存列表直连 CM
+            var serverListCachePath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MuSync", "cm-serverlist.json");
+            builder.WithServerListProvider(new FileStorageServerListProvider(serverListCachePath));
+        });
         _steamClient = new SteamClient(configuration);
         var callbackManager = new CallbackManager(_steamClient);
         _callbackManager = callbackManager;
@@ -207,7 +217,7 @@ internal class SteamSessionManager : IDisposable
                 Logger.Error($"[SteamSession] 自动重连异常: {ex.Message}");
             }
             // 等待连接结果（最多约 8 秒）；连上即退出循环，令牌重登由 ConnectedCallback 触发
-            for (var i = 0; i < 16 && !token.IsCancellationRequested && _steamClient?.IsConnected != true; i++)
+            for (var i = 0; i < 30 && !token.IsCancellationRequested && _steamClient?.IsConnected != true; i++)
             {
                 try
                 {
@@ -381,11 +391,13 @@ internal class SteamSessionManager : IDisposable
         _steamUser!.LogOn(logOnDetails);
         var waitResult = await WaitForLogOnResultAsync(logOnDetails, 20);
         if (waitResult == LogOnWaitResult.Success) return true;
-        if (waitResult == LogOnWaitResult.NetworkLost)
+        if (waitResult != LogOnWaitResult.Rejected)
         {
-            // 登录过程中网络断开：保留令牌不清除，等自动重连后再试
+            // 网络断开/超时等非拒绝类失败：保留令牌，等自动重连后再试
+            Logger.Warn($"[SteamSession] 令牌登录未完成 ({waitResult})，保留令牌稍后自动重试");
             return false;
         }
+        // 仅当服务器明确拒绝（如令牌已失效）时才清除
         Debug.WriteLine("[SteamSession] Token 登录失败，清除已保存令牌");
         Logger.Warn("[SteamSession] Token 登录失败，已清除保存的令牌，需要重新登录");
         Configurations.Instance.Settings.SteamRefreshToken = "";
