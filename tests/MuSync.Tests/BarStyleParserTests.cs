@@ -77,6 +77,15 @@ public class BarStyleParserTests
     }
 
     [Fact]
+    public void Parse_ZeroWidthCharacters_AreFiltered()
+    {
+        // 粘贴时混入的零宽字符（ZWSP / BOM）不应干扰解析
+        var (fill, empty) = BarStyleParser.Parse("\u200B❤️\uFEFF💕\u200B");
+        Assert.Equal("❤️", fill);
+        Assert.Equal("💕", empty);
+    }
+
+    [Fact]
     public void Normalize_TakesFirstVisibleTextElement()
     {
         Assert.Equal("❤️", BarStyleParser.Normalize("❤️", "#"));

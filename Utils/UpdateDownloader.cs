@@ -31,6 +31,21 @@ internal static class UpdateDownloader
     private static readonly TimeSpan ReportInterval = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan TransferTimeout = TimeSpan.FromMinutes(30);
 
+    /// <summary>复用的下载 HTTP 客户端（避免每次下载新建连接池）。</summary>
+    private static readonly HttpClient Http = CreateHttpClient();
+
+    private static HttpClient CreateHttpClient()
+    {
+        var handler = new SocketsHttpHandler
+        {
+            // 让连接定期重建，避免长生命周期客户端缓存 DNS 的问题
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+        };
+        var client = new HttpClient(handler) { Timeout = TransferTimeout };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MuSync-UpdateCheck");
+        return client;
+    }
+
     /// <summary>更新包存放目录：%LocalAppData%\MuSync\updates。</summary>
     public static string GetUpdatesDirectory() =>
         Path.Combine(
@@ -75,9 +90,7 @@ internal static class UpdateDownloader
             // 清掉自己上次中断留下的临时文件（只清这一个）
             TryDelete(partPath);
 
-            using var http = new HttpClient { Timeout = TransferTimeout };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("MuSync-UpdateCheck");
-            using var response = await http
+            using var response = await Http
                 .GetAsync(asset.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                 .ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
@@ -118,6 +131,18 @@ internal static class UpdateDownloader
                 {
                     Status = DownloadStatus.Failed,
                     ErrorMessage = "下载文件不完整，请重试"
+                };
+            }
+
+            // 完整性校验：优先用 GitHub 提供的 SHA256 digest（拿不到时仅依赖大小校验）
+            if (!VerifySha256(partPath, asset.Digest))
+            {
+                TryDelete(partPath);
+                Logger.Warn("[Update] 更新包 SHA256 校验不通过，已丢弃（传输损坏或被篡改）");
+                return new DownloadResult
+                {
+                    Status = DownloadStatus.Failed,
+                    ErrorMessage = "文件校验不通过，请重试"
                 };
             }
 
@@ -187,6 +212,36 @@ internal static class UpdateDownloader
         if (!Version.TryParse(body[(marker + 2)..], out var parsed)) return false;
         version = parsed;
         return true;
+    }
+
+    /// <summary>
+    /// 校验文件 SHA256 是否与 GitHub 提供的 digest 一致（格式 "sha256:..."）。
+    /// digest 为空或无法识别时返回 true（跳过校验，由大小校验兜底）。
+    /// </summary>
+    private static bool VerifySha256(string path, string digest)
+    {
+        const string prefix = "sha256:";
+        if (string.IsNullOrEmpty(digest) || !digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var actual = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream));
+            var expected = digest[prefix.Length..].Trim();
+            var match = string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+            if (!match)
+            {
+                Logger.Warn($"[Update] SHA256 不一致：期望 {expected}，实际 {actual}");
+            }
+            return match;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"[Update] SHA256 校验出错（忽略校验）: {ex.Message}");
+            return true;
+        }
     }
 
     private static bool FileSizesMatch(string path, long expected)

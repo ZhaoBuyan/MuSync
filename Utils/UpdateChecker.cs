@@ -19,6 +19,8 @@ internal static class UpdateChecker
         public string Name { get; init; } = "";
         public long Size { get; init; }
         public string DownloadUrl { get; init; } = "";
+        /// <summary>GitHub 提供的完整性摘要（如 "sha256:..."），可能为空。</summary>
+        public string Digest { get; init; } = "";
     }
 
     public sealed class UpdateInfo
@@ -30,13 +32,26 @@ internal static class UpdateChecker
         public IReadOnlyList<UpdateAsset> Assets { get; init; } = [];
     }
 
+    /// <summary>复用的 HTTP 客户端（避免每次检查新建连接池）。</summary>
+    private static readonly HttpClient Http = CreateHttpClient();
+
+    private static HttpClient CreateHttpClient()
+    {
+        var handler = new SocketsHttpHandler
+        {
+            // 让连接定期重建，避免长生命周期客户端缓存 DNS 的问题
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+        };
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MuSync-UpdateCheck");
+        return client;
+    }
+
     public static async Task<UpdateInfo?> CheckAsync()
     {
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("MuSync-UpdateCheck");
-            var json = await http
+            var json = await Http
                 .GetStringAsync("https://api.github.com/repos/ZhaoBuyan/MuSync/releases/latest")
                 .ConfigureAwait(false);
             using var doc = JsonDocument.Parse(json);
@@ -78,8 +93,11 @@ internal static class UpdateChecker
             var size = item.TryGetProperty("size", out var sizeElement) && sizeElement.TryGetInt64(out var parsed)
                 ? parsed
                 : 0;
+            var digest = item.TryGetProperty("digest", out var digestElement)
+                ? digestElement.GetString() ?? ""
+                : "";
             if (name.Length == 0 || url.Length == 0) continue;
-            assets.Add(new UpdateAsset { Name = name, Size = size, DownloadUrl = url });
+            assets.Add(new UpdateAsset { Name = name, Size = size, DownloadUrl = url, Digest = digest });
         }
         return assets;
     }

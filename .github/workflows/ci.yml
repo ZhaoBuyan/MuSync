@@ -30,10 +30,10 @@ jobs:
         run: dotnet test MuSync.sln -c Debug --no-build
 
       - name: Publish Release (self-contained, single file)
-        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish
+        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:PublishReadyToRun=true -o publish
 
       - name: Publish Lite (framework-dependent, single file)
-        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish-lite
+        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:PublishReadyToRun=true -o publish-lite
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -69,6 +69,16 @@ jobs:
 
       - name: Merge lite into dist
         run: mv dist-lite/MuSync.exe dist/MuSync-lite.exe
+
+      - name: Verify tag matches csproj version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' MuSync.csproj | head -1)
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "tag ($TAG) 与 csproj 版本 ($VERSION) 不一致"
+            exit 1
+          fi
+          echo "版本一致: v$VERSION"
 
       - name: Create Release
         run: |

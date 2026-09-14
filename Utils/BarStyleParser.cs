@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 
 namespace MuSync.Utils;
 
@@ -53,7 +54,28 @@ internal static class BarStyleParser
         return string.IsNullOrWhiteSpace(element) ? fallback : element;
     }
 
-    /// <summary>按 Unicode 文本元素切分，过滤纯空白字符（最多扫描 MaxScanElements 个）。</summary>
+    /// <summary>判断一个文本元素是否“不可见”（空白 / 零宽控制字符），用于过滤粘贴时混入的杂质。
+    /// 注意：emoji 序列内部的 ZWJ 会被合并进同一文本元素，不会受此影响。</summary>
+    private static bool IsInvisibleElement(string element)
+    {
+        if (string.IsNullOrWhiteSpace(element)) return true;
+        foreach (var rune in element.EnumerateRunes())
+        {
+            var isInvisible = rune.Value
+                is 0x00AD       // 软连字符
+                or 0x200B       // 零宽空格
+                or 0x200C       // 零宽不连字
+                or 0x200D       // 零宽连接符（孤立出现时）
+                or 0x200E       // LRM
+                or 0x200F       // RLM
+                or 0x2060       // 单词连接符
+                or 0xFEFF;      // BOM / 零宽不换行空格
+            if (!isInvisible) return false;
+        }
+        return true;
+    }
+
+    /// <summary>按 Unicode 文本元素切分，过滤空白与零宽字符（最多扫描 MaxScanElements 个）。</summary>
     private static List<string> SplitVisibleElements(string? text)
     {
         var elements = new List<string>();
@@ -64,7 +86,7 @@ internal static class BarStyleParser
             var element = StringInfo.GetNextTextElement(text, index);
             if (element.Length == 0) break;
             index += element.Length;
-            if (!string.IsNullOrWhiteSpace(element))
+            if (!IsInvisibleElement(element))
             {
                 elements.Add(element);
             }
