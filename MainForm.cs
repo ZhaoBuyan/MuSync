@@ -31,6 +31,11 @@ internal class MainForm : Form
     private string _appIconPath = "";
     private Button _settingsButton = null!;
     private bool _updateBadgeVisible;
+    private GradientDivider? _appSyncDivider;
+
+    /// <summary>面板半透明底色（透出背景图 / 背景色）。</summary>
+    private static readonly Color ActivePanelColor = Color.FromArgb(200, 255, 255, 255);
+    private static readonly Color InactivePanelColor = Color.FromArgb(170, 240, 240, 240);
     private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐", "酷狗音乐"];
     // 播放器品牌色（主界面标题、歌名与面板图标共用）：网易云红 / QQ音乐绿 / 洛雪青绿 / 酷狗蓝
     private static readonly Color[] _playerColors =
@@ -60,6 +65,14 @@ internal class MainForm : Form
     private void InitializeComponent()
     {
         CreatePlayerPanel(0);
+        // 面板之间的渐变分隔线（半透明 → 透明）
+        _appSyncDivider = new GradientDivider
+        {
+            Location = new Point(10, 155),
+            Size = new Size(580, 5)
+        };
+        Controls.Add(_appSyncDivider);
+        _appSyncDivider.BringToFront();
         CreateAppSyncPanel();
         _lastUpdateLabel = new Label
         {
@@ -95,12 +108,12 @@ internal class MainForm : Form
     /// <summary>第 4 面板：程序同步状态。</summary>
     private void CreateAppSyncPanel()
     {
-        var panel = new Panel
+        var panel = new TranslucentPanel
         {
             Size = new Size(580, 155),
             Location = new Point(10, 160),
             BorderStyle = BorderStyle.FixedSingle,
-            BackColor = Color.FromArgb(248, 248, 248)
+            BackColor = InactivePanelColor
         };
         var titleLabel = new Label
         {
@@ -189,12 +202,18 @@ internal class MainForm : Form
         var config = Configurations.Instance.Settings;
         if (rpc == null || !config.AppSyncEnabled)
         {
+            // 未启用程序同步时隐藏整个面板（及分隔线），把主界面让给音乐面板
+            _appSyncPanel.Visible = false;
+            if (_appSyncDivider != null) _appSyncDivider.Visible = false;
             _appNameLabel.Text = "程序同步未启用";
             _appCategoryLabel.Text = "";
             _appStatusLabel.Text = "";
             _appStatusLabel.ForeColor = Color.Gray;
             return;
         }
+        // 启用后恢复显示
+        _appSyncPanel.Visible = true;
+        if (_appSyncDivider != null) _appSyncDivider.Visible = true;
         var display = rpc.GetActiveAppDisplay();
         if (display == null)
         {
@@ -215,12 +234,12 @@ internal class MainForm : Form
     {
         var yOffset = index * 160;
         var playerColor = _playerColors[index];
-        var panel = new Panel
+        var panel = new TranslucentPanel
         {
             Size = new Size(580, 155),
             Location = new Point(10, yOffset),
             BorderStyle = BorderStyle.FixedSingle,
-            BackColor = Color.White
+            BackColor = ActivePanelColor
         };
         var coverPictureBox = new PictureBox
         {
@@ -559,7 +578,7 @@ internal class MainForm : Form
                     _currentCoverUrls[index] = "";
                 }
             }
-            if (_playerPanels[index].BackColor != Color.White) _playerPanels[index].BackColor = Color.White;
+            if (_playerPanels[index].BackColor != ActivePanelColor) _playerPanels[index].BackColor = ActivePanelColor;
             // 标题与歌名颜色：默认跟随播放器品牌色，可在设置→显示→外观中自定义
             var appearance = Configurations.Instance.Settings;
             var accentColor = !appearance.AppearanceTitleFollowPlayer && appearance.AppearanceTitleColorArgb is int customTitleArgb
@@ -607,8 +626,7 @@ internal class MainForm : Form
                 _coverPictureBoxes[index].Image = null;
                 _coverPictureBoxes[index].BackColor = Color.LightGray;
             }
-            var inactiveColor = Color.FromArgb(248, 248, 248);
-            if (_playerPanels[index].BackColor != inactiveColor) _playerPanels[index].BackColor = inactiveColor;
+            if (_playerPanels[index].BackColor != InactivePanelColor) _playerPanels[index].BackColor = InactivePanelColor;
             if (_playerNameLabels[index].ForeColor != Color.Gray) _playerNameLabels[index].ForeColor = Color.Gray;
             _currentSongIds[index] = string.Empty;
             _currentCoverUrls[index] = string.Empty;
@@ -625,7 +643,6 @@ internal class MainForm : Form
         _ => Color.FromArgb(122, 120, 220)
     };
 
-    /// <summary>把强调色调整为“浅色背景上可读”的深色版本（亮黄/亮绿等会被压暗）。</summary>
     /// <summary>应用外观设置（背景色 / 背景图 / 字体）；启动与设置关闭后调用。</summary>
     internal void ApplyAppearance()
     {
@@ -662,6 +679,9 @@ internal class MainForm : Form
                 }
             }
 
+            // 子控件透明化：让半透明面板透出背景（文本/图片不挡底）
+            ApplyChildTransparency();
+
             // 字体（仅在用户显式设置过时应用）
             if (!string.IsNullOrWhiteSpace(settings.AppearanceFontFamily) || settings.AppearanceFontSize > 0)
             {
@@ -675,6 +695,36 @@ internal class MainForm : Form
         catch (Exception e)
         {
             Logger.Warn($"[Appearance] 应用外观失败: {e.Message}");
+        }
+    }
+
+    /// <summary>把面板与状态栏内的文本/图片控件设为透明，透出半透明面板与背景。</summary>
+    private void ApplyChildTransparency()
+    {
+        foreach (var panel in new Control?[] { _playerPanels[0], _appSyncPanel })
+        {
+            if (panel == null) continue;
+            foreach (Control child in panel.Controls)
+            {
+                MakeTransparentRecursive(child);
+            }
+        }
+        _lastUpdateLabel.BackColor = Color.Transparent;
+        _steamStateLabel.BackColor = Color.Transparent;
+    }
+
+    private static void MakeTransparentRecursive(Control control)
+    {
+        if (control is Label or PictureBox or FlowLayoutPanel or Panel)
+        {
+            control.BackColor = Color.Transparent;
+        }
+        if (control.HasChildren)
+        {
+            foreach (Control child in control.Controls)
+            {
+                MakeTransparentRecursive(child);
+            }
         }
     }
 
