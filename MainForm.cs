@@ -29,7 +29,7 @@ internal class MainForm : Form
     private Label _appStatusLabel = null!;
     private PictureBox _appIconBox = null!;
     private string _appIconPath = "";
-    private Button _settingsButton = null!;
+    private FadingButton _settingsButton = null!;
     private bool _updateBadgeVisible;
     private GradientDivider? _appSyncDivider;
     private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐", "酷狗音乐"];
@@ -88,7 +88,6 @@ internal class MainForm : Form
             Font = new Font("Microsoft YaHei", 9)
         };
         _settingsButton.Click += SettingsButton_Click;
-        _settingsButton.Paint += SettingsButton_Paint;
         _steamStateLabel = new Label
         {
             AutoSize = true,
@@ -367,20 +366,13 @@ internal class MainForm : Form
         // 设置关闭后重新应用外观（包含用户在「外观」分组里的修改）
         ApplyAppearance();
     }
-    /// <summary>「设置」按钮右上角的更新红点（替代托盘气泡，安静提示有新版本）。</summary>
-    private void SettingsButton_Paint(object? sender, PaintEventArgs e)
-    {
-        if (!_updateBadgeVisible) return;
-        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        using var brush = new SolidBrush(Color.FromArgb(233, 74, 62));
-        e.Graphics.FillEllipse(brush, _settingsButton.Width - 13, 4, 9, 9);
-    }
-
     private void UpdateUpdateBadge()
     {
         var shouldShow = Program.PendingUpdate != null;
         if (shouldShow == _updateBadgeVisible) return;
         _updateBadgeVisible = shouldShow;
+        // 红点由 FadingButton 自绘（原挂 Paint 事件的方式在自绘按钮上不会触发）
+        _settingsButton.ShowUpdateBadge = shouldShow;
         _settingsButton.Invalidate();
     }
 
