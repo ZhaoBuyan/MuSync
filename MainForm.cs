@@ -83,16 +83,14 @@ internal class MainForm : Form
             Size = new Size(150, 13),
             Text = "最后更新: --:--:--"
         };
-        _settingsButton = new Button
+        _settingsButton = new TranslucentButton
         {
             Text = "设置",
             Size = new Size(75, 30),
             Location = new Point(516, 340),
-            BackColor = Color.White,
+            BackColor = Color.FromArgb(200, 255, 255, 255),
             ForeColor = Color.Black,
-            Font = new Font("Microsoft YaHei", 9),
-            FlatStyle = FlatStyle.Flat,
-            FlatAppearance = { BorderSize = 1 }
+            Font = new Font("Microsoft YaHei", 9)
         };
         _settingsButton.Click += SettingsButton_Click;
         _settingsButton.Paint += SettingsButton_Paint;
@@ -112,7 +110,7 @@ internal class MainForm : Form
         {
             Size = new Size(580, 155),
             Location = new Point(10, 160),
-            BorderStyle = BorderStyle.FixedSingle,
+            BorderStyle = BorderStyle.None,
             BackColor = InactivePanelColor
         };
         var titleLabel = new Label
@@ -238,7 +236,7 @@ internal class MainForm : Form
         {
             Size = new Size(580, 155),
             Location = new Point(10, yOffset),
-            BorderStyle = BorderStyle.FixedSingle,
+            BorderStyle = BorderStyle.None,
             BackColor = ActivePanelColor
         };
         var coverPictureBox = new PictureBox

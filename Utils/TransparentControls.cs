@@ -13,6 +13,20 @@ internal sealed class TranslucentPanel : Panel
     }
 }
 
+/// <summary>支持半透明背景的按钮（Flat 风格，让背景透出来）。</summary>
+internal sealed class TranslucentButton : Button
+{
+    public TranslucentButton()
+    {
+        SetStyle(ControlStyles.SupportsTransparentBackColor, true);
+        FlatStyle = FlatStyle.Flat;
+        FlatAppearance.BorderSize = 1;
+        FlatAppearance.BorderColor = Color.FromArgb(150, 150, 150);
+        UseVisualStyleBackColor = false;
+        Cursor = Cursors.Hand;
+    }
+}
+
 /// <summary>「半透明 → 透明」的横向渐变分隔线。</summary>
 internal sealed class GradientDivider : Control
 {
