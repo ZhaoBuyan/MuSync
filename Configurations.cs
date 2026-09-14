@@ -61,6 +61,8 @@ internal class ConfigData
     /// <summary>进度条填充/空白字符（支持 emoji，各取一个字符）。</summary>
     public string ProgressBarFillChar { get; set; } = "#";
     public string ProgressBarEmptyChar { get; set; } = "-";
+    /// <summary>进度条长度（格数，1~50，默认 10）。</summary>
+    public int ProgressBarLength { get; set; } = 10;
 
     /// <summary>程序同步规则列表。</summary>
     public List<AppRule> Apps { get; set; } = [];

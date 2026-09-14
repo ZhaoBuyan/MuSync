@@ -44,6 +44,7 @@ internal sealed class SettingsForm : Form
     private TextBox _combinedFormatBox = null!;
     private ComboBox _separatorCombo = null!;
     private ComboBox _progressBarStyleCombo = null!;
+    private NumericUpDown _barLengthBox = null!;
     private ComboBox _templatePresetCombo = null!;
     private Label _previewLabel = null!;
     private bool _updatingTemplatePreset;
@@ -334,6 +335,15 @@ internal sealed class SettingsForm : Form
             DropDownStyle = ComboBoxStyle.DropDown
         };
         _progressBarStyleCombo.Items.AddRange(["#-", "█░", "▰▱", "●○", "■□", "▮▯"]);
+        var barLengthLabel = new Label { Text = "长度:", Location = new Point(525, 170), AutoSize = true };
+        _barLengthBox = new NumericUpDown
+        {
+            Location = new Point(568, 166),
+            Width = 72,
+            Minimum = 1,
+            Maximum = 50,
+            Value = 10
+        };
 
         var variablesHint = new Label
         {
@@ -356,6 +366,7 @@ internal sealed class SettingsForm : Form
         _combinedFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
         _separatorCombo.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
         _progressBarStyleCombo.TextChanged += (_, _) => UpdatePreview();
+        _barLengthBox.ValueChanged += (_, _) => UpdatePreview();
 
         templateGroup.Controls.AddRange([
             presetLabel, _templatePresetCombo,
@@ -363,6 +374,7 @@ internal sealed class SettingsForm : Form
             programFormatLabel, _programFormatBox, programBlocksButton,
             combinedFormatLabel, _combinedFormatBox, combinedBlocksButton,
             separatorLabel, _separatorCombo, barStyleLabel, _progressBarStyleCombo,
+            barLengthLabel, _barLengthBox,
             variablesHint, _previewLabel
         ]);
 
@@ -885,7 +897,8 @@ internal sealed class SettingsForm : Form
             CombinedSeparator = NonEmpty(_separatorCombo.Text, "‖"),
             HideMusicWhenPaused = false,
             ProgressBarFillChar = barFill,
-            ProgressBarEmptyChar = barEmpty
+            ProgressBarEmptyChar = barEmpty,
+            ProgressBarLength = (int)_barLengthBox.Value
         };
         var combined = SteamStatusManager.ComposeStatus(dummySong, "卡拉彼丘", previewConfig) ?? "(无)";
         var musicOnly = SteamStatusManager.ComposeStatus(dummySong, null, previewConfig) ?? "(无)";
@@ -917,6 +930,7 @@ internal sealed class SettingsForm : Form
         _combinedFormatBox.Text = settings.CombinedFormat;
         _separatorCombo.Text = settings.CombinedSeparator;
         _progressBarStyleCombo.Text = settings.ProgressBarFillChar + settings.ProgressBarEmptyChar;
+        _barLengthBox.Value = settings.ProgressBarLength is >= 1 and <= 50 ? settings.ProgressBarLength : 10;
         _syncSpeedCombo.SelectedIndex = settings.SyncSpeed switch
         {
             SyncSpeedLevel.Fast => 0,
@@ -962,6 +976,7 @@ internal sealed class SettingsForm : Form
         var (barFill, barEmpty) = BarStyleParser.Parse(_progressBarStyleCombo.Text);
         settings.ProgressBarFillChar = barFill;
         settings.ProgressBarEmptyChar = barEmpty;
+        settings.ProgressBarLength = (int)_barLengthBox.Value;
         settings.SyncSpeed = _syncSpeedCombo.SelectedIndex switch
         {
             0 => SyncSpeedLevel.Fast,

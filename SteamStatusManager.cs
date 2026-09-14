@@ -14,7 +14,6 @@ namespace MuSync;
 internal class SteamStatusManager
 {
     private const int MaxStatusBytes = 128;
-    private const int ProgressBarLength = 10;
     private readonly SteamSessionManager _session;
     private string _lastSetName = string.Empty;
     private bool _manualPause;
@@ -137,16 +136,17 @@ internal class SteamStatusManager
     {
         if (music.Pause) return " (Paused)";
         if (music.Duration <= 0) return "";
+        var barLength = config.ProgressBarLength is >= 1 and <= 50 ? config.ProgressBarLength : 10;
         var sb = new StringBuilder(" [");
         var progress = Math.Clamp(music.Schedule / music.Duration, 0, 1);
-        var filledCount = (int)(progress * ProgressBarLength);
+        var filledCount = (int)(progress * barLength);
         var fill = BarStyleParser.Normalize(config.ProgressBarFillChar, "#");
         var empty = BarStyleParser.Normalize(config.ProgressBarEmptyChar, "-");
         for (var i = 0; i < filledCount; i++)
         {
             sb.Append(fill);
         }
-        for (var i = 0; i < ProgressBarLength - filledCount; i++)
+        for (var i = 0; i < barLength - filledCount; i++)
         {
             sb.Append(empty);
         }
