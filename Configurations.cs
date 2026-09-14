@@ -24,7 +24,9 @@ internal class ConfigData
     public bool AutoStart { get; set; }
     public bool CloseToTray { get; set; } = true;
     public bool StartInTray { get; set; }
+    /// <summary>旧配置兼容字段：显示内容由模板引擎控制，代码不再读取此值。</summary>
     public bool ShowArtistName { get; set; } = true;
+    /// <summary>旧配置兼容字段：显示内容由模板引擎控制，代码不再读取此值。</summary>
     public bool ShowProgressBar { get; set; } = true;
     public bool PauseWhenPlayingGame { get; set; } = true;
     public bool EnableSteamSync { get; set; } = true;
