@@ -175,8 +175,8 @@ internal static class Program
             using var updateForm = new UpdateForm(UpdateChecker.GetCurrentVersionText(), info);
             updateForm.ShowDialog();
         };
-        var showSettingsItem = new ToolStripMenuItem("显示设置");
-        var showMainWindowItem = new ToolStripMenuItem("显示主窗口");
+        var showSettingsItem = new ToolStripMenuItem("设置");
+        var showMainWindowItem = new ToolStripMenuItem("主窗口");
         var exitMenuItem = new ToolStripMenuItem("退出");
         var contextMenu = new ContextMenuStrip();
         contextMenu.Items.AddRange(
