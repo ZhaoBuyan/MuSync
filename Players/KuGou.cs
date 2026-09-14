@@ -2,6 +2,8 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -30,6 +32,7 @@ internal sealed class KuGou : IMusicPlayer
     private readonly Dictionary<nint, double> _lastValues = [];
     private int _candidatesPid = -1;
 
+    private DateTime _lastGrowthUtc = DateTime.UtcNow;
     private string _currentSongId = Guid.NewGuid().ToString();
     private string? _lastTitle;
     private string? _lastArtist;
@@ -38,6 +41,42 @@ internal sealed class KuGou : IMusicPlayer
 
     /// <summary>当前绑定的进程 PID（父级检测到进程更替后据此重建实例）。</summary>
     public int Pid => _pid;
+
+    private static Image? _appIconImage;
+
+    /// <summary>提取酷狗应用图标（作为无封面歌曲的占位图），只提取一次。</summary>
+    public static Image? GetAppIcon()
+    {
+        if (_appIconImage != null) return _appIconImage;
+        try
+        {
+            foreach (var process in Process.GetProcessesByName("KuGou"))
+            {
+                try
+                {
+                    var path = process.MainModule?.FileName;
+                    if (string.IsNullOrEmpty(path) || !File.Exists(path)) continue;
+                    Icon? icon = null;
+                    try { icon = new Icon(path, 128, 128); } catch { }
+                    icon ??= Icon.ExtractAssociatedIcon(path);
+                    if (icon != null)
+                    {
+                        _appIconImage = icon.ToBitmap();
+                        return _appIconImage;
+                    }
+                }
+                catch
+                {
+                    // 跳过访问失败的进程
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"[KuGou] 提取应用图标失败: {e.Message}");
+        }
+        return _appIconImage;
+    }
 
     /// <summary>酷狗主进程：全部 KuGou.exe 中能读到「酷狗音乐」标题窗口的那个。</summary>
     public static Process? FindMainProcess()
@@ -89,10 +128,15 @@ internal sealed class KuGou : IMusicPlayer
             _candidateAddrs.Clear();
             _liveAddrs.Clear();
             _lastValues.Clear();
+            _lastGrowthUtc = DateTime.UtcNow;
         }
 
-        // 3) 内存 → 进度 / 时长 / 是否在增长（增长 = 播放中）
-        var (progress, duration, grew, hadHistory) = await Task.Run(ReadProgressFromMemory);
+        // 3) 内存 → 进度 / 时长（增长时间戳由读取过程更新）
+        var (progress, duration) = await Task.Run(ReadProgressFromMemory);
+
+        // 暂停判定：进度文本是秒级的、轮询比它快，单轮“未增长”不能当作暂停；
+        // 统一用“距最后一次观察到增长的时间”判断，超过 2 秒视为暂停
+        var paused = (DateTime.UtcNow - _lastGrowthUtc).TotalSeconds > 2.0;
 
         return new PlayerInfo
         {
@@ -103,7 +147,7 @@ internal sealed class KuGou : IMusicPlayer
             Cover = string.Empty,
             Schedule = progress,
             Duration = duration,
-            Pause = !grew && hadHistory,
+            Pause = paused,
             Url = string.Empty
         };
     }
@@ -179,18 +223,16 @@ internal sealed class KuGou : IMusicPlayer
 
     // ================= 内存（进度 / 总时长）=================
 
-    private (double Progress, double Duration, bool Grew, bool HadHistory) ReadProgressFromMemory()
+    private (double Progress, double Duration) ReadProgressFromMemory()
     {
-        if (_pid <= 0) return (0, 0, false, false);
+        if (_pid <= 0) return (0, 0);
         try
         {
-            var hadHistory = _lastValues.Count > 0;
-
             // 候选未就绪（首次 / 切歌后）→ 全内存搜索
             if (_candidatesPid != _pid || _candidateAddrs.Count == 0)
             {
                 var found = ScanForProgressStrings();
-                if (found.Count == 0) return (0, 0, false, hadHistory);
+                if (found.Count == 0) return (0, 0);
                 _candidatesPid = _pid;
                 _candidateAddrs.Clear();
                 foreach (var f in found) _candidateAddrs.Add(f.Addr);
@@ -211,15 +253,16 @@ internal sealed class KuGou : IMusicPlayer
                         }
                         _lastValues[r.Addr] = r.Progress;
                     }
+                    if (grewKnown) _lastGrowthUtc = DateTime.UtcNow;
                     var bestKnown = known.MaxBy(r => r.Progress);
-                    return (bestKnown.Progress, bestKnown.Duration, grewKnown, hadHistory);
+                    return (bestKnown.Progress, bestKnown.Duration);
                 }
                 _liveAddrs.Clear();
             }
 
             // 2) 读取全部候选：正在增长的 = 当前歌的副本（历史残留永远静止，以此区分）
             var readings = ReadAll(_candidateAddrs);
-            if (readings.Count == 0) return (0, 0, false, hadHistory);
+            if (readings.Count == 0) return (0, 0);
             var growing = new List<(nint Addr, double Progress, double Duration)>();
             foreach (var r in readings)
             {
@@ -234,18 +277,19 @@ internal sealed class KuGou : IMusicPlayer
             {
                 _liveAddrs.Clear();
                 foreach (var g in growing) _liveAddrs.Add(g.Addr);
+                _lastGrowthUtc = DateTime.UtcNow;
                 var best = growing.MaxBy(g => g.Progress);
-                return (best.Progress, best.Duration, true, hadHistory);
+                return (best.Progress, best.Duration);
             }
 
             // 3) 无增长（首次 / 启动时暂停）→ 兜底取进度最大（下一轮播放即会自愈）
             var fallback = readings.MaxBy(r => r.Progress);
-            return (fallback.Progress, fallback.Duration, false, hadHistory);
+            return (fallback.Progress, fallback.Duration);
         }
         catch (Exception e)
         {
             Debug.WriteLine($"[KuGou] 进度读取失败: {e.Message}");
-            return (0, 0, false, false);
+            return (0, 0);
         }
     }
 

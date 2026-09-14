@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using MuSync.Models;
+using MuSync.Players;
 using MuSync.Utils;
 namespace MuSync;
 internal class MainForm : Form
@@ -30,12 +31,13 @@ internal class MainForm : Form
     private Button _settingsButton = null!;
     private bool _updateBadgeVisible;
     private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐", "酷狗音乐"];
-    private readonly Color[] _playerColors =
+    // 播放器品牌色（主界面标题、歌名与面板图标共用）：网易云红 / QQ音乐绿 / 洛雪青绿 / 酷狗蓝
+    private static readonly Color[] _playerColors =
     [
-        Color.FromArgb(241, 98, 70),
-        Color.FromArgb(217, 215, 23),
-        Color.FromArgb(96, 213, 105),
-        Color.FromArgb(64, 150, 255)
+        Color.FromArgb(211, 58, 49),
+        Color.FromArgb(49, 194, 124),
+        Color.FromArgb(0, 179, 134),
+        Color.FromArgb(47, 110, 224)
     ];
     private readonly string[] _currentSongIds = new string[3];
     private readonly string[] _currentCoverUrls = ["", "", ""];
@@ -534,7 +536,18 @@ internal class MainForm : Form
             else
             {
                 _currentCacheKeys[index] = "";
-                if (_coverPictureBoxes[index].Image != null)
+                // 酷狗不提供封面：用它自己的应用图标作为占位图
+                var kuGouIcon = playerName == "酷狗音乐" ? KuGou.GetAppIcon() : null;
+                if (kuGouIcon != null)
+                {
+                    if (!ReferenceEquals(_coverPictureBoxes[index].Image, kuGouIcon))
+                    {
+                        _coverPictureBoxes[index].BackColor = Color.White;
+                        _coverPictureBoxes[index].Image = kuGouIcon;
+                        _currentCoverUrls[index] = "";
+                    }
+                }
+                else if (_coverPictureBoxes[index].Image != null)
                 {
                     _coverPictureBoxes[index].Image = null;
                     _coverPictureBoxes[index].BackColor = Color.LightGray;
@@ -542,8 +555,13 @@ internal class MainForm : Form
                 }
             }
             if (_playerPanels[index].BackColor != Color.White) _playerPanels[index].BackColor = Color.White;
-            if (_playerNameLabels[index].ForeColor != _playerColors[index])
-                _playerNameLabels[index].ForeColor = _playerColors[index];
+            // 名字与歌名使用该播放器的强调色（歌名过亮时自动压暗，保证白底可读）
+            var accentColor = GetPlayerAccentColor(playerName);
+            if (_playerNameLabels[index].ForeColor != accentColor)
+                _playerNameLabels[index].ForeColor = accentColor;
+            var titleColor = ToReadableTitleColor(accentColor);
+            if (_songTitleLabels[index].ForeColor != titleColor)
+                _songTitleLabels[index].ForeColor = titleColor;
         }
         else
         {
@@ -587,6 +605,28 @@ internal class MainForm : Form
             _currentCacheKeys[index] = string.Empty;
         }
     }
+    /// <summary>播放器强调色（主界面标题与歌名共用，取品牌色）。</summary>
+    private static Color GetPlayerAccentColor(string playerName) => playerName switch
+    {
+        "网易云音乐" => _playerColors[0],
+        "QQ音乐" => _playerColors[1],
+        "LX Music" => _playerColors[2],
+        "酷狗音乐" => _playerColors[3],
+        _ => Color.FromArgb(122, 120, 220)
+    };
+
+    /// <summary>把强调色调整为“浅色背景上可读”的深色版本（亮黄/亮绿等会被压暗）。</summary>
+    private static Color ToReadableTitleColor(Color color)
+    {
+        var luminance = (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) / 255.0;
+        if (luminance <= 0.6) return color;
+        var factor = 0.6 / Math.Max(luminance, 0.001);
+        return Color.FromArgb(
+            (int)(color.R * factor),
+            (int)(color.G * factor),
+            (int)(color.B * factor));
+    }
+
     private async void LoadCoverAsyncWithUniqueKey(int index, string coverUrl, string forceCacheKey)
     {
         try
