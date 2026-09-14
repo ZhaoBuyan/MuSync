@@ -32,10 +32,6 @@ internal class MainForm : Form
     private Button _settingsButton = null!;
     private bool _updateBadgeVisible;
     private GradientDivider? _appSyncDivider;
-
-    /// <summary>面板半透明底色（透出背景图 / 背景色）。</summary>
-    private static readonly Color ActivePanelColor = Color.FromArgb(200, 255, 255, 255);
-    private static readonly Color InactivePanelColor = Color.FromArgb(170, 240, 240, 240);
     private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐", "酷狗音乐"];
     // 播放器品牌色（主界面标题、歌名与面板图标共用）：网易云红 / QQ音乐绿 / 洛雪青绿 / 酷狗蓝
     private static readonly Color[] _playerColors =
@@ -83,12 +79,11 @@ internal class MainForm : Form
             Size = new Size(150, 13),
             Text = "最后更新: --:--:--"
         };
-        _settingsButton = new TranslucentButton
+        _settingsButton = new FadingButton
         {
             Text = "设置",
             Size = new Size(75, 30),
             Location = new Point(516, 340),
-            BackColor = Color.FromArgb(200, 255, 255, 255),
             ForeColor = Color.Black,
             Font = new Font("Microsoft YaHei", 9)
         };
@@ -106,12 +101,11 @@ internal class MainForm : Form
     /// <summary>第 4 面板：程序同步状态。</summary>
     private void CreateAppSyncPanel()
     {
-        var panel = new TranslucentPanel
+        var panel = new FadingBottomPanel
         {
             Size = new Size(580, 155),
             Location = new Point(10, 160),
-            BorderStyle = BorderStyle.None,
-            BackColor = InactivePanelColor
+            BorderStyle = BorderStyle.None
         };
         var titleLabel = new Label
         {
@@ -232,12 +226,11 @@ internal class MainForm : Form
     {
         var yOffset = index * 160;
         var playerColor = _playerColors[index];
-        var panel = new TranslucentPanel
+        var panel = new FadingBottomPanel
         {
             Size = new Size(580, 155),
             Location = new Point(10, yOffset),
-            BorderStyle = BorderStyle.None,
-            BackColor = ActivePanelColor
+            BorderStyle = BorderStyle.None
         };
         var coverPictureBox = new PictureBox
         {
@@ -576,7 +569,6 @@ internal class MainForm : Form
                     _currentCoverUrls[index] = "";
                 }
             }
-            if (_playerPanels[index].BackColor != ActivePanelColor) _playerPanels[index].BackColor = ActivePanelColor;
             // 标题与歌名颜色：默认跟随播放器品牌色，可在设置→显示→外观中自定义
             var appearance = Configurations.Instance.Settings;
             var accentColor = !appearance.AppearanceTitleFollowPlayer && appearance.AppearanceTitleColorArgb is int customTitleArgb
@@ -624,7 +616,6 @@ internal class MainForm : Form
                 _coverPictureBoxes[index].Image = null;
                 _coverPictureBoxes[index].BackColor = Color.LightGray;
             }
-            if (_playerPanels[index].BackColor != InactivePanelColor) _playerPanels[index].BackColor = InactivePanelColor;
             if (_playerNameLabels[index].ForeColor != Color.Gray) _playerNameLabels[index].ForeColor = Color.Gray;
             _currentSongIds[index] = string.Empty;
             _currentCoverUrls[index] = string.Empty;
