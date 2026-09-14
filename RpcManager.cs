@@ -42,6 +42,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     private readonly PlayerState _netEaseState = new();
     private readonly PlayerState _tencentState = new();
     private readonly PlayerState _lxMusicState = new();
+    private readonly PlayerState _kuGouState = new();
     private volatile bool _stateRefreshRequested;
     private bool _realGameActivePreviously;
     private PlayerState? _lastActiveState;
@@ -51,7 +52,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     private string? _activeAppDisplay;
     private string? _activeAppIconPath;
     private DateTime _lastAppCheckTime = DateTime.MinValue;
-    private static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic"];
+    private static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou"];
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
     // 进度条推送间隔：跟随用户档位（快速 0.25s / 标准 0.5s / 省流 1s）
@@ -120,6 +121,14 @@ internal class RpcManager(SteamStatusManager steamManager)
                 "LX Music",
                 _lxMusicState.Player != null,
                 _lxMusicState.LastError
+            ),
+            (
+                _kuGouState is { Player: not null, LastPolledInfo: not null }
+                    ? _kuGouState.LastPolledInfo
+                    : null,
+                "酷狗音乐",
+                _kuGouState.Player != null,
+                _kuGouState.LastError
             )
         ];
     }
@@ -157,6 +166,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         "NetEase" => (_netEaseState, "网易云音乐"),
         "Tencent" => (_tencentState, "QQ音乐"),
         "LxMusic" => (_lxMusicState, "LX Music"),
+        "KuGou" => (_kuGouState, "酷狗音乐"),
         _ => null
     };
 
@@ -317,6 +327,42 @@ internal class RpcManager(SteamStatusManager steamManager)
                 {
                     CleanupPlayerState(_lxMusicState, "LX Music");
                     RecordPollSuccess(_lxMusicState);
+                }
+
+                var kugouProcess = KuGou.FindMainProcess();
+                if (kugouProcess != null)
+                {
+                    anyPlayerActive = true;
+                    // 酷狗重启（进程更替）后重建读取实例
+                    if (_kuGouState.Player is KuGou kuGouPlayer && kuGouPlayer.Pid != kugouProcess.Id)
+                    {
+                        Debug.WriteLine("[KuGou] Player process changed. Recreating instance.");
+                        CleanupPlayerState(_kuGouState, "KuGou");
+                    }
+                    try
+                    {
+                        await PollAndUpdatePlayer(_kuGouState, "KuGou", kugouProcess.Id,
+                            pid => new KuGou(pid), currentTime);
+                        RecordPollSuccess(_kuGouState);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        if (_kuGouState.LastError != ErrorCode.PermissionDenied)
+                        {
+                            Logger.Error("[KuGou] 无权限读取进程内存，可能需要以管理员身份运行。");
+                        }
+                        _kuGouState.LastError = ErrorCode.PermissionDenied;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[KuGou] Error: {ex.Message}");
+                        _kuGouState.LastError = ErrorCode.None;
+                    }
+                }
+                else
+                {
+                    CleanupPlayerState(_kuGouState, "KuGou");
+                    RecordPollSuccess(_kuGouState);
                 }
 
                 // 程序同步：每秒检测前台程序（含自动发现），变化时立即刷新状态
@@ -482,6 +528,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         CleanupPlayerState(_netEaseState, "NetEase CloudMusic");
         CleanupPlayerState(_tencentState, "Tencent QQMusic");
         CleanupPlayerState(_lxMusicState, "LX Music");
+        CleanupPlayerState(_kuGouState, "KuGou");
         _lastActiveState = null;
         _lastActiveInfoNull = true;
         _lastPushedAppDisplay = null;

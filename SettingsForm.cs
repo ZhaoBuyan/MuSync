@@ -70,7 +70,7 @@ internal sealed class SettingsForm : Form
     private readonly Timer _perfTimer = new() { Interval = 2000 };
     private readonly Timer _previewTimer = new() { Interval = 2000 };
 
-    private static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic"];
+    private static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou"];
 
     public SettingsForm()
     {
@@ -222,15 +222,15 @@ internal sealed class SettingsForm : Form
             Text = "优先级从左到右（正在播放的始终优先）："
         };
         priorityGroup.Controls.Add(priorityLabel);
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < 4; i++)
         {
             var combo = new ComboBox
             {
-                Location = new Point(20 + i * 210, 58),
-                Width = 190,
+                Location = new Point(20 + i * 155, 58),
+                Width = 145,
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
-            combo.Items.AddRange(["网易云音乐", "QQ音乐", "LX Music"]);
+            combo.Items.AddRange(["网易云音乐", "QQ音乐", "LX Music", "酷狗音乐"]);
             combo.SelectedIndexChanged += (_, _) => ApplyPriorityFromCombos();
             _playerPriorityCombos.Add(combo);
             priorityGroup.Controls.Add(combo);
@@ -745,7 +745,7 @@ internal sealed class SettingsForm : Form
     private void LoadPriorityCombos()
     {
         _updatingPriorityCombos = true;
-        var order = (Configurations.Instance.Settings.PlayerPriority ?? []).Concat(PlayerOrderKeys).Distinct().Take(3).ToList();
+        var order = (Configurations.Instance.Settings.PlayerPriority ?? []).Concat(PlayerOrderKeys).Distinct().Take(4).ToList();
         for (var i = 0; i < _playerPriorityCombos.Count; i++)
         {
             var index = Array.IndexOf(PlayerOrderKeys, order[i]);

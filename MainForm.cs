@@ -29,12 +29,13 @@ internal class MainForm : Form
     private string _appIconPath = "";
     private Button _settingsButton = null!;
     private bool _updateBadgeVisible;
-    private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐"];
+    private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐", "酷狗音乐"];
     private readonly Color[] _playerColors =
     [
         Color.FromArgb(241, 98, 70),
         Color.FromArgb(217, 215, 23),
-        Color.FromArgb(96, 213, 105)
+        Color.FromArgb(96, 213, 105),
+        Color.FromArgb(64, 150, 255)
     ];
     private readonly string[] _currentSongIds = new string[3];
     private readonly string[] _currentCoverUrls = ["", "", ""];
@@ -440,6 +441,7 @@ internal class MainForm : Form
                 "网易云音乐" => _playerColors[0],
                 "QQ音乐" => _playerColors[1],
                 "LX Music" => _playerColors[2],
+                "酷狗音乐" => _playerColors[3],
                 _ => Color.FromArgb(122, 120, 220)
             };
         }
