@@ -86,24 +86,24 @@ internal sealed class UpdateForm : Form
         _actionButton = new Button
         {
             Text = "下载更新",
-            Location = new Point(185, 402),
-            Size = new Size(110, 32),
+            Location = new Point(188, 402),
+            Size = new Size(125, 32),
             BackColor = Color.White
         };
         _actionButton.Click += ActionButton_Click;
         _browserButton = new Button
         {
             Text = "在浏览器中打开",
-            Location = new Point(300, 402),
-            Size = new Size(110, 32),
+            Location = new Point(319, 402),
+            Size = new Size(105, 32),
             BackColor = Color.White
         };
         _browserButton.Click += (_, _) => OpenInBrowser();
         var closeButton = new Button
         {
             Text = "稍后",
-            Location = new Point(415, 402),
-            Size = new Size(110, 32),
+            Location = new Point(430, 402),
+            Size = new Size(95, 32),
             BackColor = Color.White
         };
         closeButton.Click += (_, _) => Close();
@@ -137,7 +137,7 @@ internal sealed class UpdateForm : Form
                 _cts?.Cancel();
                 break;
             case DownloadState.Done:
-                OpenContainingFolder();
+                ExitAndOpenFolders();
                 break;
         }
     }
@@ -212,13 +212,13 @@ internal sealed class UpdateForm : Form
     private void SetDoneState(bool alreadyExisted)
     {
         _state = DownloadState.Done;
-        _actionButton.Text = "打开新旧文件夹";
+        _actionButton.Text = "退出并打开文件夹";
         _actionButton.Enabled = true;
         _browserButton.Enabled = true;
         _progressBar.Visible = false;
         var prefix = alreadyExisted ? "更新包已在本地：" : "已下载：";
         SetStatus(
-            $"{prefix}{Path.GetFileName(_packagePath)}\n替换方法：退出 MuSync（托盘右键 → 退出），用新文件替换旧程序。",
+            $"{prefix}{Path.GetFileName(_packagePath)}\n点「退出并打开文件夹」→ 拖过去替换旧程序即可。",
             Color.Green);
     }
 
@@ -226,6 +226,21 @@ internal sealed class UpdateForm : Form
     {
         _statusLabel.Text = text;
         _statusLabel.ForeColor = color;
+    }
+
+    /// <summary>二次确认后：打开新旧两个文件夹，然后退出程序，让用户直接做替换。</summary>
+    private void ExitAndOpenFolders()
+    {
+        var result = MessageBox.Show(
+            this,
+            "MuSync 将退出，并打开新包与程序所在的两个文件夹。\n替换完成后，双击新版程序即可继续使用。",
+            "退出并替换",
+            MessageBoxButtons.OKCancel,
+            MessageBoxIcon.Question);
+        if (result != DialogResult.OK) return;
+        OpenContainingFolder();
+        Logger.Info("[Update] 用户选择退出并打开替换文件夹");
+        Application.Exit();
     }
 
     /// <summary>同时打开「新包所在文件夹」和「当前程序所在文件夹」（各自选中文件），方便拖拽替换。</summary>
