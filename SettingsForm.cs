@@ -1,411 +1,857 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
+using System.Text;
 using System.Windows.Forms;
+using MuSync.Models;
 using MuSync.Utils;
-using Button = System.Windows.Forms.Button;
+
 namespace MuSync;
-internal class SettingsForm : Form
+
+/// <summary>
+/// 统一设置窗口（单窗五页：常规 / 同步 / 显示 / 程序 / 诊断）。
+/// 所有设置条目平铺在标签页中，不再有"设置里的设置"。
+/// </summary>
+internal sealed class SettingsForm : Form
 {
-    private readonly ConfigData _originalSettings;
-    private CheckBox? _autoStartCheckBox;
-    private CheckBox? _closeToTrayCheckBox;
-    private CheckBox? _startInTrayCheckBox;
-    private CheckBox? _allowWebSocketFallbackCheckBox;
-    private CheckBox? _showArtistNameCheckBox;
-    private CheckBox? _showProgressBarCheckBox;
-    private CheckBox? _pauseWhenPlayingGameCheckBox;
-    private CheckBox? _enableSteamSyncCheckBox;
-    private Label? _steamStatusPreviewLabel;
-    private Button? _okButton;
-    private Button? _cancelButton;
-    private Button? _applyButton;
+    // —— 常规页 ——
+    private CheckBox _autoStartCheckBox = null!;
+    private CheckBox _closeToTrayCheckBox = null!;
+    private CheckBox _startInTrayCheckBox = null!;
+    private CheckBox _allowWebSocketFallbackCheckBox = null!;
+    private Label _accountStatusLabel = null!;
+    private Button _loginButton = null!;
+    private Button _logoutButton = null!;
+
+    // —— 同步页 ——
+    private CheckBox _enableSteamSyncCheckBox = null!;
+    private CheckBox _musicSyncCheckBox = null!;
+    private CheckBox _hidePausedMusicCheckBox = null!;
+    private CheckBox _enableAppSyncCheckBox = null!;
+    private CheckBox _syncNonGameCheckBox = null!;
+    private CheckBox _pauseWhenPlayingGameCheckBox = null!;
+    private readonly List<ComboBox> _playerPriorityCombos = [];
+    private bool _updatingPriorityCombos;
+    private List<int> _lastPrioritySelection = [0, 1, 2];
+
+    // —— 显示页 ——
+    private TextBox _musicFormatBox = null!;
+    private TextBox _programFormatBox = null!;
+    private TextBox _combinedFormatBox = null!;
+    private ComboBox _separatorCombo = null!;
+    private ComboBox _progressBarStyleCombo = null!;
+    private ComboBox _templatePresetCombo = null!;
+    private Label _previewLabel = null!;
+    private bool _updatingTemplatePreset;
+
+    // —— 程序页 ——
+    private DataGridView _rulesGrid = null!;
+    private readonly List<AppRule> _rules = [];
+    private TextBox _aiEndpointBox = null!;
+    private TextBox _aiKeyBox = null!;
+    private TextBox _aiModelBox = null!;
+
+    // —— 诊断页 ——
+    private Label _memoryInfoLabel = null!;
+    private Label _versionLabel = null!;
+
+    // —— 底部按钮 ——
+    private Button _okButton = null!;
+    private Button _cancelButton = null!;
+    private Button _applyButton = null!;
+
+    // —— 定时器 ——
+    private readonly Timer _perfTimer = new() { Interval = 2000 };
+    private readonly Timer _previewTimer = new() { Interval = 2000 };
+
+    private static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic"];
+
     public SettingsForm()
     {
-        _originalSettings = Configurations.Instance.Settings;
         InitializeComponent();
         LoadSettings();
     }
+
     private void InitializeComponent()
     {
         Text = "设置 - MuSync";
-        Size = new Size(480, 550);
+        Size = new Size(700, 660);
         StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         MinimizeBox = false;
-        ShowInTaskbar = false;
+        Font = new Font("Microsoft YaHei", 9);
         BackColor = Color.White;
-        var scrollPanel = new Panel
+
+        // ================= 底部按钮 =================
+        var buttonPanel = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 52,
+            BackColor = Color.White
+        };
+        _okButton = CreateDialogButton("确定", 400);
+        _okButton.Click += (_, _) =>
+        {
+            SaveSettings();
+            Close();
+        };
+        _cancelButton = CreateDialogButton("取消", 488);
+        _cancelButton.Click += (_, _) => Close();
+        _applyButton = CreateDialogButton("应用", 576);
+        _applyButton.Click += (_, _) => SaveSettings();
+        buttonPanel.Controls.AddRange([_okButton, _cancelButton, _applyButton]);
+
+        // ================= Tab 容器 =================
+        var tabs = new TabControl
         {
             Dock = DockStyle.Fill,
-            AutoScroll = true,
-            BackColor = Color.White
+            Padding = new Point(14, 6)
         };
-        var yOffset = 10;
-        var programGroupBox = CreateProgramSettingsGroup(ref yOffset);
-        scrollPanel.Controls.Add(programGroupBox);
-        var steamDisplayGroupBox = CreateSteamDisplaySettingsGroup(ref yOffset);
-        scrollPanel.Controls.Add(steamDisplayGroupBox);
-        var previewGroupBox = CreateSteamPreviewGroup(ref yOffset);
-        scrollPanel.Controls.Add(previewGroupBox);
-        var performanceGroupBox = CreatePerformanceGroup(ref yOffset);
-        scrollPanel.Controls.Add(performanceGroupBox);
-        scrollPanel.Controls.Add(new Label { Location = new Point(0, yOffset), Size = new Size(1, 60) });
-        var buttonPanel = CreateButtonPanelControl();
-        Controls.Add(buttonPanel);
-        Controls.Add(scrollPanel);
+        tabs.TabPages.Add(CreateGeneralPage());
+        tabs.TabPages.Add(CreateSyncPage());
+        tabs.TabPages.Add(CreateDisplayPage());
+        tabs.TabPages.Add(CreateAppsPage());
+        tabs.TabPages.Add(CreateDiagnosticsPage());
+
+        Controls.AddRange([tabs, buttonPanel]);
+
+        _perfTimer.Tick += (_, _) =>
+        {
+            RefreshMemoryInfo();
+            UpdateAccountStatus();
+        };
+        _perfTimer.Start();
+        _previewTimer.Tick += (_, _) => UpdatePreview();
+        _previewTimer.Start();
+
+        FormClosed += (_, _) =>
+        {
+            _perfTimer.Dispose();
+            _previewTimer.Dispose();
+        };
     }
-    private int GetHorizontalCenterOffset(int controlWidth)
+
+    private Button CreateDialogButton(string text, int x)
     {
-        return (ClientSize.Width - 20 - controlWidth) / 2;
+        var button = new Button
+        {
+            Text = text,
+            Location = new Point(x, 12),
+            Size = new Size(80, 28),
+            BackColor = Color.White
+        };
+        return button;
     }
-    private GroupBox CreateProgramSettingsGroup(ref int yOffset)
+
+    // ================= 常规页 =================
+    private TabPage CreateGeneralPage()
     {
-        var groupBox = new GroupBox
+        var page = new TabPage("常规") { BackColor = Color.White };
+
+        var startupGroup = CreateGroupBox("启动与托盘", 10, 10, 650, 150);
+        _autoStartCheckBox = CreateCheckBox("开机自启", 20, 30);
+        _closeToTrayCheckBox = CreateCheckBox("关闭窗口时隐藏到托盘", 20, 62);
+        _startInTrayCheckBox = CreateCheckBox("启动时隐藏到托盘", 20, 94);
+        startupGroup.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox]);
+
+        var networkGroup = CreateGroupBox("网络", 10, 172, 650, 72);
+        _allowWebSocketFallbackCheckBox = CreateCheckBox("TCP 连接失败时自动用 WebSocket (443) 重试", 20, 28);
+        networkGroup.Controls.AddRange([_allowWebSocketFallbackCheckBox]);
+
+        var accountGroup = CreateGroupBox("Steam 账户", 10, 256, 650, 125);
+        _accountStatusLabel = new Label
         {
-            Text = "程序设置",
-            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
-            Size = new Size(410, 138),
-            BackColor = Color.White
-        };
-        yOffset += 148;
-        _autoStartCheckBox = new CheckBox
-        {
-            Text = "开机自启",
-            Location = new Point(15, 25),
             AutoSize = true,
-            BackColor = Color.White
-        };
-        _closeToTrayCheckBox = new CheckBox
-        {
-            Text = "关闭窗口时隐藏到托盘",
-            Location = new Point(15, 50),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        _startInTrayCheckBox = new CheckBox
-        {
-            Text = "启动时隐藏到托盘",
-            Location = new Point(15, 75),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        _allowWebSocketFallbackCheckBox = new CheckBox
-        {
-            Text = "TCP 失败时用 WebSocket 重试",
-            Location = new Point(200, 75),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        var appSyncButton = new Button
-        {
-            Text = "程序同步设置...",
-            Location = new Point(15, 103),
-            Size = new Size(130, 26),
-            BackColor = Color.White,
-            Font = new Font("Microsoft YaHei", 9)
-        };
-        appSyncButton.Click += (_, _) =>
-        {
-            using var appSettingsForm = new AppSyncSettingsForm();
-            appSettingsForm.ShowDialog(this);
-        };
-        groupBox.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox, _allowWebSocketFallbackCheckBox, appSyncButton]);
-        return groupBox;
-    }
-    private GroupBox CreateSteamDisplaySettingsGroup(ref int yOffset)
-    {
-        var groupBox = new GroupBox
-        {
-            Text = "Steam 显示设置",
-            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
-            Size = new Size(410, 235),  
-            BackColor = Color.White
-        };
-        yOffset += 245;  
-        _enableSteamSyncCheckBox = new CheckBox
-        {
-            Text = "启用 Steam 同步",
-            Location = new Point(15, 25),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        _showArtistNameCheckBox = new CheckBox
-        {
-            Text = "显示歌手名称",
-            Location = new Point(15, 80),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        _showProgressBarCheckBox = new CheckBox
-        {
-            Text = "显示进度条 (▰▰▰▱▱▱ 2:30/4:15)",
-            Location = new Point(15, 105),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        _showProgressBarCheckBox.CheckedChanged += (_, _) => UpdatePreview();
-        _showArtistNameCheckBox.CheckedChanged += (_, _) => UpdatePreview();
-        _pauseWhenPlayingGameCheckBox = new CheckBox
-        {
-            Text = "正在玩真实 Steam 游戏时，自动暂停音乐同步",
-            Location = new Point(15, 170),
-            AutoSize = true,
-            BackColor = Color.White
-        };
-        groupBox.Controls.AddRange([
-            _pauseWhenPlayingGameCheckBox,
-            _enableSteamSyncCheckBox, 
-            _showArtistNameCheckBox, 
-            _showProgressBarCheckBox,
-        ]);
-        return groupBox;
-    }
-    private GroupBox CreateSteamPreviewGroup(ref int yOffset)
-    {
-        var groupBox = new GroupBox
-        {
-            Text = "Steam 状态预览",
-            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
-            Size = new Size(410, 80),
-            BackColor = Color.White
-        };
-        yOffset += 90;
-        var prefixLabel = new Label
-        {
-            Text = "好友看到：",
-            Location = new Point(15, 28),
-            AutoSize = true,
-            BackColor = Color.White,
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 9)
-        };
-        _steamStatusPreviewLabel = new Label
-        {
-            Text = "🎵 稻香 - 周杰伦 ▰▰▰▰▰▱▱▱▱▱ 2:30/4:15",
-            Location = new Point(15, 48),
-            Size = new Size(380, 20),
-            BackColor = Color.FromArgb(240, 240, 240),
-            ForeColor = Color.FromArgb(50, 50, 50),
-            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-            Padding = new Padding(5, 2, 5, 2)
-        };
-        groupBox.Controls.AddRange([prefixLabel, _steamStatusPreviewLabel]);
-        return groupBox;
-    }
-    private GroupBox CreatePerformanceGroup(ref int yOffset)
-    {
-        var groupBox = new GroupBox
-        {
-            Text = "性能监控",
-            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
-            Size = new Size(410, 150),
-            BackColor = Color.White
-        };
-        yOffset += 160;
-        var memoryLabel = new Label
-        {
-            Text = "内存使用情况:",
-            Location = new Point(15, 25),
-            AutoSize = true,
-            BackColor = Color.White,
-            Font = new Font("Microsoft YaHei", 9, FontStyle.Bold)
-        };
-        var memoryInfoLabel = new Label
-        {
-            Name = "memoryInfoLabel",
-            Text = "点击刷新查看当前内存使用情况",
-            Location = new Point(15, 45),
-            Size = new Size(380, 64),
-            BackColor = Color.White,
+            Location = new Point(20, 30),
+            Text = "状态检查中…",
             ForeColor = Color.Gray
+        };
+        _loginButton = new Button
+        {
+            Text = "重新登录",
+            Location = new Point(20, 66),
+            Size = new Size(110, 30),
+            BackColor = Color.White
+        };
+        _loginButton.Click += LoginButton_Click;
+        _logoutButton = new Button
+        {
+            Text = "退出登录",
+            Location = new Point(145, 66),
+            Size = new Size(110, 30),
+            BackColor = Color.White,
+            ForeColor = Color.Red
+        };
+        _logoutButton.Click += LogoutButton_Click;
+        accountGroup.Controls.AddRange([_accountStatusLabel, _loginButton, _logoutButton]);
+
+        page.Controls.AddRange([startupGroup, networkGroup, accountGroup]);
+        return page;
+    }
+
+    // ================= 同步页 =================
+    private TabPage CreateSyncPage()
+    {
+        var page = new TabPage("同步") { BackColor = Color.White };
+
+        var switchGroup = CreateGroupBox("同步开关", 10, 10, 650, 160);
+        _enableSteamSyncCheckBox = CreateCheckBox("启用 Steam 同步（总开关）", 20, 32);
+        _musicSyncCheckBox = CreateCheckBox("启用音乐同步", 20, 66);
+        _hidePausedMusicCheckBox = CreateCheckBox("音乐暂停时不在状态中显示", 20, 100);
+        _enableAppSyncCheckBox = CreateCheckBox("启用程序同步", 340, 32);
+        _syncNonGameCheckBox = CreateCheckBox("同步非游戏应用", 340, 66);
+        _pauseWhenPlayingGameCheckBox = CreateCheckBox("玩真实 Steam 游戏时自动暂停", 340, 100);
+        switchGroup.Controls.AddRange([
+            _enableSteamSyncCheckBox, _musicSyncCheckBox, _hidePausedMusicCheckBox,
+            _enableAppSyncCheckBox, _syncNonGameCheckBox, _pauseWhenPlayingGameCheckBox
+        ]);
+
+        var priorityGroup = CreateGroupBox("音乐播放器优先级", 10, 182, 650, 100);
+        var priorityLabel = new Label
+        {
+            AutoSize = true,
+            Location = new Point(20, 32),
+            Text = "优先级从左到右（正在播放的始终优先）："
+        };
+        priorityGroup.Controls.Add(priorityLabel);
+        for (var i = 0; i < 3; i++)
+        {
+            var combo = new ComboBox
+            {
+                Location = new Point(20 + i * 210, 58),
+                Width = 190,
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            combo.Items.AddRange(["网易云音乐", "QQ音乐", "LX Music"]);
+            combo.SelectedIndexChanged += (_, _) => ApplyPriorityFromCombos();
+            _playerPriorityCombos.Add(combo);
+            priorityGroup.Controls.Add(combo);
+        }
+
+        page.Controls.AddRange([switchGroup, priorityGroup]);
+        return page;
+    }
+
+    // ================= 显示页 =================
+    private TabPage CreateDisplayPage()
+    {
+        var page = new TabPage("显示") { BackColor = Color.White };
+
+        var templateGroup = CreateGroupBox("状态文本模板", 10, 10, 650, 330);
+
+        var presetLabel = new Label { Text = "模板预设:", Location = new Point(20, 34), AutoSize = true };
+        _templatePresetCombo = new ComboBox
+        {
+            Location = new Point(95, 30),
+            Width = 220,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _templatePresetCombo.Items.AddRange(["自定义", "简洁（默认）", "带前缀：正在玩 / 正在听", "只要名字"]);
+        _templatePresetCombo.SelectedIndexChanged += (_, _) => ApplyTemplatePreset(_templatePresetCombo.SelectedIndex);
+
+        var musicFormatLabel = new Label { Text = "音乐格式:", Location = new Point(20, 70), AutoSize = true };
+        _musicFormatBox = new TextBox { Location = new Point(95, 66), Width = 440 };
+        var musicBlocksButton = new Button
+        {
+            Text = "积木",
+            Location = new Point(545, 65),
+            Size = new Size(85, 26),
+            BackColor = Color.White
+        };
+        musicBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Music, _musicFormatBox);
+
+        var programFormatLabel = new Label { Text = "程序格式:", Location = new Point(20, 102), AutoSize = true };
+        _programFormatBox = new TextBox { Location = new Point(95, 98), Width = 440 };
+        var programBlocksButton = new Button
+        {
+            Text = "积木",
+            Location = new Point(545, 97),
+            Size = new Size(85, 26),
+            BackColor = Color.White
+        };
+        programBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Program, _programFormatBox);
+
+        var combinedFormatLabel = new Label { Text = "组合格式:", Location = new Point(20, 134), AutoSize = true };
+        _combinedFormatBox = new TextBox { Location = new Point(95, 130), Width = 440 };
+        var combinedBlocksButton = new Button
+        {
+            Text = "积木",
+            Location = new Point(545, 129),
+            Size = new Size(85, 26),
+            BackColor = Color.White
+        };
+        combinedBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Combined, _combinedFormatBox);
+
+        var separatorLabel = new Label { Text = "分隔符:", Location = new Point(20, 170), AutoSize = true };
+        _separatorCombo = new ComboBox
+        {
+            Location = new Point(95, 166),
+            Width = 120,
+            DropDownStyle = ComboBoxStyle.DropDown
+        };
+        _separatorCombo.Items.AddRange(["‖", " | ", " · ", " — ", " ~ ", " + "]);
+
+        var barStyleLabel = new Label { Text = "进度条样式:", Location = new Point(250, 170), AutoSize = true };
+        _progressBarStyleCombo = new ComboBox
+        {
+            Location = new Point(350, 166),
+            Width = 160,
+            DropDownStyle = ComboBoxStyle.DropDown
+        };
+        _progressBarStyleCombo.Items.AddRange(["#-", "█░", "▰▱", "●○", "■□", "▮▯"]);
+
+        var variablesHint = new Label
+        {
+            AutoSize = true,
+            Location = new Point(20, 200),
+            ForeColor = Color.Gray,
+            Font = new Font("Microsoft YaHei", 8),
+            Text = "变量：{app} 程序名｜{song} 歌名｜{artist} 歌手｜{artistPart} 自动连接符的歌手｜{progress} 进度｜{sep} 分隔符"
+        };
+
+        _previewLabel = new Label
+        {
+            Location = new Point(20, 228),
+            Size = new Size(610, 88),
+            ForeColor = Color.FromArgb(0, 102, 51)
+        };
+
+        _musicFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
+        _programFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
+        _combinedFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
+        _separatorCombo.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
+        _progressBarStyleCombo.TextChanged += (_, _) => UpdatePreview();
+
+        templateGroup.Controls.AddRange([
+            presetLabel, _templatePresetCombo,
+            musicFormatLabel, _musicFormatBox, musicBlocksButton,
+            programFormatLabel, _programFormatBox, programBlocksButton,
+            combinedFormatLabel, _combinedFormatBox, combinedBlocksButton,
+            separatorLabel, _separatorCombo, barStyleLabel, _progressBarStyleCombo,
+            variablesHint, _previewLabel
+        ]);
+
+        page.Controls.AddRange([templateGroup]);
+        return page;
+    }
+
+    // ================= 程序页 =================
+    private TabPage CreateAppsPage()
+    {
+        var page = new TabPage("程序") { BackColor = Color.White };
+
+        BuildRulesGrid();
+        _rulesGrid.Location = new Point(10, 10);
+
+        var addCurrentButton = new Button
+        {
+            Text = "添加当前前台程序",
+            Location = new Point(10, 288),
+            Size = new Size(150, 28),
+            BackColor = Color.White
+        };
+        addCurrentButton.Click += AddCurrentButton_Click;
+        var removeButton = new Button
+        {
+            Text = "删除选中",
+            Location = new Point(170, 288),
+            Size = new Size(110, 28),
+            BackColor = Color.White
+        };
+        removeButton.Click += RemoveButton_Click;
+
+        var aiGroup = CreateGroupBox("AI 分类辅助（预留，需自备 API）", 10, 328, 650, 150);
+        var endpointLabel = new Label { Text = "API 地址:", Location = new Point(20, 34), AutoSize = true };
+        _aiEndpointBox = new TextBox { Location = new Point(110, 30), Width = 520 };
+        var keyLabel = new Label { Text = "API Key:", Location = new Point(20, 68), AutoSize = true };
+        _aiKeyBox = new TextBox { Location = new Point(110, 64), Width = 520, UseSystemPasswordChar = true };
+        var modelLabel = new Label { Text = "模型:", Location = new Point(20, 102), AutoSize = true };
+        _aiModelBox = new TextBox { Location = new Point(110, 98), Width = 520 };
+        aiGroup.Controls.AddRange([endpointLabel, _aiEndpointBox, keyLabel, _aiKeyBox, modelLabel, _aiModelBox]);
+
+        page.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton, aiGroup]);
+        return page;
+    }
+
+    // ================= 诊断页 =================
+    private TabPage CreateDiagnosticsPage()
+    {
+        var page = new TabPage("诊断") { BackColor = Color.White };
+
+        var memoryGroup = CreateGroupBox("性能监控", 10, 10, 650, 180);
+        _memoryInfoLabel = new Label
+        {
+            Location = new Point(20, 30),
+            Size = new Size(610, 100),
+            Text = "读取中…"
         };
         var refreshButton = new Button
         {
             Text = "刷新内存信息",
-            Location = new Point(15, 112),
-            Size = new Size(100, 25),
-            BackColor = Color.White,
-            Font = new Font("Microsoft YaHei", 8)
+            Location = new Point(20, 132),
+            Size = new Size(120, 28),
+            BackColor = Color.White
         };
-        refreshButton.Click += RefreshMemoryInfo_Click;
-        // 面板每 2 秒自动刷新，无需手动点击
-        var perfRefreshTimer = new Timer { Interval = 2000 };
-        perfRefreshTimer.Tick += (_, _) => RefreshMemoryInfo_Click(null, EventArgs.Empty);
-        FormClosed += (_, _) => perfRefreshTimer.Dispose();
-        perfRefreshTimer.Start();
-        groupBox.Controls.AddRange([memoryLabel, memoryInfoLabel, refreshButton]);
-        return groupBox;
+        refreshButton.Click += (_, _) => RefreshMemoryInfo();
+        memoryGroup.Controls.AddRange([_memoryInfoLabel, refreshButton]);
+
+        var toolGroup = CreateGroupBox("诊断工具", 10, 202, 650, 180);
+        var openLogsButton = new Button
+        {
+            Text = "打开日志文件夹",
+            Location = new Point(20, 34),
+            Size = new Size(140, 30),
+            BackColor = Color.White
+        };
+        openLogsButton.Click += (_, _) => OpenLogsFolder();
+        var logsHint = new Label
+        {
+            AutoSize = true,
+            Location = new Point(175, 41),
+            ForeColor = Color.Gray,
+            Text = "遇到问题时，把这里最新日期的日志文件发给开发者"
+        };
+        _versionLabel = new Label
+        {
+            AutoSize = true,
+            Location = new Point(20, 90),
+            Text = "版本：-"
+        };
+        toolGroup.Controls.AddRange([openLogsButton, logsHint, _versionLabel]);
+
+        page.Controls.AddRange([memoryGroup, toolGroup]);
+        return page;
     }
-    private Panel CreateButtonPanelControl()
+
+    // ================= 控件工具 =================
+    private static GroupBox CreateGroupBox(string text, int x, int y, int width, int height)
     {
-        var buttonPanel = new Panel
+        return new GroupBox
         {
-            Dock = DockStyle.Bottom,
-            Height = 60,
-            BackColor = Color.FromArgb(245, 245, 245),
-            Padding = new Padding(0, 5, 0, 0)
-        };
-        const int buttonWidth = 80;
-        const int buttonHeight = 30;
-        const int spacing = 10;
-        var logoutButton = new Button
-        {
-            Text = "退出登录",
-            Size = new Size(buttonWidth, buttonHeight),
-            Location = new Point(15, 10),
-            BackColor = Color.White,
-            ForeColor = Color.Red
-        };
-        logoutButton.Click += LogoutButton_Click;
-        var loginButton = new Button
-        {
-            Text = "重新登录",
-            Size = new Size(buttonWidth, buttonHeight),
-            Location = new Point(15 + buttonWidth + spacing, 10),
+            Text = text,
+            Location = new Point(x, y),
+            Size = new Size(width, height),
             BackColor = Color.White
         };
-        loginButton.Click += LoginButton_Click;
-        const int rightTotalWidth = buttonWidth * 3 + spacing * 2;
-        var rightStartX = ClientSize.Width - rightTotalWidth - 20;
-        _okButton = new Button
-        {
-            Text = "确定",
-            Size = new Size(buttonWidth, buttonHeight),
-            Location = new Point(rightStartX, 10),
-            DialogResult = DialogResult.OK,
-            BackColor = Color.White
-        };
-        _cancelButton = new Button
-        {
-            Text = "取消",
-            Size = new Size(buttonWidth, buttonHeight),
-            Location = new Point(rightStartX + buttonWidth + spacing, 10),
-            DialogResult = DialogResult.Cancel,
-            BackColor = Color.White
-        };
-        _applyButton = new Button
-        {
-            Text = "应用",
-            Size = new Size(buttonWidth, buttonHeight),
-            Location = new Point(rightStartX + (buttonWidth + spacing) * 2, 10),
-            BackColor = Color.White
-        };
-        _okButton.Click += OkButton_Click;
-        _cancelButton.Click += CancelButton_Click;
-        _applyButton.Click += ApplyButton_Click;
-        buttonPanel.Controls.AddRange([logoutButton, loginButton, _okButton, _cancelButton, _applyButton]);
-        return buttonPanel;
     }
-    private void RefreshMemoryInfo_Click(object? sender, EventArgs e)
+
+    private static CheckBox CreateCheckBox(string text, int x, int y)
     {
-        try
+        return new CheckBox
         {
-            var memoryInfo = PerformanceMonitor.GetMemoryInfo();
-            var cacheStats = PerformanceMonitor.GetCacheStatistics();
-            if (Controls.Find("memoryInfoLabel", true).FirstOrDefault() is not Label memoryLabel) return;
-            memoryLabel.Text = $"""
-                                工作集: {memoryInfo.GetFormattedWorkingSet()}, 私有: {memoryInfo.GetFormattedPrivateMemory()}, 虚拟: {memoryInfo.GetFormattedVirtualMemory()}
-                                GC托管: {memoryInfo.GetFormattedGcMemory()}
-                                图片缓存: {cacheStats.ImageCacheCount} 项 | 模块缓存: {cacheStats.ModuleCacheCount + cacheStats.ProcessModuleCacheCount} 项
-                                更新于: {memoryInfo.Timestamp:HH:mm:ss}
-                                
-                                """;
-            memoryLabel.ForeColor = Color.Black;
-        }
-        catch (Exception ex)
+            Text = text,
+            Location = new Point(x, y),
+            AutoSize = true,
+            BackColor = Color.White
+        };
+    }
+
+    // ================= 程序规则网格 =================
+    private void BuildRulesGrid()
+    {
+        _rulesGrid = new DataGridView
         {
-            if (Controls.Find("memoryInfoLabel", true).FirstOrDefault() is Label memoryLabel)
+            Size = new Size(630, 268),
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            RowHeadersVisible = false,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            MultiSelect = false,
+            BackgroundColor = Color.White,
+            ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing
+        };
+        _rulesGrid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "启用", FillWeight = 8 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "程序", ReadOnly = true, FillWeight = 19 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "显示名", FillWeight = 22 });
+        var categoryColumn = new DataGridViewComboBoxColumn { HeaderText = "分类", FillWeight = 13, FlatStyle = FlatStyle.Flat };
+        categoryColumn.Items.AddRange("忽略", "游戏", "工作", "媒体", "社交", "其他");
+        _rulesGrid.Columns.Add(categoryColumn);
+        var modeColumn = new DataGridViewComboBoxColumn { HeaderText = "模式", FillWeight = 15, FlatStyle = FlatStyle.Flat };
+        modeColumn.Items.AddRange("前台时显示", "运行即显示");
+        _rulesGrid.Columns.Add(modeColumn);
+        var overrideColumn = new DataGridViewComboBoxColumn { HeaderText = "策略", FillWeight = 14, FlatStyle = FlatStyle.Flat };
+        overrideColumn.Items.AddRange("跟随分类", "强制显示", "强制隐藏");
+        _rulesGrid.Columns.Add(overrideColumn);
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "状态", ReadOnly = true, FillWeight = 9 });
+        _rulesGrid.CurrentCellDirtyStateChanged += (_, _) =>
+        {
+            if (_rulesGrid.IsCurrentCellDirty)
             {
-                memoryLabel.Text = $"获取内存信息失败: {ex.Message}";
-                memoryLabel.ForeColor = Color.Red;
+                _rulesGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            }
+        };
+        _rulesGrid.CellValueChanged += RulesGrid_CellValueChanged;
+        _rulesGrid.DataError += (_, e) => { e.ThrowException = false; };
+    }
+
+    private void RulesGrid_CellValueChanged(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.RowIndex >= _rulesGrid.Rows.Count) return;
+        var row = _rulesGrid.Rows[e.RowIndex];
+        if (row.Tag is not AppRule rule) return;
+        switch (e.ColumnIndex)
+        {
+            case 0:
+                rule.Enabled = Convert.ToBoolean(row.Cells[0].Value ?? false);
+                break;
+            case 2:
+                rule.DisplayName = row.Cells[2].Value?.ToString() ?? "";
+                break;
+            case 3:
+                rule.Category = CategoryFromText(row.Cells[3].Value?.ToString());
+                break;
+            case 4:
+                rule.Mode = row.Cells[4].Value?.ToString() == "运行即显示"
+                    ? AppSyncMode.Always
+                    : AppSyncMode.Foreground;
+                break;
+            case 5:
+                rule.Override = OverrideFromText(row.Cells[5].Value?.ToString());
+                break;
+            default:
+                return;
+        }
+        rule.IsUserConfirmed = true;
+        ApplyRowStyle(row, rule);
+    }
+
+    private void AddCurrentButton_Click(object? sender, EventArgs e)
+    {
+        var foreground = ForegroundWatcher.GetCurrent();
+        if (foreground == null)
+        {
+            MessageBox.Show("未检测到前台程序。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (_rules.Any(r => r.ExeName.Equals(foreground.ExeName, StringComparison.OrdinalIgnoreCase)))
+        {
+            MessageBox.Show($"{foreground.ExeName} 已在列表中。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        var (category, suggestedName, _) = AppClassifier.Suggest(
+            foreground.ExeName, foreground.WindowTitle, foreground.IsFullscreen);
+        _rules.Add(new AppRule
+        {
+            ExeName = foreground.ExeName,
+            DisplayName = suggestedName,
+            Category = category,
+            Enabled = true,
+            IsUserConfirmed = true
+        });
+        RefreshRulesGrid();
+    }
+
+    private void RemoveButton_Click(object? sender, EventArgs e)
+    {
+        if (_rulesGrid.SelectedRows.Count == 0) return;
+        var selected = _rulesGrid.SelectedRows[0];
+        if (selected.Tag is not AppRule rule) return;
+        _rules.Remove(rule);
+        RefreshRulesGrid();
+    }
+
+    private void RefreshRulesGrid()
+    {
+        _rulesGrid.Rows.Clear();
+        foreach (var rule in _rules)
+        {
+            var index = _rulesGrid.Rows.Add(
+                rule.Enabled,
+                rule.ExeName,
+                rule.DisplayName,
+                CategoryToText(rule.Category),
+                rule.Mode == AppSyncMode.Always ? "运行即显示" : "前台时显示",
+                OverrideToText(rule.Override),
+                rule.IsUserConfirmed ? "已确认" : "AI 建议");
+            _rulesGrid.Rows[index].Tag = rule;
+            ApplyRowStyle(_rulesGrid.Rows[index], rule);
+        }
+    }
+
+    private static void ApplyRowStyle(DataGridViewRow row, AppRule rule)
+    {
+        if (!rule.IsUserConfirmed)
+        {
+            row.DefaultCellStyle.BackColor = Color.FromArgb(255, 250, 215);
+        }
+        else if (!rule.Enabled)
+        {
+            row.DefaultCellStyle.ForeColor = Color.Gray;
+        }
+        row.Cells[6].Value = rule.IsUserConfirmed ? "已确认" : "AI 建议";
+    }
+
+    // ================= 播放器优先级 =================
+    private void LoadPriorityCombos()
+    {
+        _updatingPriorityCombos = true;
+        var order = (Configurations.Instance.Settings.PlayerPriority ?? []).Concat(PlayerOrderKeys).Distinct().Take(3).ToList();
+        for (var i = 0; i < _playerPriorityCombos.Count; i++)
+        {
+            var index = Array.IndexOf(PlayerOrderKeys, order[i]);
+            _playerPriorityCombos[i].SelectedIndex = index >= 0 ? index : i;
+        }
+        _lastPrioritySelection = _playerPriorityCombos.Select(c => c.SelectedIndex).ToList();
+        _updatingPriorityCombos = false;
+    }
+
+    private void ApplyPriorityFromCombos()
+    {
+        if (_updatingPriorityCombos || _playerPriorityCombos.Count == 0) return;
+        _updatingPriorityCombos = true;
+        for (var i = 0; i < _playerPriorityCombos.Count; i++)
+        {
+            var current = _playerPriorityCombos[i].SelectedIndex;
+            if (current < 0) continue;
+            for (var j = 0; j < i; j++)
+            {
+                if (_playerPriorityCombos[j].SelectedIndex == current)
+                {
+                    _playerPriorityCombos[j].SelectedIndex = _lastPrioritySelection[i];
+                    break;
+                }
             }
         }
+        _lastPrioritySelection = _playerPriorityCombos.Select(c => c.SelectedIndex).ToList();
+        _updatingPriorityCombos = false;
     }
-    private void LoadSettings()
+
+    private List<string> CurrentPriorityOrder()
     {
-        var isAutoStartEnabled = Win32Api.AutoStart.Check();
-        _autoStartCheckBox!.Checked = isAutoStartEnabled;
-        _originalSettings.AutoStart = isAutoStartEnabled;
-        _closeToTrayCheckBox!.Checked = _originalSettings.CloseToTray;
-        _startInTrayCheckBox!.Checked = _originalSettings.StartInTray;
-        _allowWebSocketFallbackCheckBox!.Checked = _originalSettings.AllowWebSocketFallback;
-        _showArtistNameCheckBox!.Checked = _originalSettings.ShowArtistName;
-        _showProgressBarCheckBox!.Checked = _originalSettings.ShowProgressBar;
-        _pauseWhenPlayingGameCheckBox!.Checked = _originalSettings.PauseWhenPlayingGame;
-        _enableSteamSyncCheckBox!.Checked = _originalSettings.EnableSteamSync;
-        // 已移除（旧版前缀控件清理）
-        // 已移除（旧版前缀控件清理）
+        var order = new List<string>();
+        foreach (var combo in _playerPriorityCombos)
+        {
+            var index = combo.SelectedIndex;
+            if (index >= 0 && index < PlayerOrderKeys.Length && !order.Contains(PlayerOrderKeys[index]))
+            {
+                order.Add(PlayerOrderKeys[index]);
+            }
+        }
+        foreach (var key in PlayerOrderKeys)
+        {
+            if (!order.Contains(key)) order.Add(key);
+        }
+        return order;
+    }
+
+    // ================= 模板预设 / 积木 =================
+    private void OpenBlockEditor(TemplateKind kind, TextBox formatBox)
+    {
+        using var editor = new FormatBlockEditorForm(kind, formatBox.Text, NonEmpty(_separatorCombo.Text, "‖"));
+        if (editor.ShowDialog(this) != DialogResult.OK) return;
+        formatBox.Text = editor.ResultFormat;
+    }
+
+    private void MarkPresetCustom()
+    {
+        if (_updatingTemplatePreset) return;
+        if (_templatePresetCombo.SelectedIndex == 0) return;
+        _updatingTemplatePreset = true;
+        _templatePresetCombo.SelectedIndex = 0;
+        _updatingTemplatePreset = false;
+    }
+
+    private void ApplyTemplatePreset(int index)
+    {
+        if (_updatingTemplatePreset || index <= 0) return;
+        _updatingTemplatePreset = true;
+        switch (index)
+        {
+            case 1:
+                _musicFormatBox.Text = "{song}{artistPart}{progress}";
+                _programFormatBox.Text = "{app}";
+                _combinedFormatBox.Text = "{app} {sep} {song}{artistPart}";
+                break;
+            case 2:
+                _musicFormatBox.Text = "正在听：{song}{artistPart}";
+                _programFormatBox.Text = "正在玩：{app}";
+                _combinedFormatBox.Text = "正在玩：{app} {sep} 正在听：{song}{artistPart}";
+                break;
+            case 3:
+                _musicFormatBox.Text = "{song}";
+                _programFormatBox.Text = "{app}";
+                _combinedFormatBox.Text = "{app} {sep} {song}";
+                break;
+        }
+        _updatingTemplatePreset = false;
         UpdatePreview();
     }
+
+    private void SyncPresetFromFormats()
+    {
+        _updatingTemplatePreset = true;
+        var index = 0;
+        if (_musicFormatBox.Text == "{song}{artistPart}{progress}" &&
+            _programFormatBox.Text == "{app}" &&
+            _combinedFormatBox.Text == "{app} {sep} {song}{artistPart}")
+        {
+            index = 1;
+        }
+        else if (_musicFormatBox.Text == "正在听：{song}{artistPart}" &&
+                 _programFormatBox.Text == "正在玩：{app}" &&
+                 _combinedFormatBox.Text == "正在玩：{app} {sep} 正在听：{song}{artistPart}")
+        {
+            index = 2;
+        }
+        else if (_musicFormatBox.Text == "{song}" && _programFormatBox.Text == "{app}" &&
+                 _combinedFormatBox.Text == "{app} {sep} {song}")
+        {
+            index = 3;
+        }
+        _templatePresetCombo.SelectedIndex = index;
+        _updatingTemplatePreset = false;
+    }
+
+    /// <summary>预览：正在播放时用用户真实的歌；否则用默认示例（鳥の詩）。</summary>
     private void UpdatePreview()
     {
-        if (_steamStatusPreviewLabel == null) return;
-        var showArtist = _showArtistNameCheckBox?.Checked ?? true;
-        var showProgress = _showProgressBarCheckBox?.Checked ?? true;
-        var dummyInfo = new Models.PlayerInfo
+        if (_previewLabel == null) return;
+        PlayerInfo dummySong;
+        var isLive = false;
+        if (Program.GetRpcManager()?.GetCurrentPlayerInfo() is { PlayerInfo: { } live })
         {
-            Title = "稻香",
-            Artists = "周杰伦",
-            Schedule = 150,
-            Duration = 255,
-            Pause = false,
-            Url = "",
-            Cover = "",
-            Album = "",
-            Identity = ""
+            dummySong = live;
+            isLive = true;
+        }
+        else
+        {
+            dummySong = new PlayerInfo
+            {
+                Identity = "preview",
+                Title = "鳥の詩",
+                Artists = "Lia",
+                Album = "Air",
+                Cover = "",
+                Schedule = 151,
+                Duration = 366,
+                Url = "",
+                Pause = false
+            };
+        }
+        var (barFill, barEmpty) = ParseBarStyle(_progressBarStyleCombo.Text);
+        var previewConfig = new ConfigData
+        {
+            MusicFormat = NonEmpty(_musicFormatBox.Text, "{song}{artistPart}{progress}"),
+            ProgramFormat = NonEmpty(_programFormatBox.Text, "{app}"),
+            CombinedFormat = NonEmpty(_combinedFormatBox.Text, "{app} {sep} {song}{artistPart}"),
+            CombinedSeparator = NonEmpty(_separatorCombo.Text, "‖"),
+            HideMusicWhenPaused = false,
+            ProgressBarFillChar = barFill,
+            ProgressBarEmptyChar = barEmpty
         };
-        var tempConfig = new ConfigData();
-        var settings = Configurations.Instance.Settings;
-        var musicFormat = settings.MusicFormat;
-        if (!showArtist) musicFormat = musicFormat.Replace("{artistPart}", "").Replace("{artist}", "");
-        if (!showProgress) musicFormat = musicFormat.Replace("{progress}", "");
-        _steamStatusPreviewLabel.Text = SteamStatusManager.GetStatusPreview(dummyInfo, null, new ConfigData
-        {
-            MusicFormat = musicFormat,
-            CombinedSeparator = settings.CombinedSeparator,
-            ShowProgressBar = showProgress,
-            // 已移除（旧版前缀控件清理）
-        });
+        var combined = SteamStatusManager.ComposeStatus(dummySong, "卡拉彼丘", previewConfig) ?? "(无)";
+        var musicOnly = SteamStatusManager.ComposeStatus(dummySong, null, previewConfig) ?? "(无)";
+        var source = isLive ? "（以下使用你当前正在播放的内容）" : "（示例内容）";
+        _previewLabel.Text = $"预览{source}{Environment.NewLine}程序+音乐：{combined}{Environment.NewLine}仅音乐：{musicOnly}";
     }
+
+    // ================= 加载 / 保存 =================
+    private void LoadSettings()
+    {
+        var settings = Configurations.Instance.Settings;
+
+        var isAutoStartEnabled = Win32Api.AutoStart.Check();
+        _autoStartCheckBox.Checked = isAutoStartEnabled;
+        settings.AutoStart = isAutoStartEnabled;
+        _closeToTrayCheckBox.Checked = settings.CloseToTray;
+        _startInTrayCheckBox.Checked = settings.StartInTray;
+        _allowWebSocketFallbackCheckBox.Checked = settings.AllowWebSocketFallback;
+
+        _enableSteamSyncCheckBox.Checked = settings.EnableSteamSync;
+        _musicSyncCheckBox.Checked = settings.MusicSyncEnabled;
+        _hidePausedMusicCheckBox.Checked = settings.HideMusicWhenPaused;
+        _enableAppSyncCheckBox.Checked = settings.AppSyncEnabled;
+        _syncNonGameCheckBox.Checked = settings.SyncNonGameApps;
+        _pauseWhenPlayingGameCheckBox.Checked = settings.PauseWhenPlayingGame;
+
+        _musicFormatBox.Text = settings.MusicFormat;
+        _programFormatBox.Text = settings.ProgramFormat;
+        _combinedFormatBox.Text = settings.CombinedFormat;
+        _separatorCombo.Text = settings.CombinedSeparator;
+        _progressBarStyleCombo.Text = settings.ProgressBarFillChar + settings.ProgressBarEmptyChar;
+        _aiEndpointBox.Text = settings.AiApiEndpoint;
+        _aiKeyBox.Text = settings.AiApiKey;
+        _aiModelBox.Text = settings.AiApiModel;
+
+        foreach (var rule in settings.Apps)
+        {
+            _rules.Add(CloneRule(rule));
+        }
+        RefreshRulesGrid();
+        UpdatePreview();
+        SyncPresetFromFormats();
+        LoadPriorityCombos();
+        UpdateAccountStatus();
+        RefreshMemoryInfo();
+        var version = typeof(SettingsForm).Assembly.GetName().Version;
+        _versionLabel.Text = $"MuSync v{version?.ToString(3) ?? "0.0.0"} ｜ 配置文件：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync";
+    }
+
     private void SaveSettings()
     {
         var settings = Configurations.Instance.Settings;
-        var isAutoStartChecked = _autoStartCheckBox!.Checked;
+        var isAutoStartChecked = _autoStartCheckBox.Checked;
         settings.AutoStart = isAutoStartChecked;
-        settings.CloseToTray = _closeToTrayCheckBox!.Checked;
-        settings.StartInTray = _startInTrayCheckBox!.Checked;
-        settings.AllowWebSocketFallback = _allowWebSocketFallbackCheckBox!.Checked;
-        settings.ShowArtistName = _showArtistNameCheckBox!.Checked;
-        settings.ShowProgressBar = _showProgressBarCheckBox!.Checked;
-        settings.PauseWhenPlayingGame = _pauseWhenPlayingGameCheckBox!.Checked;
-        settings.EnableSteamSync = _enableSteamSyncCheckBox!.Checked;
-        // 已移除（旧版前缀控件清理）
+        settings.CloseToTray = _closeToTrayCheckBox.Checked;
+        settings.StartInTray = _startInTrayCheckBox.Checked;
+        settings.AllowWebSocketFallback = _allowWebSocketFallbackCheckBox.Checked;
+
+        settings.EnableSteamSync = _enableSteamSyncCheckBox.Checked;
+        settings.MusicSyncEnabled = _musicSyncCheckBox.Checked;
+        settings.HideMusicWhenPaused = _hidePausedMusicCheckBox.Checked;
+        settings.AppSyncEnabled = _enableAppSyncCheckBox.Checked;
+        settings.SyncNonGameApps = _syncNonGameCheckBox.Checked;
+        settings.PauseWhenPlayingGame = _pauseWhenPlayingGameCheckBox.Checked;
+
+        settings.MusicFormat = NonEmpty(_musicFormatBox.Text, "{song}{artistPart}{progress}");
+        settings.ProgramFormat = NonEmpty(_programFormatBox.Text, "{app}");
+        settings.CombinedFormat = NonEmpty(_combinedFormatBox.Text, "{app} {sep} {song}{artistPart}");
+        settings.CombinedSeparator = NonEmpty(_separatorCombo.Text, "‖");
+        var (barFill, barEmpty) = ParseBarStyle(_progressBarStyleCombo.Text);
+        settings.ProgressBarFillChar = barFill;
+        settings.ProgressBarEmptyChar = barEmpty;
+        settings.AiApiEndpoint = _aiEndpointBox.Text.Trim();
+        settings.AiApiKey = _aiKeyBox.Text.Trim();
+        settings.AiApiModel = _aiModelBox.Text.Trim();
+        settings.PlayerPriority = CurrentPriorityOrder();
+        settings.Apps = _rules;
+
         Configurations.Instance.Save();
         Program.GetRpcManager()?.RequestStateRefresh();
-        if (isAutoStartChecked == Win32Api.AutoStart.Check()) return;
-        var success = Win32Api.AutoStart.Set(isAutoStartChecked);
-        if (!success)
+
+        if (isAutoStartChecked != Win32Api.AutoStart.Check())
         {
-            MessageBox.Show(
-                $"无法 {(isAutoStartChecked ? "设置" : "取消")} 开机自启。\n请尝试以管理员权限运行本程序一次。",
-                "操作失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            var success = Win32Api.AutoStart.Set(isAutoStartChecked);
+            if (!success)
+            {
+                MessageBox.Show(
+                    $"无法 {(isAutoStartChecked ? "设置" : "取消")} 开机自启。\n请尝试以管理员权限运行本程序一次。",
+                    "操作失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
     }
-    private void OkButton_Click(object? sender, EventArgs e)
+
+    // ================= 账户 =================
+    private void UpdateAccountStatus()
     {
-        SaveSettings();
-        Close();
+        if (_accountStatusLabel == null) return;
+        var session = Program.GetSessionManager();
+        if (session?.IsLoggedOn == true)
+        {
+            _accountStatusLabel.Text = "已登录 Steam（音乐与程序状态同步中）";
+            _accountStatusLabel.ForeColor = Color.Green;
+        }
+        else
+        {
+            _accountStatusLabel.Text = "未登录 Steam";
+            _accountStatusLabel.ForeColor = Color.OrangeRed;
+        }
     }
-    private void CancelButton_Click(object? sender, EventArgs e)
-    {
-        Close();
-    }
-    private void ApplyButton_Click(object? sender, EventArgs e)
-    {
-        SaveSettings();
-    }
+
     private void LogoutButton_Click(object? sender, EventArgs e)
     {
         var result = MessageBox.Show(
@@ -427,9 +873,118 @@ internal class SettingsForm : Form
         using var loginForm = new SteamLoginForm(session);
         loginForm.StartPosition = FormStartPosition.CenterParent;
         loginForm.ShowDialog(this);
-        if (!loginForm.LoginSucceeded) return;
-        MessageBox.Show("Steam 登录成功，音乐状态已恢复同步。", "提示",
+        if (!loginForm.LoginSucceeded)
+        {
+            UpdateAccountStatus();
+            return;
+        }
+        MessageBox.Show("Steam 登录成功，状态同步已恢复。", "提示",
             MessageBoxButtons.OK, MessageBoxIcon.Information);
         Program.GetRpcManager()?.RequestStateRefresh();
+        UpdateAccountStatus();
     }
+
+    // ================= 诊断 =================
+    private void RefreshMemoryInfo()
+    {
+        if (_memoryInfoLabel == null) return;
+        try
+        {
+            var memoryInfo = PerformanceMonitor.GetMemoryInfo();
+            var cacheStats = PerformanceMonitor.GetCacheStatistics();
+            _memoryInfoLabel.Text = $"""
+                                    工作集: {memoryInfo.GetFormattedWorkingSet()}, 私有: {memoryInfo.GetFormattedPrivateMemory()}, 虚拟: {memoryInfo.GetFormattedVirtualMemory()}
+                                    GC托管: {memoryInfo.GetFormattedGcMemory()}
+                                    图片缓存: {cacheStats.ImageCacheCount} 项 | 模块缓存: {cacheStats.ModuleCacheCount + cacheStats.ProcessModuleCacheCount} 项
+                                    更新于: {memoryInfo.Timestamp:HH:mm:ss}
+                                    """;
+            _memoryInfoLabel.ForeColor = Color.Black;
+        }
+        catch (Exception ex)
+        {
+            _memoryInfoLabel.Text = $"获取内存信息失败: {ex.Message}";
+            _memoryInfoLabel.ForeColor = Color.Red;
+        }
+    }
+
+    private static void OpenLogsFolder()
+    {
+        try
+        {
+            var logsPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MuSync", "logs");
+            System.IO.Directory.CreateDirectory(logsPath);
+            Process.Start(new ProcessStartInfo(logsPath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"打开日志文件夹失败：{ex.Message}", "提示",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // ================= 小工具 =================
+    private static string NonEmpty(string? value, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+    }
+
+    private static (string Fill, string Empty) ParseBarStyle(string? text)
+    {
+        var runes = new List<string>();
+        foreach (var rune in (text ?? "").EnumerateRunes())
+        {
+            runes.Add(rune.ToString());
+            if (runes.Count == 2) break;
+        }
+        var fill = runes.Count >= 1 && runes[0].Trim().Length > 0 ? runes[0] : "#";
+        var empty = runes.Count >= 2 ? runes[1] : "-";
+        return (fill, empty);
+    }
+
+    private static string CategoryToText(AppCategory category) => category switch
+    {
+        AppCategory.Ignore => "忽略",
+        AppCategory.Game => "游戏",
+        AppCategory.Work => "工作",
+        AppCategory.Media => "媒体",
+        AppCategory.Social => "社交",
+        _ => "其他"
+    };
+
+    private static AppCategory CategoryFromText(string? text) => text switch
+    {
+        "忽略" => AppCategory.Ignore,
+        "游戏" => AppCategory.Game,
+        "工作" => AppCategory.Work,
+        "媒体" => AppCategory.Media,
+        "社交" => AppCategory.Social,
+        _ => AppCategory.Other
+    };
+
+    private static string OverrideToText(AppSyncOverride value) => value switch
+    {
+        AppSyncOverride.ForceOn => "强制显示",
+        AppSyncOverride.ForceOff => "强制隐藏",
+        _ => "跟随分类"
+    };
+
+    private static AppSyncOverride OverrideFromText(string? text) => text switch
+    {
+        "强制显示" => AppSyncOverride.ForceOn,
+        "强制隐藏" => AppSyncOverride.ForceOff,
+        _ => AppSyncOverride.FollowCategory
+    };
+
+    private static AppRule CloneRule(AppRule source) => new()
+    {
+        ExeName = source.ExeName,
+        DisplayName = source.DisplayName,
+        Category = source.Category,
+        Mode = source.Mode,
+        Override = source.Override,
+        Enabled = source.Enabled,
+        IsUserConfirmed = source.IsUserConfirmed
+    };
 }
