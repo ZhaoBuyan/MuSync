@@ -64,6 +64,9 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 > 与 Steam 客户端同账号共存不会被顶下线（与 ArchiSteamFarm 同为 SteamKit 会话）；
 > Steam 账号管理里会出现名为 `MuSync` 的设备会话，属正常现象。
 
+> **版本怎么选**：普通用户推荐 **MuSync.exe**（免安装单文件，内置运行时，双击即用）；
+> **MuSync-lite.exe** 体积更小，但需已安装 [.NET 9 桌面运行时](https://dotnet.microsoft.com/download/dotnet/9.0)。
+
 ## ❓ 常见问题
 
 - **登录反复失败 / 提示“服务器繁忙”（TryAnotherCM）**
