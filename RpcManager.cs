@@ -43,6 +43,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     private readonly PlayerState _tencentState = new();
     private readonly PlayerState _lxMusicState = new();
     private readonly PlayerState _kuGouState = new();
+    private DateTime _lastMemoryLogTime = DateTime.MinValue;
     private volatile bool _stateRefreshRequested;
     private bool _realGameActivePreviously;
     private PlayerState? _lastActiveState;
@@ -363,6 +364,13 @@ internal class RpcManager(SteamStatusManager steamManager)
                 {
                     CleanupPlayerState(_kuGouState, "KuGou");
                     RecordPollSuccess(_kuGouState);
+                }
+
+                // 内存快照：每 10 分钟记一次（用于排查内存增长趋势）
+                if ((currentTime - _lastMemoryLogTime).TotalMinutes >= 10)
+                {
+                    _lastMemoryLogTime = currentTime;
+                    Logger.MemorySnapshot();
                 }
 
                 // 程序同步：每秒检测前台程序（含自动发现），变化时立即刷新状态

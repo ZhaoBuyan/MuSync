@@ -20,9 +20,47 @@ internal static class Program
     /// <summary>后台检查发现的可用更新（供主窗口红点与托盘菜单项使用）；无更新时为 null。</summary>
     public static UpdateChecker.UpdateInfo? PendingUpdate => _pendingUpdate;
 
+    /// <summary>全局异常兜底：写日志（同步、最小依赖）+ 用 MessageBox 提示（不用普通窗体，防二次崩溃）。</summary>
+    private static void HandleFatalException(string source, Exception? exception)
+    {
+        try
+        {
+            Logger.Error($"[FATAL] {source}未处理异常: {exception}");
+        }
+        catch
+        {
+            // 日志失败也要继续尝试提示
+        }
+        try
+        {
+            MessageBox.Show(
+                $"MuSync 遇到了一个未处理的错误，详情已记录到日志：\n\n{exception?.Message}",
+                "MuSync",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+        catch
+        {
+            // 提示失败时静默
+        }
+    }
+
     [STAThread]
     private static void Main()
     {
+        // 全局异常兜底（UI 线程 / 后台线程 / 未观察任务）
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, e) => HandleFatalException("UI 线程", e.Exception);
+        AppDomain.CurrentDomain.UnhandledException +=
+            (_, e) => HandleFatalException("后台线程", e.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Logger.Warn($"[FATAL] 未观察任务异常: {e.Exception.Message}");
+            e.SetObserved();
+        };
+
+        // 启动时清理旧日志（保留最近 14 天 / 50 MB 内）
+        Logger.CleanupOldLogs();
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         using var mutex = new Mutex(true, "MuSyncMutex", out var isNewInstance);
@@ -53,6 +91,16 @@ internal static class Program
         cts.Cancel();
         _steamManager.ClearStatus();
         _sessionManager.Dispose();
+        // 清理托盘图标（防偶发残留）
+        try
+        {
+            TrayIcon.Visible = false;
+            TrayIcon.Dispose();
+        }
+        catch
+        {
+            // 忽略
+        }
     }
 
     private static void OnApplicationIdle(object? sender, EventArgs e)
@@ -112,10 +160,17 @@ internal static class Program
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(8)).ConfigureAwait(false);
-            var info = await UpdateChecker.CheckAsync().ConfigureAwait(false);
-            if (info == null) return;
-            Logger.Info($"[Update] 发现新版本 {info.Tag}");
-            SetPendingUpdate(info);
+            while (true)
+            {
+                var info = await UpdateChecker.CheckAsync().ConfigureAwait(false);
+                if (info != null)
+                {
+                    Logger.Info($"[Update] 发现新版本 {info.Tag}");
+                    SetPendingUpdate(info);
+                }
+                // 常驻托盘时定期复查（6 小时一次），避免长期运行错过新版本
+                await Task.Delay(TimeSpan.FromHours(6)).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
