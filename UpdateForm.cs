@@ -86,24 +86,24 @@ internal sealed class UpdateForm : Form
         _actionButton = new Button
         {
             Text = "下载更新",
-            Location = new Point(190, 402),
-            Size = new Size(105, 32),
+            Location = new Point(185, 402),
+            Size = new Size(110, 32),
             BackColor = Color.White
         };
         _actionButton.Click += ActionButton_Click;
         _browserButton = new Button
         {
             Text = "在浏览器中打开",
-            Location = new Point(305, 402),
-            Size = new Size(105, 32),
+            Location = new Point(300, 402),
+            Size = new Size(110, 32),
             BackColor = Color.White
         };
         _browserButton.Click += (_, _) => OpenInBrowser();
         var closeButton = new Button
         {
             Text = "稍后",
-            Location = new Point(420, 402),
-            Size = new Size(105, 32),
+            Location = new Point(415, 402),
+            Size = new Size(110, 32),
             BackColor = Color.White
         };
         closeButton.Click += (_, _) => Close();
@@ -212,12 +212,14 @@ internal sealed class UpdateForm : Form
     private void SetDoneState(bool alreadyExisted)
     {
         _state = DownloadState.Done;
-        _actionButton.Text = "打开文件夹";
+        _actionButton.Text = "打开新旧文件夹";
         _actionButton.Enabled = true;
         _browserButton.Enabled = true;
         _progressBar.Visible = false;
         var prefix = alreadyExisted ? "更新包已在本地：" : "已下载：";
-        SetStatus($"{prefix}{Path.GetFileName(_packagePath)}\n退出 MuSync 后，用它替换当前程序即可。", Color.Green);
+        SetStatus(
+            $"{prefix}{Path.GetFileName(_packagePath)}\n替换方法：退出 MuSync（托盘右键 → 退出），用新文件替换旧程序。",
+            Color.Green);
     }
 
     private void SetStatus(string text, Color color)
@@ -226,29 +228,43 @@ internal sealed class UpdateForm : Form
         _statusLabel.ForeColor = color;
     }
 
+    /// <summary>同时打开「新包所在文件夹」和「当前程序所在文件夹」（各自选中文件），方便拖拽替换。</summary>
     private void OpenContainingFolder()
+    {
+        var packageDir = Path.GetDirectoryName(_packagePath) ?? "";
+        OpenAndSelect(_packagePath);
+        var currentExe = Environment.ProcessPath ?? "";
+        var currentDir = Path.GetDirectoryName(currentExe) ?? "";
+        // 新包与当前程序同目录时只开一个窗口
+        if (currentExe.Length > 0 &&
+            !string.Equals(currentDir, packageDir, StringComparison.OrdinalIgnoreCase))
+        {
+            OpenAndSelect(currentExe);
+        }
+    }
+
+    /// <summary>在资源管理器中打开并选中指定文件；文件不存在时退回打开其所在目录。</summary>
+    private static void OpenAndSelect(string path)
     {
         try
         {
-            if (File.Exists(_packagePath))
+            if (File.Exists(path))
             {
-                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_packagePath}\"")
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"")
                 {
                     UseShellExecute = true
                 });
+                return;
             }
-            else
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
             {
-                var dir = Path.GetDirectoryName(_packagePath);
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
-                }
+                Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
             }
         }
         catch (Exception ex)
         {
-            Logger.Warn($"[Update] 打开更新包文件夹失败: {ex.Message}");
+            Logger.Warn($"[Update] 打开文件夹失败: {ex.Message}");
         }
     }
 
