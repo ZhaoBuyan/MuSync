@@ -27,6 +27,33 @@ internal class ConfigData
 
     /// <summary>配置结构版本（用于未来迁移；当前为 1）。</summary>
     public int SchemaVersion { get; set; } = 1;
+
+    /// <summary>外观：标题（播放器名）颜色是否跟随播放器品牌色。</summary>
+    public bool AppearanceTitleFollowPlayer { get; set; } = true;
+
+    /// <summary>外观：标题颜色（ARGB；仅在关闭跟随时生效）。</summary>
+    public int? AppearanceTitleColorArgb { get; set; }
+
+    /// <summary>外观：歌名颜色是否跟随标题色。</summary>
+    public bool AppearanceSongFollowPlayer { get; set; } = true;
+
+    /// <summary>外观：歌名颜色（ARGB；仅在关闭跟随时生效）。</summary>
+    public int? AppearanceSongColorArgb { get; set; }
+
+    /// <summary>外观：主界面字体族（空 = 默认）。</summary>
+    public string AppearanceFontFamily { get; set; } = "";
+
+    /// <summary>外观：主界面字号（0 = 默认）。</summary>
+    public float AppearanceFontSize { get; set; }
+
+    /// <summary>外观：主界面背景色（ARGB；null = 默认）。</summary>
+    public int? AppearanceBackgroundColorArgb { get; set; }
+
+    /// <summary>外观：主界面背景图路径（空 = 无）。</summary>
+    public string AppearanceBackgroundImage { get; set; } = "";
+
+    /// <summary>外观：背景图排版（Stretch / Zoom / Tile / Center）。</summary>
+    public string AppearanceBackgroundLayout { get; set; } = "Stretch";
     /// <summary>旧配置兼容字段：显示内容由模板引擎控制，代码不再读取此值。</summary>
     public bool ShowArtistName { get; set; } = true;
     /// <summary>旧配置兼容字段：显示内容由模板引擎控制，代码不再读取此值。</summary>

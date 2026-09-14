@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -53,6 +54,8 @@ internal class MainForm : Form
         _updateTimer.Tick += UpdateTimer_Tick;
         KeyPreview = true;
         KeyDown += MainForm_KeyDown;
+        // 启动时应用外观设置
+        ApplyAppearance();
     }
     private void InitializeComponent()
     {
@@ -351,6 +354,8 @@ internal class MainForm : Form
     {
         using var settingsForm = new SettingsForm();
         settingsForm.ShowDialog(this);
+        // 设置关闭后重新应用外观（包含用户在「外观」分组里的修改）
+        ApplyAppearance();
     }
     /// <summary>「设置」按钮右上角的更新红点（替代托盘气泡，安静提示有新版本）。</summary>
     private void SettingsButton_Paint(object? sender, PaintEventArgs e)
@@ -555,11 +560,16 @@ internal class MainForm : Form
                 }
             }
             if (_playerPanels[index].BackColor != Color.White) _playerPanels[index].BackColor = Color.White;
-            // 名字与歌名使用该播放器的强调色（歌名过亮时自动压暗，保证白底可读）
-            var accentColor = GetPlayerAccentColor(playerName);
+            // 标题与歌名颜色：默认跟随播放器品牌色，可在设置→显示→外观中自定义
+            var appearance = Configurations.Instance.Settings;
+            var accentColor = !appearance.AppearanceTitleFollowPlayer && appearance.AppearanceTitleColorArgb is int customTitleArgb
+                ? Color.FromArgb(customTitleArgb)
+                : GetPlayerAccentColor(playerName);
             if (_playerNameLabels[index].ForeColor != accentColor)
                 _playerNameLabels[index].ForeColor = accentColor;
-            var titleColor = ToReadableTitleColor(accentColor);
+            var titleColor = !appearance.AppearanceSongFollowPlayer && appearance.AppearanceSongColorArgb is int customSongArgb
+                ? Color.FromArgb(customSongArgb)
+                : ToReadableTitleColor(accentColor);
             if (_songTitleLabels[index].ForeColor != titleColor)
                 _songTitleLabels[index].ForeColor = titleColor;
         }
@@ -616,6 +626,67 @@ internal class MainForm : Form
     };
 
     /// <summary>把强调色调整为“浅色背景上可读”的深色版本（亮黄/亮绿等会被压暗）。</summary>
+    /// <summary>应用外观设置（背景色 / 背景图 / 字体）；启动与设置关闭后调用。</summary>
+    internal void ApplyAppearance()
+    {
+        var settings = Configurations.Instance.Settings;
+        try
+        {
+            // 背景色
+            BackColor = settings.AppearanceBackgroundColorArgb is int backgroundArgb
+                ? Color.FromArgb(backgroundArgb)
+                : Color.WhiteSmoke;
+
+            // 背景图（替换前释放旧图，避免句柄泄漏）
+            var oldBackground = BackgroundImage;
+            BackgroundImage = null;
+            oldBackground?.Dispose();
+            if (!string.IsNullOrWhiteSpace(settings.AppearanceBackgroundImage) &&
+                File.Exists(settings.AppearanceBackgroundImage))
+            {
+                try
+                {
+                    using var stream = File.OpenRead(settings.AppearanceBackgroundImage);
+                    BackgroundImage = Image.FromStream(stream);
+                    BackgroundImageLayout = settings.AppearanceBackgroundLayout switch
+                    {
+                        "Zoom" => ImageLayout.Zoom,
+                        "Tile" => ImageLayout.Tile,
+                        "Center" => ImageLayout.Center,
+                        _ => ImageLayout.Stretch
+                    };
+                }
+                catch (Exception e)
+                {
+                    Logger.Warn($"[Appearance] 背景图加载失败: {e.Message}");
+                }
+            }
+
+            // 字体（仅在用户显式设置过时应用）
+            if (!string.IsNullOrWhiteSpace(settings.AppearanceFontFamily) || settings.AppearanceFontSize > 0)
+            {
+                var family = string.IsNullOrWhiteSpace(settings.AppearanceFontFamily)
+                    ? (Font?.FontFamily.Name ?? "Microsoft YaHei")
+                    : settings.AppearanceFontFamily;
+                var size = settings.AppearanceFontSize > 0 ? settings.AppearanceFontSize : (Font?.Size ?? 9f);
+                ApplyFontRecursive(this, new Font(family, size));
+            }
+        }
+        catch (Exception e)
+        {
+            Logger.Warn($"[Appearance] 应用外观失败: {e.Message}");
+        }
+    }
+
+    private static void ApplyFontRecursive(Control parent, Font font)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            child.Font = font;
+            if (child.HasChildren) ApplyFontRecursive(child, font);
+        }
+    }
+
     private static Color ToReadableTitleColor(Color color)
     {
         var luminance = (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) / 255.0;

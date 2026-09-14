@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -47,6 +48,19 @@ internal sealed class SettingsForm : Form
     private NumericUpDown _barLengthBox = null!;
     private ComboBox _templatePresetCombo = null!;
     private Label _previewLabel = null!;
+
+    // 外观设置控件
+    private CheckBox _titleFollowCheck = null!;
+    private Button _titleColorButton = null!;
+    private CheckBox _songFollowCheck = null!;
+    private Button _songColorButton = null!;
+    private Button _fontButton = null!;
+    private Button _backgroundColorButton = null!;
+    private Label _backgroundImageLabel = null!;
+    private ComboBox _backgroundLayoutCombo = null!;
+    private string _backgroundImagePath = "";
+    private string _appearanceFontFamily = "";
+    private float _appearanceFontSize;
     private bool _updatingTemplatePreset;
 
     // —— 程序页 ——
@@ -378,8 +392,173 @@ internal sealed class SettingsForm : Form
             variablesHint, _previewLabel
         ]);
 
-        page.Controls.AddRange([templateGroup]);
+        var appearanceGroup = CreateAppearanceGroup();
+        page.AutoScroll = true;
+        page.Controls.AddRange([templateGroup, appearanceGroup]);
         return page;
+    }
+
+    /// <summary>「外观」分组：自定义主界面的颜色 / 字体 / 背景（显示页内，可滚动查看）。</summary>
+    private GroupBox CreateAppearanceGroup()
+    {
+        var group = CreateGroupBox("外观", 10, 350, 650, 196);
+
+        // 行 1：标题颜色 / 歌名颜色
+        var titleColorLabel = new Label { Text = "标题颜色:", Location = new Point(20, 36), AutoSize = true };
+        _titleFollowCheck = CreateCheckBox("跟随播放器", 110, 32);
+        _titleColorButton = CreateColorButton(new Point(230, 30));
+        var songColorLabel = new Label { Text = "歌名颜色:", Location = new Point(365, 36), AutoSize = true };
+        _songFollowCheck = CreateCheckBox("跟随标题", 455, 32);
+        _songColorButton = CreateColorButton(new Point(565, 30));
+
+        // 行 2：字体 / 背景色
+        var fontLabel = new Label { Text = "字体:", Location = new Point(20, 72), AutoSize = true };
+        _fontButton = new Button
+        {
+            Text = "微软雅黑 9pt",
+            Location = new Point(110, 68),
+            Size = new Size(220, 26),
+            BackColor = Color.White
+        };
+        _fontButton.Click += FontButton_Click;
+        var backgroundColorLabel = new Label { Text = "背景色:", Location = new Point(365, 72), AutoSize = true };
+        _backgroundColorButton = CreateColorButton(new Point(440, 66));
+
+        // 行 3：背景图 / 排版
+        var backgroundImageLabel = new Label { Text = "背景图:", Location = new Point(20, 108), AutoSize = true };
+        _backgroundImageLabel = new Label
+        {
+            Text = "（无）",
+            Location = new Point(110, 110),
+            Size = new Size(180, 20),
+            ForeColor = Color.Gray,
+            AutoEllipsis = true
+        };
+        var chooseImageButton = new Button
+        {
+            Text = "选择…",
+            Location = new Point(300, 104),
+            Size = new Size(70, 26),
+            BackColor = Color.White
+        };
+        chooseImageButton.Click += ChooseBackgroundImage_Click;
+        var clearImageButton = new Button
+        {
+            Text = "清除",
+            Location = new Point(375, 104),
+            Size = new Size(60, 26),
+            BackColor = Color.White
+        };
+        clearImageButton.Click += (_, _) =>
+        {
+            _backgroundImagePath = "";
+            _backgroundImageLabel.Text = "（无）";
+            _backgroundImageLabel.ForeColor = Color.Gray;
+        };
+        var layoutLabel = new Label { Text = "排版:", Location = new Point(465, 108), AutoSize = true };
+        _backgroundLayoutCombo = new ComboBox
+        {
+            Location = new Point(510, 104),
+            Width = 110,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _backgroundLayoutCombo.Items.AddRange(["拉伸", "适应", "平铺", "居中"]);
+
+        // 行 4：恢复默认
+        var resetButton = new Button
+        {
+            Text = "恢复默认外观",
+            Location = new Point(20, 146),
+            Size = new Size(130, 28),
+            BackColor = Color.White
+        };
+        resetButton.Click += (_, _) => ResetAppearanceControls();
+
+        _titleColorButton.Click += (_, _) => PickColor(_titleColorButton);
+        _songColorButton.Click += (_, _) => PickColor(_songColorButton);
+        _backgroundColorButton.Click += (_, _) => PickColor(_backgroundColorButton);
+        _titleFollowCheck.CheckedChanged += (_, _) => UpdateAppearanceEnabled();
+        _songFollowCheck.CheckedChanged += (_, _) => UpdateAppearanceEnabled();
+
+        group.Controls.AddRange([
+            titleColorLabel, _titleFollowCheck, _titleColorButton,
+            songColorLabel, _songFollowCheck, _songColorButton,
+            fontLabel, _fontButton, backgroundColorLabel, _backgroundColorButton,
+            backgroundImageLabel, _backgroundImageLabel, chooseImageButton, clearImageButton,
+            layoutLabel, _backgroundLayoutCombo,
+            resetButton
+        ]);
+        return group;
+    }
+
+    private static Button CreateColorButton(Point location) => new()
+    {
+        Text = "",
+        Location = location,
+        Size = new Size(120, 26),
+        BackColor = Color.WhiteSmoke,
+        FlatStyle = FlatStyle.Flat
+    };
+
+    /// <summary>打开取色器并更新色块按钮。</summary>
+    private static void PickColor(Button button)
+    {
+        using var dialog = new ColorDialog { Color = button.BackColor, FullOpen = true };
+        if (dialog.ShowDialog() == DialogResult.OK)
+        {
+            button.BackColor = dialog.Color;
+        }
+    }
+
+    private void FontButton_Click(object? sender, EventArgs e)
+    {
+        var initialFamily = string.IsNullOrWhiteSpace(_appearanceFontFamily) ? "Microsoft YaHei" : _appearanceFontFamily;
+        var initialSize = _appearanceFontSize > 0 ? _appearanceFontSize : 9f;
+        using var dialog = new FontDialog { Font = new Font(initialFamily, initialSize) };
+        if (dialog.ShowDialog() == DialogResult.OK)
+        {
+            _appearanceFontFamily = dialog.Font.FontFamily.Name;
+            _appearanceFontSize = dialog.Font.Size;
+            _fontButton.Text = $"{_appearanceFontFamily} {_appearanceFontSize:0.#}pt";
+        }
+    }
+
+    private void ChooseBackgroundImage_Click(object? sender, EventArgs e)
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Filter = "图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|所有文件|*.*"
+        };
+        if (dialog.ShowDialog() == DialogResult.OK)
+        {
+            _backgroundImagePath = dialog.FileName;
+            _backgroundImageLabel.Text = Path.GetFileName(dialog.FileName);
+            _backgroundImageLabel.ForeColor = Color.Black;
+        }
+    }
+
+    private void UpdateAppearanceEnabled()
+    {
+        _titleColorButton.Enabled = !_titleFollowCheck.Checked;
+        _songColorButton.Enabled = !_songFollowCheck.Checked;
+    }
+
+    /// <summary>把外观控件恢复为默认（不立即保存，随设置窗的确定/应用生效）。</summary>
+    private void ResetAppearanceControls()
+    {
+        _titleFollowCheck.Checked = true;
+        _songFollowCheck.Checked = true;
+        _titleColorButton.BackColor = Color.WhiteSmoke;
+        _songColorButton.BackColor = Color.WhiteSmoke;
+        _backgroundColorButton.BackColor = Color.WhiteSmoke;
+        _appearanceFontFamily = "";
+        _appearanceFontSize = 0;
+        _fontButton.Text = "微软雅黑 9pt";
+        _backgroundImagePath = "";
+        _backgroundImageLabel.Text = "（无）";
+        _backgroundImageLabel.ForeColor = Color.Gray;
+        _backgroundLayoutCombo.SelectedIndex = 0;
+        UpdateAppearanceEnabled();
     }
 
     // ================= 程序页 =================
@@ -930,6 +1109,38 @@ internal sealed class SettingsForm : Form
         _combinedFormatBox.Text = settings.CombinedFormat;
         _separatorCombo.Text = settings.CombinedSeparator;
         _progressBarStyleCombo.Text = settings.ProgressBarFillChar + settings.ProgressBarEmptyChar;
+
+        // 外观
+        _titleFollowCheck.Checked = settings.AppearanceTitleFollowPlayer;
+        _songFollowCheck.Checked = settings.AppearanceSongFollowPlayer;
+        _titleColorButton.BackColor = settings.AppearanceTitleColorArgb is int titleArgb
+            ? Color.FromArgb(titleArgb)
+            : Color.WhiteSmoke;
+        _songColorButton.BackColor = settings.AppearanceSongColorArgb is int songArgb
+            ? Color.FromArgb(songArgb)
+            : Color.WhiteSmoke;
+        _backgroundColorButton.BackColor = settings.AppearanceBackgroundColorArgb is int backgroundArgb
+            ? Color.FromArgb(backgroundArgb)
+            : Color.WhiteSmoke;
+        _appearanceFontFamily = settings.AppearanceFontFamily ?? "";
+        _appearanceFontSize = settings.AppearanceFontSize;
+        _fontButton.Text = string.IsNullOrWhiteSpace(_appearanceFontFamily)
+            ? (_appearanceFontSize > 0 ? $"（默认字体）{_appearanceFontSize:0.#}pt" : "微软雅黑 9pt")
+            : $"{_appearanceFontFamily} {(_appearanceFontSize > 0 ? _appearanceFontSize : 9f):0.#}pt";
+        _backgroundImagePath = settings.AppearanceBackgroundImage ?? "";
+        if (!string.IsNullOrWhiteSpace(_backgroundImagePath))
+        {
+            _backgroundImageLabel.Text = Path.GetFileName(_backgroundImagePath);
+            _backgroundImageLabel.ForeColor = Color.Black;
+        }
+        _backgroundLayoutCombo.SelectedIndex = settings.AppearanceBackgroundLayout switch
+        {
+            "Zoom" => 1,
+            "Tile" => 2,
+            "Center" => 3,
+            _ => 0
+        };
+        UpdateAppearanceEnabled();
         _barLengthBox.Value = settings.ProgressBarLength is >= 1 and <= 50 ? settings.ProgressBarLength : 10;
         _syncSpeedCombo.SelectedIndex = settings.SyncSpeed switch
         {
@@ -977,6 +1188,23 @@ internal sealed class SettingsForm : Form
         settings.ProgressBarFillChar = barFill;
         settings.ProgressBarEmptyChar = barEmpty;
         settings.ProgressBarLength = (int)_barLengthBox.Value;
+
+        // 外观
+        settings.AppearanceTitleFollowPlayer = _titleFollowCheck.Checked;
+        settings.AppearanceTitleColorArgb = _titleFollowCheck.Checked ? null : _titleColorButton.BackColor.ToArgb();
+        settings.AppearanceSongFollowPlayer = _songFollowCheck.Checked;
+        settings.AppearanceSongColorArgb = _songFollowCheck.Checked ? null : _songColorButton.BackColor.ToArgb();
+        settings.AppearanceBackgroundColorArgb = _backgroundColorButton.BackColor.ToArgb();
+        settings.AppearanceFontFamily = _appearanceFontFamily;
+        settings.AppearanceFontSize = _appearanceFontSize;
+        settings.AppearanceBackgroundImage = _backgroundImagePath;
+        settings.AppearanceBackgroundLayout = _backgroundLayoutCombo.SelectedIndex switch
+        {
+            1 => "Zoom",
+            2 => "Tile",
+            3 => "Center",
+            _ => "Stretch"
+        };
         settings.SyncSpeed = _syncSpeedCombo.SelectedIndex switch
         {
             0 => SyncSpeedLevel.Fast,

@@ -243,6 +243,7 @@ internal static class Program
             using var settingsForm = new SettingsForm();
             settingsForm.StartPosition = FormStartPosition.CenterScreen;
             settingsForm.ShowDialog();
+            _mainForm?.ApplyAppearance();
         };
         showMainWindowItem.Click += (_, _) =>
         {
