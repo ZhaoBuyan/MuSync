@@ -8,8 +8,19 @@ using System.Text.Json.Serialization;
 using MuSync.Models;
 using MuSync.Utils;
 namespace MuSync;
+
+/// <summary>同步频率档位。</summary>
+internal enum SyncSpeedLevel
+{
+    Fast,
+    Standard,
+    Economic
+}
+
 internal class ConfigData
 {
+    /// <summary>进度同步频率档位（快速 0.25s / 标准 0.5s / 省流 1s）。</summary>
+    public SyncSpeedLevel SyncSpeed { get; set; } = SyncSpeedLevel.Standard;
     public bool AutoStart { get; set; }
     public bool CloseToTray { get; set; } = true;
     public bool StartInTray { get; set; }

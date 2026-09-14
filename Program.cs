@@ -12,6 +12,7 @@ internal static class Program
     private static MainForm? _mainForm;
     private static NotifyIcon? TrayIcon { get; set; }
     private static ToolStripMenuItem? TrayStatusItem { get; set; }
+    private static string? _pendingUpdateUrl;
     public static RpcManager? GetRpcManager() => _rpcManager;
     public static SteamStatusManager? GetSteamManager() => _steamManager;
     public static SteamSessionManager? GetSessionManager() => _sessionManager;
@@ -39,6 +40,19 @@ internal static class Program
         _mainForm = new MainForm();
         TrayIcon = CreateTrayIcon();
         TrayIcon.Visible = true;
+        TrayIcon.BalloonTipClicked += (_, _) =>
+        {
+            if (_pendingUpdateUrl is not { } url) return;
+            try
+            {
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch
+            {
+                // 打开浏览器失败：忽略
+            }
+        };
         if (!Configurations.Instance.Settings.StartInTray)
             _mainForm.Show();
         else
@@ -55,6 +69,7 @@ internal static class Program
     {
         Application.Idle -= OnApplicationIdle;
         _ = StartupSteamLoginAsync();
+        _ = CheckUpdatesInBackgroundAsync();
     }
 
     /// <summary>后台尝试令牌自动登录；失败则在 UI 线程弹出登录窗口。</summary>
@@ -96,6 +111,35 @@ internal static class Program
         catch (Exception ex)
         {
             Logger.Error($"[Program] 启动登录流程异常: {ex}");
+        }
+    }
+
+    /// <summary>启动后台更新检查：发现新版本时用托盘气泡提示（点击打开发布页）。</summary>
+    private static async Task CheckUpdatesInBackgroundAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(8)).ConfigureAwait(false);
+            var info = await UpdateChecker.CheckAsync().ConfigureAwait(false);
+            if (info == null) return;
+            _pendingUpdateUrl = info.Url;
+            Logger.Info($"[Update] 发现新版本 {info.Tag}");
+            try
+            {
+                _mainForm?.BeginInvoke(() =>
+                {
+                    TrayIcon?.ShowBalloonTip(10000, "MuSync 有更新",
+                        $"发现新版本 {info.Tag}，点击查看更新内容", ToolTipIcon.Info);
+                });
+            }
+            catch
+            {
+                // 窗体未就绪时忽略气泡
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"[Update] 检查更新异常: {ex.Message}");
         }
     }
 

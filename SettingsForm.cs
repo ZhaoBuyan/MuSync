@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using MuSync.Models;
 using MuSync.Utils;
@@ -32,6 +33,7 @@ internal sealed class SettingsForm : Form
     private CheckBox _enableAppSyncCheckBox = null!;
     private CheckBox _syncNonGameCheckBox = null!;
     private CheckBox _pauseWhenPlayingGameCheckBox = null!;
+    private ComboBox _syncSpeedCombo = null!;
     private readonly List<ComboBox> _playerPriorityCombos = [];
     private bool _updatingPriorityCombos;
     private List<int> _lastPrioritySelection = [0, 1, 2];
@@ -49,13 +51,13 @@ internal sealed class SettingsForm : Form
     // —— 程序页 ——
     private DataGridView _rulesGrid = null!;
     private readonly List<AppRule> _rules = [];
-    private TextBox _aiEndpointBox = null!;
-    private TextBox _aiKeyBox = null!;
-    private TextBox _aiModelBox = null!;
 
     // —— 诊断页 ——
     private Label _memoryInfoLabel = null!;
     private Label _versionLabel = null!;
+
+    // —— 关于页 ——
+    private Label _aboutVersionLabel = null!;
 
     // —— 底部按钮 ——
     private Button _okButton = null!;
@@ -115,6 +117,7 @@ internal sealed class SettingsForm : Form
         tabs.TabPages.Add(CreateDisplayPage());
         tabs.TabPages.Add(CreateAppsPage());
         tabs.TabPages.Add(CreateDiagnosticsPage());
+        tabs.TabPages.Add(CreateAboutPage());
 
         Controls.AddRange([tabs, buttonPanel]);
 
@@ -231,7 +234,35 @@ internal sealed class SettingsForm : Form
             priorityGroup.Controls.Add(combo);
         }
 
-        page.Controls.AddRange([switchGroup, priorityGroup]);
+        var speedGroup = CreateGroupBox("同步频率", 10, 294, 650, 90);
+        var speedLabel = new Label { Text = "进度刷新档位:", Location = new Point(20, 32), AutoSize = true };
+        _syncSpeedCombo = new ComboBox
+        {
+            Location = new Point(130, 28),
+            Width = 240,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _syncSpeedCombo.Items.AddRange(["快速（0.25 秒）", "标准（0.5 秒，推荐）", "省流（1 秒）"]);
+        var speedHint = new Label
+        {
+            AutoSize = true,
+            Location = new Point(20, 60),
+            ForeColor = Color.Gray,
+            Font = new Font("Microsoft YaHei", 8),
+            Text = "更快的刷新让 Steam 端更顺滑；省流档可降低被服务器限流的概率"
+        };
+        speedGroup.Controls.AddRange([speedLabel, _syncSpeedCombo, speedHint]);
+
+        var lxHint = new Label
+        {
+            Location = new Point(10, 396),
+            Size = new Size(650, 60),
+            ForeColor = Color.FromArgb(150, 110, 40),
+            Font = new Font("Microsoft YaHei", 8.5f),
+            Text = "洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，并允许来自局域网的访问。"
+        };
+
+        page.Controls.AddRange([switchGroup, priorityGroup, speedGroup, lxHint]);
         return page;
     }
 
@@ -363,16 +394,7 @@ internal sealed class SettingsForm : Form
         };
         removeButton.Click += RemoveButton_Click;
 
-        var aiGroup = CreateGroupBox("AI 分类辅助（预留，需自备 API）", 10, 328, 650, 150);
-        var endpointLabel = new Label { Text = "API 地址:", Location = new Point(20, 34), AutoSize = true };
-        _aiEndpointBox = new TextBox { Location = new Point(110, 30), Width = 520 };
-        var keyLabel = new Label { Text = "API Key:", Location = new Point(20, 68), AutoSize = true };
-        _aiKeyBox = new TextBox { Location = new Point(110, 64), Width = 520, UseSystemPasswordChar = true };
-        var modelLabel = new Label { Text = "模型:", Location = new Point(20, 102), AutoSize = true };
-        _aiModelBox = new TextBox { Location = new Point(110, 98), Width = 520 };
-        aiGroup.Controls.AddRange([endpointLabel, _aiEndpointBox, keyLabel, _aiKeyBox, modelLabel, _aiModelBox]);
-
-        page.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton, aiGroup]);
+        page.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton]);
         return page;
     }
 
@@ -424,6 +446,94 @@ internal sealed class SettingsForm : Form
 
         page.Controls.AddRange([memoryGroup, toolGroup]);
         return page;
+    }
+
+    // ================= 关于页 =================
+    private TabPage CreateAboutPage()
+    {
+        var page = new TabPage("关于") { BackColor = Color.White };
+
+        var title = new Label
+        {
+            AutoSize = true,
+            Location = new Point(20, 24),
+            Font = new Font("Microsoft YaHei", 16, FontStyle.Bold),
+            Text = "MuSync"
+        };
+        var subtitle = new Label
+        {
+            AutoSize = true,
+            Location = new Point(22, 70),
+            ForeColor = Color.Gray,
+            Text = "把音乐软件与任意程序的当前状态同步到 Steam"
+        };
+        _aboutVersionLabel = new Label
+        {
+            AutoSize = true,
+            Location = new Point(22, 102),
+            Text = "版本：-"
+        };
+        var repoButton = new Button
+        {
+            Text = "项目主页（GitHub）",
+            Location = new Point(20, 140),
+            Size = new Size(170, 30),
+            BackColor = Color.White
+        };
+        repoButton.Click += (_, _) => OpenUrl("https://github.com/ZhaoBuyan/MuSync");
+        var releaseButton = new Button
+        {
+            Text = "下载与更新日志",
+            Location = new Point(205, 140),
+            Size = new Size(150, 30),
+            BackColor = Color.White
+        };
+        releaseButton.Click += (_, _) => OpenUrl("https://github.com/ZhaoBuyan/MuSync/releases");
+        var checkUpdateButton = new Button
+        {
+            Text = "检查更新",
+            Location = new Point(370, 140),
+            Size = new Size(110, 30),
+            BackColor = Color.White
+        };
+        checkUpdateButton.Click += async (_, _) => await CheckUpdateFromAboutAsync();
+        var licenseLabel = new Label
+        {
+            Location = new Point(22, 190),
+            Size = new Size(620, 130),
+            ForeColor = Color.Gray,
+            Font = new Font("Microsoft YaHei", 8.5f),
+            Text = "本项目以 MIT 协议开源发布。\n基于开源谱系「半新写」构建，感谢所有铺路者（详见仓库 THIRD-PARTY-NOTICES）。\n\n洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，\n并允许来自局域网的访问。"
+        };
+
+        page.Controls.AddRange([title, subtitle, _aboutVersionLabel, repoButton, releaseButton, checkUpdateButton, licenseLabel]);
+        return page;
+    }
+
+    private async Task CheckUpdateFromAboutAsync()
+    {
+        var info = await Task.Run(UpdateChecker.CheckAsync);
+        if (info == null)
+        {
+            MessageBox.Show("当前已是最新版本（或网络暂不可用，稍后再试）。", "检查更新",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        var version = typeof(SettingsForm).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+        using var updateForm = new UpdateForm(version, info);
+        updateForm.ShowDialog(this);
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"打开链接失败：{ex.Message}", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     // ================= 控件工具 =================
@@ -773,9 +883,12 @@ internal sealed class SettingsForm : Form
         _combinedFormatBox.Text = settings.CombinedFormat;
         _separatorCombo.Text = settings.CombinedSeparator;
         _progressBarStyleCombo.Text = settings.ProgressBarFillChar + settings.ProgressBarEmptyChar;
-        _aiEndpointBox.Text = settings.AiApiEndpoint;
-        _aiKeyBox.Text = settings.AiApiKey;
-        _aiModelBox.Text = settings.AiApiModel;
+        _syncSpeedCombo.SelectedIndex = settings.SyncSpeed switch
+        {
+            SyncSpeedLevel.Fast => 0,
+            SyncSpeedLevel.Economic => 2,
+            _ => 1
+        };
 
         foreach (var rule in settings.Apps)
         {
@@ -788,7 +901,9 @@ internal sealed class SettingsForm : Form
         UpdateAccountStatus();
         RefreshMemoryInfo();
         var version = typeof(SettingsForm).Assembly.GetName().Version;
-        _versionLabel.Text = $"MuSync v{version?.ToString(3) ?? "0.0.0"} ｜ 配置文件：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync";
+        var versionText = $"v{version?.ToString(3) ?? "0.0.0"}";
+        _versionLabel.Text = $"MuSync {versionText} ｜ 配置文件：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync";
+        _aboutVersionLabel.Text = $"版本：MuSync {versionText}";
     }
 
     private void SaveSettings()
@@ -814,9 +929,12 @@ internal sealed class SettingsForm : Form
         var (barFill, barEmpty) = ParseBarStyle(_progressBarStyleCombo.Text);
         settings.ProgressBarFillChar = barFill;
         settings.ProgressBarEmptyChar = barEmpty;
-        settings.AiApiEndpoint = _aiEndpointBox.Text.Trim();
-        settings.AiApiKey = _aiKeyBox.Text.Trim();
-        settings.AiApiModel = _aiModelBox.Text.Trim();
+        settings.SyncSpeed = _syncSpeedCombo.SelectedIndex switch
+        {
+            0 => SyncSpeedLevel.Fast,
+            2 => SyncSpeedLevel.Economic,
+            _ => SyncSpeedLevel.Standard
+        };
         settings.PlayerPriority = CurrentPriorityOrder();
         settings.Apps = _rules;
 

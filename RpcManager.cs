@@ -54,8 +54,13 @@ internal class RpcManager(SteamStatusManager steamManager)
     private static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic"];
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
-    // 进度条推送间隔：0.5 秒一次（Steam 端滚动更平滑）
-    private const double ProgressUpdateIntervalSeconds = 0.5;
+    // 进度条推送间隔：跟随用户档位（快速 0.25s / 标准 0.5s / 省流 1s）
+    private static double ProgressUpdateIntervalSeconds => Configurations.Instance.Settings.SyncSpeed switch
+    {
+        SyncSpeedLevel.Fast => 0.25,
+        SyncSpeedLevel.Economic => 1.0,
+        _ => 0.5
+    };
     // 有播放器在跑时高频轮询；空闲时降低频率省电
     private static readonly TimeSpan ActivePollInterval = TimeSpan.FromMilliseconds(233);
     private static readonly TimeSpan IdlePollInterval = TimeSpan.FromMilliseconds(1200);
