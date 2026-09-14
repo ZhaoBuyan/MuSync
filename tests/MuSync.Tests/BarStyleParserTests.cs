@@ -60,6 +60,23 @@ public class BarStyleParserTests
     }
 
     [Fact]
+    public void Parse_ZWJFamilyEmoji_NotSplit()
+    {
+        // 👨‍👩‍👧‍👦（ZWJ 序列）+ 🇨🇳（旗帜）均为单个文本元素
+        var (fill, empty) = BarStyleParser.Parse("👨‍👩‍👧‍👦🇨🇳");
+        Assert.Equal("👨‍👩‍👧‍👦", fill);
+        Assert.Equal("🇨🇳", empty);
+    }
+
+    [Fact]
+    public void Parse_SkinToneModifier_NotSplit()
+    {
+        var (fill, empty) = BarStyleParser.Parse("👍🏽🇨🇳");
+        Assert.Equal("👍🏽", fill);
+        Assert.Equal("🇨🇳", empty);
+    }
+
+    [Fact]
     public void Normalize_TakesFirstVisibleTextElement()
     {
         Assert.Equal("❤️", BarStyleParser.Normalize("❤️", "#"));
