@@ -12,10 +12,13 @@ internal static class Program
     private static MainForm? _mainForm;
     private static NotifyIcon? TrayIcon { get; set; }
     private static ToolStripMenuItem? TrayStatusItem { get; set; }
-    private static string? _pendingUpdateUrl;
+    private static ToolStripMenuItem? _trayUpdateItem;
+    private static UpdateChecker.UpdateInfo? _pendingUpdate;
     public static RpcManager? GetRpcManager() => _rpcManager;
     public static SteamStatusManager? GetSteamManager() => _steamManager;
     public static SteamSessionManager? GetSessionManager() => _sessionManager;
+    /// <summary>后台检查发现的可用更新（供主窗口红点与托盘菜单项使用）；无更新时为 null。</summary>
+    public static UpdateChecker.UpdateInfo? PendingUpdate => _pendingUpdate;
 
     [STAThread]
     private static void Main()
@@ -40,19 +43,6 @@ internal static class Program
         _mainForm = new MainForm();
         TrayIcon = CreateTrayIcon();
         TrayIcon.Visible = true;
-        TrayIcon.BalloonTipClicked += (_, _) =>
-        {
-            if (_pendingUpdateUrl is not { } url) return;
-            try
-            {
-                System.Diagnostics.Process.Start(
-                    new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
-            }
-            catch
-            {
-                // 打开浏览器失败：忽略
-            }
-        };
         if (!Configurations.Instance.Settings.StartInTray)
             _mainForm.Show();
         else
@@ -114,7 +104,9 @@ internal static class Program
         }
     }
 
-    /// <summary>启动后台更新检查：发现新版本时用托盘气泡提示（点击打开发布页）。</summary>
+    /// <summary>
+    /// 启动后台更新检查：发现新版本时点亮设置按钮红点与托盘菜单项（不再弹气泡打扰）。
+    /// </summary>
     private static async Task CheckUpdatesInBackgroundAsync()
     {
         try
@@ -122,24 +114,39 @@ internal static class Program
             await Task.Delay(TimeSpan.FromSeconds(8)).ConfigureAwait(false);
             var info = await UpdateChecker.CheckAsync().ConfigureAwait(false);
             if (info == null) return;
-            _pendingUpdateUrl = info.Url;
             Logger.Info($"[Update] 发现新版本 {info.Tag}");
-            try
-            {
-                _mainForm?.BeginInvoke(() =>
-                {
-                    TrayIcon?.ShowBalloonTip(10000, "MuSync 有更新",
-                        $"发现新版本 {info.Tag}，点击查看更新内容", ToolTipIcon.Info);
-                });
-            }
-            catch
-            {
-                // 窗体未就绪时忽略气泡
-            }
+            SetPendingUpdate(info);
         }
         catch (Exception ex)
         {
             Logger.Error($"[Update] 检查更新异常: {ex.Message}");
+        }
+    }
+
+    /// <summary>记录发现的更新并刷新托盘菜单项（可从任意线程调用）。</summary>
+    public static void SetPendingUpdate(UpdateChecker.UpdateInfo info)
+    {
+        _pendingUpdate = info;
+        void Apply()
+        {
+            if (_trayUpdateItem == null) return;
+            _trayUpdateItem.Text = $"⬆ 有新版本 {info.Tag}";
+            _trayUpdateItem.Visible = true;
+        }
+        try
+        {
+            if (_mainForm is { IsHandleCreated: true } form && form.InvokeRequired)
+            {
+                form.BeginInvoke(Apply);
+            }
+            else
+            {
+                Apply();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"[Update] 刷新更新提示失败: {ex.Message}");
         }
     }
 
@@ -160,12 +167,20 @@ internal static class Program
                 GetRpcManager()?.RequestStateRefresh();
             }
         };
+        // 更新提示项：默认隐藏，后台发现新版本后点亮
+        _trayUpdateItem = new ToolStripMenuItem("有新版本") { Visible = false };
+        _trayUpdateItem.Click += (_, _) =>
+        {
+            if (_pendingUpdate is not { } info) return;
+            using var updateForm = new UpdateForm(UpdateChecker.GetCurrentVersionText(), info);
+            updateForm.ShowDialog();
+        };
         var showSettingsItem = new ToolStripMenuItem("显示设置");
         var showMainWindowItem = new ToolStripMenuItem("显示主窗口");
         var exitMenuItem = new ToolStripMenuItem("退出");
         var contextMenu = new ContextMenuStrip();
         contextMenu.Items.AddRange(
-            TrayStatusItem, new ToolStripSeparator(),
+            TrayStatusItem, _trayUpdateItem, new ToolStripSeparator(),
             showMainWindowItem, showSettingsItem, pauseSyncItem, new ToolStripSeparator(),
             exitMenuItem);
         showSettingsItem.Click += (_, _) =>

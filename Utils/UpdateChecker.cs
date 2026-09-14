@@ -1,21 +1,33 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 namespace MuSync.Utils;
 
 /// <summary>
-/// 更新检查：请求 GitHub 最新 Release（附带更新日志）。
+/// 更新检查：请求 GitHub 最新 Release（版本号、更新日志、下载资产列表）。
 /// 离线/限流/解析失败时静默返回 null——绝不打扰用户。
 /// </summary>
 internal static class UpdateChecker
 {
+    /// <summary>Release 中的一个可下载资产。</summary>
+    public sealed class UpdateAsset
+    {
+        public string Name { get; init; } = "";
+        public long Size { get; init; }
+        public string DownloadUrl { get; init; } = "";
+    }
+
     public sealed class UpdateInfo
     {
         public string Tag { get; init; } = "";
         public string Version { get; init; } = "";
         public string Body { get; init; } = "";
         public string Url { get; init; } = "";
+        public IReadOnlyList<UpdateAsset> Assets { get; init; } = [];
     }
 
     public static async Task<UpdateInfo?> CheckAsync()
@@ -34,9 +46,15 @@ internal static class UpdateChecker
             var url = root.TryGetProperty("html_url", out var urlElement) ? urlElement.GetString() ?? "" : "";
             var versionText = tag.TrimStart('v', 'V');
             if (!Version.TryParse(versionText, out var remote)) return null;
-            var current = Normalize(typeof(UpdateChecker).Assembly.GetName().Version);
-            if (Normalize(remote) <= current) return null;
-            return new UpdateInfo { Tag = tag, Version = versionText, Body = body, Url = url };
+            if (NormalizeVersion(remote) <= GetCurrentVersion()) return null;
+            return new UpdateInfo
+            {
+                Tag = tag,
+                Version = versionText,
+                Body = body,
+                Url = url,
+                Assets = ParseAssets(root)
+            };
         }
         catch
         {
@@ -44,7 +62,55 @@ internal static class UpdateChecker
         }
     }
 
-    private static Version Normalize(Version? version)
+    /// <summary>解析 Release 资产列表中的可下载文件（名称/大小/下载直链）。</summary>
+    private static List<UpdateAsset> ParseAssets(JsonElement root)
+    {
+        var assets = new List<UpdateAsset>();
+        if (!root.TryGetProperty("assets", out var assetsElement) ||
+            assetsElement.ValueKind != JsonValueKind.Array)
+        {
+            return assets;
+        }
+        foreach (var item in assetsElement.EnumerateArray())
+        {
+            var name = item.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? "" : "";
+            var url = item.TryGetProperty("browser_download_url", out var urlElement) ? urlElement.GetString() ?? "" : "";
+            var size = item.TryGetProperty("size", out var sizeElement) && sizeElement.TryGetInt64(out var parsed)
+                ? parsed
+                : 0;
+            if (name.Length == 0 || url.Length == 0) continue;
+            assets.Add(new UpdateAsset { Name = name, Size = size, DownloadUrl = url });
+        }
+        return assets;
+    }
+
+    /// <summary>
+    /// 挑选与当前程序形态一致的更新包：优先与当前 exe 同名；
+    /// 否则 lite 版程序选 lite 包、其余选完整版（重命名过的 exe 也能拿到可用的包）。
+    /// </summary>
+    public static UpdateAsset? SelectAsset(IReadOnlyList<UpdateAsset> assets, string? currentExeName = null)
+    {
+        var exeName = currentExeName ?? Path.GetFileName(Environment.ProcessPath ?? "");
+        var exeAssets = assets
+            .Where(a => a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (exeAssets.Count == 0) return null;
+        var sameName = exeAssets.FirstOrDefault(
+            a => string.Equals(a.Name, exeName, StringComparison.OrdinalIgnoreCase));
+        if (sameName != null) return sameName;
+        var wantsLite = exeName.Contains("lite", StringComparison.OrdinalIgnoreCase);
+        return exeAssets.FirstOrDefault(
+                   a => a.Name.Contains("lite", StringComparison.OrdinalIgnoreCase) == wantsLite)
+               ?? exeAssets[0];
+    }
+
+    public static Version GetCurrentVersion() =>
+        NormalizeVersion(typeof(UpdateChecker).Assembly.GetName().Version);
+
+    public static string GetCurrentVersionText() => GetCurrentVersion().ToString(3);
+
+    /// <summary>把缺位的 Build/Revision 归零，保证版本比较语义一致。</summary>
+    internal static Version NormalizeVersion(Version? version)
     {
         if (version == null) return new Version(0, 0, 0, 0);
         return new Version(

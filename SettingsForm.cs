@@ -58,6 +58,7 @@ internal sealed class SettingsForm : Form
 
     // —— 关于页 ——
     private Label _aboutVersionLabel = null!;
+    private Label _updateNoticeLabel = null!;
 
     // —— 底部按钮 ——
     private Button _okButton = null!;
@@ -497,21 +498,35 @@ internal sealed class SettingsForm : Form
             BackColor = Color.White
         };
         checkUpdateButton.Click += async (_, _) => await CheckUpdateFromAboutAsync();
+        _updateNoticeLabel = new Label
+        {
+            AutoSize = true,
+            Location = new Point(370, 176),
+            ForeColor = Color.FromArgb(233, 74, 62),
+            Visible = false
+        };
         var licenseLabel = new Label
         {
-            Location = new Point(22, 190),
+            Location = new Point(22, 204),
             Size = new Size(620, 130),
             ForeColor = Color.Gray,
             Font = new Font("Microsoft YaHei", 8.5f),
             Text = "本项目以 MIT 协议开源发布。\n基于开源谱系「半新写」构建，感谢所有铺路者（详见仓库 THIRD-PARTY-NOTICES）。\n\n洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，\n并允许来自局域网的访问。"
         };
 
-        page.Controls.AddRange([title, subtitle, _aboutVersionLabel, repoButton, releaseButton, checkUpdateButton, licenseLabel]);
+        page.Controls.AddRange([title, subtitle, _aboutVersionLabel, repoButton, releaseButton, checkUpdateButton, _updateNoticeLabel, licenseLabel]);
+        RefreshUpdateNotice();
         return page;
     }
 
     private async Task CheckUpdateFromAboutAsync()
     {
+        // 后台已发现更新时直接展示（不再重复联网，也不重复打扰）
+        if (Program.PendingUpdate is { } pending)
+        {
+            ShowUpdateDialog(pending);
+            return;
+        }
         var info = await Task.Run(UpdateChecker.CheckAsync);
         if (info == null)
         {
@@ -519,9 +534,28 @@ internal sealed class SettingsForm : Form
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
-        var version = typeof(SettingsForm).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
-        using var updateForm = new UpdateForm(version, info);
+        Program.SetPendingUpdate(info);
+        RefreshUpdateNotice();
+        ShowUpdateDialog(info);
+    }
+
+    private void ShowUpdateDialog(UpdateChecker.UpdateInfo info)
+    {
+        using var updateForm = new UpdateForm(UpdateChecker.GetCurrentVersionText(), info);
         updateForm.ShowDialog(this);
+    }
+
+    /// <summary>关于页的更新红点：后台发现有新版本时显示（与主窗口红点、托盘菜单项同步）。</summary>
+    private void RefreshUpdateNotice()
+    {
+        var info = Program.PendingUpdate;
+        if (info == null)
+        {
+            _updateNoticeLabel.Visible = false;
+            return;
+        }
+        _updateNoticeLabel.Text = $"● 有新版本 {info.Tag}";
+        _updateNoticeLabel.Visible = true;
     }
 
     private static void OpenUrl(string url)
@@ -900,8 +934,7 @@ internal sealed class SettingsForm : Form
         LoadPriorityCombos();
         UpdateAccountStatus();
         RefreshMemoryInfo();
-        var version = typeof(SettingsForm).Assembly.GetName().Version;
-        var versionText = $"v{version?.ToString(3) ?? "0.0.0"}";
+        var versionText = $"v{UpdateChecker.GetCurrentVersionText()}";
         _versionLabel.Text = $"MuSync {versionText} ｜ 配置文件：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync";
         _aboutVersionLabel.Text = $"版本：MuSync {versionText}";
     }

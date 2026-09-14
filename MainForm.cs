@@ -28,6 +28,7 @@ internal class MainForm : Form
     private PictureBox _appIconBox = null!;
     private string _appIconPath = "";
     private Button _settingsButton = null!;
+    private bool _updateBadgeVisible;
     private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐"];
     private readonly Color[] _playerColors =
     [
@@ -75,6 +76,7 @@ internal class MainForm : Form
             FlatAppearance = { BorderSize = 1 }
         };
         _settingsButton.Click += SettingsButton_Click;
+        _settingsButton.Paint += SettingsButton_Paint;
         _steamStateLabel = new Label
         {
             AutoSize = true,
@@ -347,6 +349,23 @@ internal class MainForm : Form
         using var settingsForm = new SettingsForm();
         settingsForm.ShowDialog(this);
     }
+    /// <summary>「设置」按钮右上角的更新红点（替代托盘气泡，安静提示有新版本）。</summary>
+    private void SettingsButton_Paint(object? sender, PaintEventArgs e)
+    {
+        if (!_updateBadgeVisible) return;
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using var brush = new SolidBrush(Color.FromArgb(233, 74, 62));
+        e.Graphics.FillEllipse(brush, _settingsButton.Width - 13, 4, 9, 9);
+    }
+
+    private void UpdateUpdateBadge()
+    {
+        var shouldShow = Program.PendingUpdate != null;
+        if (shouldShow == _updateBadgeVisible) return;
+        _updateBadgeVisible = shouldShow;
+        _settingsButton.Invalidate();
+    }
+
     private void UpdateTimer_Tick(object? sender, EventArgs e)
     {
         UpdateDisplay();
@@ -364,6 +383,7 @@ internal class MainForm : Form
             UpdateSteamStateLabel();
             UpdateAppSyncDisplay();
             UpdateAppIcon();
+            UpdateUpdateBadge();
         }
         catch (Exception ex)
         {
