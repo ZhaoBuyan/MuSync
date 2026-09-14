@@ -43,6 +43,8 @@ internal class SteamSessionManager : IDisposable
     public string? LoginError { get; private set; }
     /// <summary>最近一次 LogOn 结果的原始错误码（用于 TryAnotherCM 等分支判定）。</summary>
     private EResult? _lastLogOnResult;
+    // 随机会话 ID：避免快速重启时新旧实例使用同一 LoginID 导致会话互踩
+    private readonly uint _loginId = (uint)Random.Shared.Next(1000, 900000);
     private SteamUser.LogOnDetails? _lastLogOnDetails;
     public event Action<bool>? OnSteamGuardRequired;
     private TaskCompletionSource<string>? _guardCodeTcs;
@@ -252,8 +254,8 @@ internal class SteamSessionManager : IDisposable
             _selfSteamId = cb.ClientSteamID;
             IsRealGameActive = false;
             LoginError = null;
-            Debug.WriteLine($"[SteamSession] 登录成功! SteamID: {cb.ClientSteamID}");
-            Logger.Info($"[SteamSession] 登录成功! SteamID: {cb.ClientSteamID}");
+            Debug.WriteLine($"[SteamSession] 登录成功! SteamID: {MaskSteamId(cb.ClientSteamID)}");
+            Logger.Info($"[SteamSession] 登录成功! SteamID: {MaskSteamId(cb.ClientSteamID)}");
             _steamFriends?.SetPersonaState(EPersonaState.Online);
             Debug.WriteLine("[SteamSession] 已设置在线状态");
         }
@@ -343,7 +345,7 @@ internal class SteamSessionManager : IDisposable
             {
                 Username = username,
                 AccessToken = pollResult.RefreshToken,
-                LoginID = 1243,
+                LoginID = _loginId,
                 ShouldRememberPassword = true,
                 MachineName = "MuSync"
             };
@@ -413,7 +415,7 @@ internal class SteamSessionManager : IDisposable
         {
             Username = username,
             AccessToken = refreshToken,
-            LoginID = 1243,
+            LoginID = _loginId,
             ShouldRememberPassword = true,
             MachineName = "MuSync"
         };
@@ -444,6 +446,14 @@ internal class SteamSessionManager : IDisposable
     }
 
     /// <summary>把 Steam 错误码翻译成用户可见的友好提示。</summary>
+    /// <summary>日志脱敏：SteamID 只保留末 4 位。</summary>
+    private static string MaskSteamId(SteamID? steamId)
+    {
+        if (steamId is not { } id) return "****";
+        var text = id.ToString();
+        return text.Length <= 4 ? "****" : $"****{text[^4..]}";
+    }
+
     private static string DescribeAuthResult(EResult result) => result switch
     {
         EResult.InvalidPassword => "账号或密码错误",
