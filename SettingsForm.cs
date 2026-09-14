@@ -417,7 +417,7 @@ internal sealed class SettingsForm : Form
         {
             Text = "微软雅黑 9pt",
             Location = new Point(110, 68),
-            Size = new Size(220, 26),
+            Size = new Size(160, 26),
             BackColor = Color.White
         };
         _fontButton.Click += FontButton_Click;
@@ -495,7 +495,7 @@ internal sealed class SettingsForm : Form
     {
         Text = "",
         Location = location,
-        Size = new Size(120, 26),
+        Size = new Size(48, 26),
         BackColor = Color.WhiteSmoke,
         FlatStyle = FlatStyle.Flat
     };
