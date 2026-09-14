@@ -75,13 +75,10 @@ internal class ConfigData
 
 internal class Configurations
 {
+    // ⚠️ 注意：Instance 的构造函数会立即读取/写入配置文件。
+    // 不能在此类中放“依赖静态字段声明顺序”的配置项（如 JsonSerializerOptions），
+    // 否则构造期间它们还是 null——JSON 选项统一走 ConfigJson.Options（惰性单例）。
     public static readonly Configurations Instance = new();
-    private static readonly JsonSerializerOptions SJsonOptions = new()
-    {
-        WriteIndented = true,
-        Converters = { new FlexibleEnumConverterFactory() }
-    };
-    private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly string _path;
 
     public ConfigData Settings { get; private set; } = new();
@@ -109,13 +106,13 @@ internal class Configurations
     {
         try
         {
-            var node = JsonSerializer.SerializeToNode(Settings, SJsonOptions);
+            var node = JsonSerializer.SerializeToNode(Settings, ConfigJson.Options);
             if (node is JsonObject root)
             {
                 ProtectField(root, nameof(ConfigData.SteamRefreshToken));
                 ProtectField(root, nameof(ConfigData.SteamGuardData));
             }
-            var json = node?.ToJsonString(SJsonOptions) ?? "{}";
+            var json = node?.ToJsonString(ConfigJson.Options) ?? "{}";
             WriteAtomic(_path, json);
         }
         catch (Exception e)
@@ -128,7 +125,7 @@ internal class Configurations
     private static void WriteAtomic(string path, string content)
     {
         var tmp = path + ".tmp";
-        File.WriteAllText(tmp, content, Utf8NoBom);
+        File.WriteAllText(tmp, content, new UTF8Encoding(false));
         File.Move(tmp, path, overwrite: true);
     }
 
@@ -178,7 +175,7 @@ internal class Configurations
     {
         try
         {
-            var config = JsonSerializer.Deserialize<ConfigData>(json, SJsonOptions);
+            var config = JsonSerializer.Deserialize<ConfigData>(json, ConfigJson.Options);
             if (config != null)
             {
                 DecryptSecrets(config);
@@ -196,7 +193,7 @@ internal class Configurations
             {
                 root.Remove(nameof(ConfigData.Apps));
                 root.Remove(nameof(ConfigData.PlayerPriority));
-                var config = root.Deserialize<ConfigData>(SJsonOptions);
+                var config = root.Deserialize<ConfigData>(ConfigJson.Options);
                 if (config != null)
                 {
                     DecryptSecrets(config);

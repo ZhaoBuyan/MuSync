@@ -11,11 +11,31 @@ namespace MuSync.Tests;
 /// <summary>配置兼容性回归：旧版本配置文件（含已废弃字段）必须能正常读取，不得触发"损坏重置"。</summary>
 public class ConfigCompatibilityTests
 {
-    private static JsonSerializerOptions CreateOptions() => new()
+    // 使用生产代码的真实选项（回归保护：宽容枚举解析必须始终生效）
+    private static JsonSerializerOptions CreateOptions() => ConfigJson.Options;
+
+    [Fact]
+    public void ProductionJsonOptions_ReadsRealConfigShape_WithStringEnums()
     {
-        WriteIndented = true,
-        Converters = { new FlexibleEnumConverterFactory() }
-    };
+        // 关键回归：启动时 Load 在类型初始化期间运行，曾拿到未初始化的选项
+        // → 默认转换器读不了枚举字符串 → 每次启动“配置解析失败”并重置程序列表。
+        // 现在 ConfigJson.Options 惰性初始化，任何时机都可用且宽容。
+        const string json = """
+            {
+              "SyncSpeed": "Standard",
+              "Apps": [
+                { "ExeName": "browser.exe", "DisplayName": "browser", "Category": "Other", "IsUserConfirmed": false },
+                { "ExeName": "QQ.exe", "DisplayName": "QQ", "Category": "Social", "IsUserConfirmed": false }
+              ]
+            }
+            """;
+        var config = JsonSerializer.Deserialize<ConfigData>(json, ConfigJson.Options);
+        Assert.NotNull(config);
+        Assert.Equal(SyncSpeedLevel.Standard, config!.SyncSpeed);
+        Assert.Equal(2, config.Apps.Count);
+        Assert.Equal(AppCategory.Other, config.Apps[0].Category);
+        Assert.Equal(AppCategory.Social, config.Apps[1].Category);
+    }
 
     [Fact]
     public void LegacyConfig_WithRemovedStatusPriorityField_LoadsSuccessfully()
