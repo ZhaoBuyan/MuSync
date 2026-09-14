@@ -876,7 +876,7 @@ internal sealed class SettingsForm : Form
                 Pause = false
             };
         }
-        var (barFill, barEmpty) = ParseBarStyle(_progressBarStyleCombo.Text);
+        var (barFill, barEmpty) = BarStyleParser.Parse(_progressBarStyleCombo.Text);
         var previewConfig = new ConfigData
         {
             MusicFormat = NonEmpty(_musicFormatBox.Text, "{song}{artistPart}{progress}"),
@@ -959,7 +959,7 @@ internal sealed class SettingsForm : Form
         settings.ProgramFormat = NonEmpty(_programFormatBox.Text, "{app}");
         settings.CombinedFormat = NonEmpty(_combinedFormatBox.Text, "{app} {sep} {song}{artistPart}");
         settings.CombinedSeparator = NonEmpty(_separatorCombo.Text, "‖");
-        var (barFill, barEmpty) = ParseBarStyle(_progressBarStyleCombo.Text);
+        var (barFill, barEmpty) = BarStyleParser.Parse(_progressBarStyleCombo.Text);
         settings.ProgressBarFillChar = barFill;
         settings.ProgressBarEmptyChar = barEmpty;
         settings.SyncSpeed = _syncSpeedCombo.SelectedIndex switch
@@ -1079,19 +1079,6 @@ internal sealed class SettingsForm : Form
     private static string NonEmpty(string? value, string fallback)
     {
         return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
-    }
-
-    private static (string Fill, string Empty) ParseBarStyle(string? text)
-    {
-        var runes = new List<string>();
-        foreach (var rune in (text ?? "").EnumerateRunes())
-        {
-            runes.Add(rune.ToString());
-            if (runes.Count == 2) break;
-        }
-        var fill = runes.Count >= 1 && runes[0].Trim().Length > 0 ? runes[0] : "#";
-        var empty = runes.Count >= 2 ? runes[1] : "-";
-        return (fill, empty);
     }
 
     private static string CategoryToText(AppCategory category) => category switch

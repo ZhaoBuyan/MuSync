@@ -140,8 +140,8 @@ internal class SteamStatusManager
         var sb = new StringBuilder(" [");
         var progress = Math.Clamp(music.Schedule / music.Duration, 0, 1);
         var filledCount = (int)(progress * ProgressBarLength);
-        var fill = NormalizeBarChar(config.ProgressBarFillChar, "#");
-        var empty = NormalizeBarChar(config.ProgressBarEmptyChar, "-");
+        var fill = BarStyleParser.Normalize(config.ProgressBarFillChar, "#");
+        var empty = BarStyleParser.Normalize(config.ProgressBarEmptyChar, "-");
         for (var i = 0; i < filledCount; i++)
         {
             sb.Append(fill);
@@ -170,17 +170,6 @@ internal class SteamStatusManager
             charIndex += rune.Utf16SequenceLength;
         }
         return charIndex >= str.Length ? str : str[..charIndex];
-    }
-
-    /// <summary>取进度条字符（支持 emoji 等多字节字符，取第一个字符）。</summary>
-    private static string NormalizeBarChar(string? value, string fallback)
-    {
-        if (string.IsNullOrEmpty(value)) return fallback;
-        foreach (var rune in value.EnumerateRunes())
-        {
-            return rune.ToString();
-        }
-        return fallback;
     }
 
     private static string FormatTime(double totalSeconds)
