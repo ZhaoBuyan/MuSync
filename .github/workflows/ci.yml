@@ -50,7 +50,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish Setup payload (self-contained, edition=setup)
-        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:MuSyncEdition=setup -o publish-setup
+        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:MuSyncEdition=setup -o setup-payload
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
