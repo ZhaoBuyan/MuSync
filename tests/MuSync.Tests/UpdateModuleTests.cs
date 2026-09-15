@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,28 +19,48 @@ public class UpdateCheckerTests
         new() { Name = name, Size = size, DownloadUrl = "https://example.com/" + name };
 
     [Fact]
-    public void SelectAsset_FullVersion_PicksFullPackage()
+    public void SelectAsset_FullEdition_PicksFullPackage()
     {
         var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.exe"), Asset("MuSync-lite.exe") };
-        var selected = UpdateChecker.SelectAsset(assets, "MuSync.exe");
+        var selected = UpdateChecker.SelectAsset(assets, "full", "MuSync.exe");
         Assert.NotNull(selected);
         Assert.Equal("MuSync.exe", selected!.Name);
     }
 
     [Fact]
-    public void SelectAsset_LiteVersion_PicksLitePackage()
+    public void SelectAsset_LiteEdition_PicksLitePackage()
     {
         var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.exe"), Asset("MuSync-lite.exe") };
-        var selected = UpdateChecker.SelectAsset(assets, "MuSync-lite.exe");
+        var selected = UpdateChecker.SelectAsset(assets, "lite", "MuSync-lite.exe");
         Assert.NotNull(selected);
         Assert.Equal("MuSync-lite.exe", selected!.Name);
     }
 
     [Fact]
-    public void SelectAsset_RenamedExe_FallsBackToFullPackage()
+    public void SelectAsset_LiteEditionWithRenamedExe_StillPicksLitePackage()
+    {
+        // 回归：lite 版用户把 exe 改名为 MuSync.exe 后，仍须拿到 lite 包（修复前同名匹配会错选完整版）
+        var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.exe"), Asset("MuSync-lite.exe") };
+        var selected = UpdateChecker.SelectAsset(assets, "lite", "MuSync.exe");
+        Assert.NotNull(selected);
+        Assert.Equal("MuSync-lite.exe", selected!.Name);
+    }
+
+    [Fact]
+    public void SelectAsset_FullEditionWithRenamedExe_PicksFullPackage()
     {
         var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync-lite.exe"), Asset("MuSync.exe") };
-        var selected = UpdateChecker.SelectAsset(assets, "我的音乐.exe");
+        var selected = UpdateChecker.SelectAsset(assets, "full", "我的音乐.exe");
+        Assert.NotNull(selected);
+        Assert.Equal("MuSync.exe", selected!.Name);
+    }
+
+    [Fact]
+    public void SelectAsset_LiteEdition_MissingLitePackage_FallsBackToAvailable()
+    {
+        // 发行方只提供完整包时，lite 版也兜底拿到可用的包
+        var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.exe") };
+        var selected = UpdateChecker.SelectAsset(assets, "lite", "MuSync.exe");
         Assert.NotNull(selected);
         Assert.Equal("MuSync.exe", selected!.Name);
     }
@@ -48,23 +69,46 @@ public class UpdateCheckerTests
     public void SelectAsset_SinglePackage_Works()
     {
         var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync-lite.exe") };
-        var selected = UpdateChecker.SelectAsset(assets, "MuSync.exe");
+        var selected = UpdateChecker.SelectAsset(assets, "full", "MuSync.exe");
         Assert.NotNull(selected);
         Assert.Equal("MuSync-lite.exe", selected!.Name);
+    }
+
+    [Fact]
+    public void SelectAsset_DefaultEdition_UsesCompiledEdition()
+    {
+        // 不注入形态时走程序集标记（测试为开发构建，应为完整版）
+        var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.exe"), Asset("MuSync-lite.exe") };
+        var selected = UpdateChecker.SelectAsset(assets, null, "MuSync.exe");
+        Assert.NotNull(selected);
+        Assert.Equal("MuSync.exe", selected!.Name);
+    }
+
+    [Fact]
+    public void GetCurrentEdition_ReadsCompiledMetadata()
+    {
+        // csproj 应把 MuSyncEdition 写入程序集 metadata；测试为开发构建（未指定 SelfContained）应为完整版
+        var attr = typeof(UpdateChecker).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => string.Equals(a.Key, "MuSyncEdition", StringComparison.Ordinal));
+        Assert.NotNull(attr);
+        Assert.Equal("full", attr!.Value);
+        Assert.Equal("full", UpdateChecker.GetCurrentEdition());
+        Assert.Equal("完整版", UpdateChecker.GetCurrentEditionText());
     }
 
     [Fact]
     public void SelectAsset_NoExeAssets_ReturnsNull()
     {
         var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.zip"), Asset("source.tar.gz") };
-        Assert.Null(UpdateChecker.SelectAsset(assets, "MuSync.exe"));
+        Assert.Null(UpdateChecker.SelectAsset(assets, "full", "MuSync.exe"));
     }
 
     [Fact]
     public void SelectAsset_EmptyList_ReturnsNull()
     {
         var assets = new List<UpdateChecker.UpdateAsset>();
-        Assert.Null(UpdateChecker.SelectAsset(assets, "MuSync.exe"));
+        Assert.Null(UpdateChecker.SelectAsset(assets, "full", "MuSync.exe"));
     }
 }
 

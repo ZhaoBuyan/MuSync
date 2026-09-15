@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
 namespace MuSync.Utils;
@@ -105,24 +106,57 @@ internal static class UpdateChecker
     }
 
     /// <summary>
-    /// 挑选与当前程序形态一致的更新包：优先与当前 exe 同名；
-    /// 否则 lite 版程序选 lite 包、其余选完整版（重命名过的 exe 也能拿到可用的包）。
+    /// 挑选与当前程序形态一致的更新包：lite 版取 lite 包、完整版取完整包。
+    /// 形态取自编译期标记（与 exe 文件名无关，改名后也能选对）；
+    /// 仅在发行方未提供对应形态包时，退回「与当前 exe 同名」的包，最后退回第一个可执行文件。
     /// </summary>
-    public static UpdateAsset? SelectAsset(IReadOnlyList<UpdateAsset> assets, string? currentExeName = null)
+    public static UpdateAsset? SelectAsset(
+        IReadOnlyList<UpdateAsset> assets,
+        string? edition = null,
+        string? currentExeName = null)
     {
-        var exeName = currentExeName ?? Path.GetFileName(Environment.ProcessPath ?? "");
         var exeAssets = assets
             .Where(a => a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (exeAssets.Count == 0) return null;
-        var sameName = exeAssets.FirstOrDefault(
-            a => string.Equals(a.Name, exeName, StringComparison.OrdinalIgnoreCase));
-        if (sameName != null) return sameName;
-        var wantsLite = exeName.Contains("lite", StringComparison.OrdinalIgnoreCase);
+
+        var wantsLite = IsLiteEdition(edition ?? GetCurrentEdition());
+        var byEdition = exeAssets.FirstOrDefault(
+            a => a.Name.Contains("lite", StringComparison.OrdinalIgnoreCase) == wantsLite);
+        if (byEdition != null) return byEdition;
+
+        var exeName = currentExeName ?? Path.GetFileName(Environment.ProcessPath ?? "");
         return exeAssets.FirstOrDefault(
-                   a => a.Name.Contains("lite", StringComparison.OrdinalIgnoreCase) == wantsLite)
+                   a => string.Equals(a.Name, exeName, StringComparison.OrdinalIgnoreCase))
                ?? exeAssets[0];
     }
+
+    /// <summary>
+    /// 当前发行形态：full=自包含完整版、lite=框架依赖版。
+    /// 由 csproj 在编译期写入程序集 metadata（MuSyncEdition）；读取失败按完整版处理。
+    /// </summary>
+    public static string GetCurrentEdition()
+    {
+        try
+        {
+            var value = typeof(UpdateChecker).Assembly
+                .GetCustomAttributes<AssemblyMetadataAttribute>()
+                .FirstOrDefault(a => string.Equals(a.Key, "MuSyncEdition", StringComparison.Ordinal))
+                ?.Value;
+            return string.IsNullOrWhiteSpace(value) ? "full" : value.Trim().ToLowerInvariant();
+        }
+        catch
+        {
+            return "full";
+        }
+    }
+
+    /// <summary>发行形态展示名（诊断信息用）：完整版 / lite 版。</summary>
+    public static string GetCurrentEditionText() =>
+        IsLiteEdition(GetCurrentEdition()) ? "lite 版" : "完整版";
+
+    private static bool IsLiteEdition(string edition) =>
+        edition.Contains("lite", StringComparison.OrdinalIgnoreCase);
 
     public static Version GetCurrentVersion() =>
         NormalizeVersion(typeof(UpdateChecker).Assembly.GetName().Version);

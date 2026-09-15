@@ -11,6 +11,9 @@
 
 
         <Version>0.3.0</Version>
+        <!-- 发行形态：full=自包含完整版；lite=框架依赖版（发布时 SelfContained=false 自动标记，也可 -p:MuSyncEdition= 显式指定） -->
+        <MuSyncEdition Condition="'$(MuSyncEdition)' == '' and '$(SelfContained)' == 'false'">lite</MuSyncEdition>
+        <MuSyncEdition Condition="'$(MuSyncEdition)' == ''">full</MuSyncEdition>
         <Description>MuSync - 把网易云音乐 / QQ 音乐 / LX Music 的播放状态同步到 Steam</Description>
 
 
@@ -61,6 +64,10 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="MuSync.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <AssemblyMetadata Include="MuSyncEdition" Value="$(MuSyncEdition)" />
     </ItemGroup>
 
 </Project>

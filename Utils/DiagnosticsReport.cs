@@ -31,7 +31,8 @@ internal static class DiagnosticsReport
         var exePath = Environment.ProcessPath;
         var exeName = exePath is null ? "MuSync.exe" : Path.GetFileName(exePath);
         var buildTime = TryGet(() => File.GetLastWriteTime(exePath!).ToString("yyyy-MM-dd HH:mm"), "未知");
-        sb.AppendLine($"版本：{UpdateChecker.GetCurrentVersionText()}（{exeName}，构建于 {buildTime}）");
+        sb.AppendLine(
+            $"版本：{UpdateChecker.GetCurrentVersionText()}（{UpdateChecker.GetCurrentEditionText()}，{exeName}，构建于 {buildTime}）");
         var uptime = DateTime.Now - Program.StartedAt;
         var uptimeText = uptime.TotalHours >= 1
             ? $"{(int)uptime.TotalHours} 小时 {uptime.Minutes} 分"
