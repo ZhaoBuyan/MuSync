@@ -71,8 +71,10 @@ internal static class UpdateChecker
                 Assets = ParseAssets(root)
             };
         }
-        catch
+        catch (Exception ex)
         {
+            // 失败原因写日志（如网络不可达 / GitHub 限流），每 6 小时最多一条，不打扰用户
+            Logger.Warn($"[Update] 检查更新失败: {ex.Message}");
             return null;
         }
     }

@@ -634,7 +634,37 @@ internal sealed class SettingsForm : Form
             Location = new Point(20, 90),
             Text = "版本：-"
         };
-        toolGroup.Controls.AddRange([openLogsButton, logsHint, _versionLabel]);
+        var copyDiagButton = new Button
+        {
+            Text = "复制诊断信息",
+            Location = new Point(20, 128),
+            Size = new Size(140, 30),
+            BackColor = Color.White
+        };
+        var copyDiagResetTimer = new System.Windows.Forms.Timer { Interval = 1600 };
+        copyDiagResetTimer.Tick += (_, _) =>
+        {
+            copyDiagResetTimer.Stop();
+            copyDiagButton.Text = "复制诊断信息";
+        };
+        copyDiagButton.Click += (_, _) =>
+        {
+            if (CopyDiagnosticsInfo())
+            {
+                copyDiagButton.Text = "已复制 ✓";
+                copyDiagResetTimer.Stop();
+                copyDiagResetTimer.Start();
+            }
+        };
+        copyDiagButton.Disposed += (_, _) => copyDiagResetTimer.Dispose();
+        var copyDiagHint = new Label
+        {
+            AutoSize = true,
+            Location = new Point(175, 135),
+            ForeColor = Color.Gray,
+            Text = "版本 / 内存 / 配置与日志路径（反馈问题时方便粘贴）"
+        };
+        toolGroup.Controls.AddRange([openLogsButton, logsHint, _versionLabel, copyDiagButton, copyDiagHint]);
 
         page.Controls.AddRange([memoryGroup, toolGroup]);
         return page;
@@ -1298,6 +1328,31 @@ internal sealed class SettingsForm : Form
         {
             _memoryInfoLabel.Text = $"获取内存信息失败: {ex.Message}";
             _memoryInfoLabel.ForeColor = Color.Red;
+        }
+    }
+
+    /// <summary>把版本 / 内存 / 配置与日志路径复制到剪贴板（反馈问题时方便粘贴）。</summary>
+    private static bool CopyDiagnosticsInfo()
+    {
+        try
+        {
+            var memoryInfo = PerformanceMonitor.GetMemoryInfo();
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var text = $"""
+                        MuSync {UpdateChecker.GetCurrentVersionText()}
+                        时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}
+                        系统：{Environment.OSVersion.VersionString}
+                        内存：工作集 {memoryInfo.GetFormattedWorkingSet()} / 私有 {memoryInfo.GetFormattedPrivateMemory()} / GC {memoryInfo.GetFormattedGcMemory()}
+                        配置：{Path.Combine(localAppData, "MuSync", "config.json")}
+                        日志：{Path.Combine(localAppData, "MuSync", "logs")}
+                        """;
+            Clipboard.SetText(text);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"复制失败：{ex.Message}", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
         }
     }
 

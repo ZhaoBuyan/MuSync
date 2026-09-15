@@ -62,6 +62,9 @@ internal class SteamStatusManager
         }
     }
 
+    /// <summary>失效「同内容不重发」缓存：重连 / 系统唤醒后让下一次推送必定发出。</summary>
+    public void InvalidatePushedCache() => _lastSetName = string.Empty;
+
     public void ClearStatus()
     {
         if (!_session.IsLoggedOn) return;

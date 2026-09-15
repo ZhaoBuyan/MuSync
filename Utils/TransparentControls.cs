@@ -6,15 +6,6 @@ using System.Windows.Forms;
 
 namespace MuSync.Utils;
 
-/// <summary>支持半透明背景的 Panel（让窗体背景图 / 背景色透出来）。</summary>
-internal sealed class TranslucentPanel : Panel
-{
-    public TranslucentPanel()
-    {
-        SetStyle(ControlStyles.SupportsTransparentBackColor, true);
-    }
-}
-
 /// <summary>顶部实心半透明、底边渐隐到透明的面板（音乐 / 程序信息板）。</summary>
 internal sealed class FadingBottomPanel : Panel
 {

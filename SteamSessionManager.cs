@@ -47,6 +47,9 @@ internal class SteamSessionManager : IDisposable
     private readonly uint _loginId = (uint)Random.Shared.Next(1000, 900000);
     private SteamUser.LogOnDetails? _lastLogOnDetails;
     public event Action<bool>? OnSteamGuardRequired;
+
+    /// <summary>登录成功（含断线重连后的令牌重登）。用于触发状态重推。</summary>
+    public event Action? OnLoginSucceeded;
     private TaskCompletionSource<string>? _guardCodeTcs;
 
     public void Start()
@@ -258,6 +261,14 @@ internal class SteamSessionManager : IDisposable
             Logger.Info($"[SteamSession] 登录成功! SteamID: {MaskSteamId(cb.ClientSteamID)}");
             _steamFriends?.SetPersonaState(EPersonaState.Online);
             Debug.WriteLine("[SteamSession] 已设置在线状态");
+            try
+            {
+                OnLoginSucceeded?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SteamSession] 登录成功回调异常: {ex.Message}");
+            }
         }
         else
         {

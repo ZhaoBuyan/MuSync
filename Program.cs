@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -66,19 +67,47 @@ internal static class Program
         using var mutex = new Mutex(true, "MuSyncMutex", out var isNewInstance);
         if (!isNewInstance)
         {
-            MessageBox.Show("MuSync is already running.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            // 已有实例在运行：请求它把主窗口唤起到前台，然后安静退出
+            if (!TryActivateExistingInstance())
+            {
+                MessageBox.Show("MuSync 已在运行。可从任务栏右下角的托盘图标打开主窗口。",
+                    "MuSync", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
             return;
         }
+        // 首个实例：创建「唤起窗口」通知事件（托盘驻留时也能被第二次启动唤起）
+        using var activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivateEventName);
         Win32Api.AutoStart.MigrateLegacyRegistration();
         using var cts = new CancellationTokenSource();
         var token = cts.Token;
         _sessionManager = new SteamSessionManager();
+        // 登录 / 重连成功后立即重推当前状态（重连后 Steam 侧状态已清空，且本地去重缓存会拦截重推）
+        _sessionManager.OnLoginSucceeded += RefreshStatusAfterRecovery;
         _sessionManager.Start();
+        // 系统唤醒 / 解锁后同样主动重推一次（睡眠期间连接可能中断）
+        try
+        {
+            Microsoft.Win32.SystemEvents.PowerModeChanged += (_, e) =>
+            {
+                if (e.Mode == Microsoft.Win32.PowerModes.Resume) RefreshStatusAfterRecovery();
+            };
+            Microsoft.Win32.SystemEvents.SessionSwitch += (_, e) =>
+            {
+                if (e.Reason == Microsoft.Win32.SessionSwitchReason.SessionUnlock) RefreshStatusAfterRecovery();
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"[Program] 订阅系统电源事件失败: {ex.Message}");
+        }
         // 无论登录与否，先让界面与轮询跑起来（未登录时状态同步自动跳过）
         _steamManager = new SteamStatusManager(_sessionManager);
         _rpcManager = new RpcManager(_steamManager);
         Task.Run(_rpcManager.Start, token);
         _mainForm = new MainForm();
+        // 提前创建窗口句柄：托盘驻留（窗口从未显示过）时也能从后台线程安全唤醒
+        _ = _mainForm.Handle;
+        StartActivationListener(activationEvent);
         TrayIcon = CreateTrayIcon();
         TrayIcon.Visible = true;
         if (!Configurations.Instance.Settings.StartInTray)
@@ -205,6 +234,111 @@ internal static class Program
         }
     }
 
+    private const string ActivateEventName = "MuSyncActivateEvent";
+
+    /// <summary>显示并激活主窗口（托盘菜单与二次启动唤起共用）。</summary>
+    private static void ShowMainWindow()
+    {
+        if (_mainForm == null) return;
+        _mainForm.Show();
+        _mainForm.WindowState = FormWindowState.Normal;
+        _mainForm.Activate();
+    }
+
+    /// <summary>把主窗口显示并移动到鼠标所在屏幕的工作区中央。</summary>
+    private static void CenterMainWindow()
+    {
+        ShowMainWindow();
+        if (_mainForm == null) return;
+        var workArea = Screen.FromPoint(Cursor.Position).WorkingArea;
+        _mainForm.Location = new Point(
+            workArea.Left + (workArea.Width - _mainForm.Width) / 2,
+            workArea.Top + (workArea.Height - _mainForm.Height) / 2);
+    }
+
+    /// <summary>通知已运行的实例唤起主窗口（第二次启动时调用）。</summary>
+    private static bool TryActivateExistingInstance()
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            try
+            {
+                if (EventWaitHandle.TryOpenExisting(ActivateEventName, out var handle))
+                {
+                    using (handle)
+                    {
+                        handle.Set();
+                    }
+                    return true;
+                }
+            }
+            catch
+            {
+                // 忽略，稍后重试（兼容首个实例尚未创建事件的启动竞态）
+            }
+            Thread.Sleep(100);
+        }
+        return false;
+    }
+
+    /// <summary>监听「唤起窗口」通知（后台线程，收到后切回 UI 线程显示主窗口）。</summary>
+    private static void StartActivationListener(EventWaitHandle activationEvent)
+    {
+        _ = Task.Run(() =>
+        {
+            while (true)
+            {
+                try
+                {
+                    activationEvent.WaitOne();
+                    ShowMainWindowFromBackground();
+                }
+                catch (ObjectDisposedException)
+                {
+                    return; // 程序退出中
+                }
+                catch
+                {
+                    // 单次失败不退出监听
+                }
+            }
+        });
+    }
+
+    /// <summary>后台线程安全地显示主窗口（必要时切回 UI 线程）。</summary>
+    private static void ShowMainWindowFromBackground()
+    {
+        var form = _mainForm;
+        if (form == null) return;
+        try
+        {
+            if (form.IsHandleCreated && form.InvokeRequired)
+            {
+                form.BeginInvoke((Action)ShowMainWindow);
+                return;
+            }
+            ShowMainWindow();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"[Program] 唤起主窗口失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>登录 / 系统唤醒 / 解锁后：清理去重缓存并请求立即重推状态。</summary>
+    private static void RefreshStatusAfterRecovery()
+    {
+        try
+        {
+            GetSteamManager()?.InvalidatePushedCache();
+            GetRpcManager()?.RequestStateRefresh();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"[Program] 恢复后重推状态失败: {ex.Message}");
+        }
+    }
+
     private static NotifyIcon CreateTrayIcon()
     {
         // 菜单顶部状态行（禁用态，由 UpdateTrayStatus 节流刷新）
@@ -230,14 +364,15 @@ internal static class Program
             using var updateForm = new UpdateForm(UpdateChecker.GetCurrentVersionText(), info);
             updateForm.ShowDialog();
         };
-        var showSettingsItem = new ToolStripMenuItem("设置");
         var showMainWindowItem = new ToolStripMenuItem("主窗口");
+        var centerWindowItem = new ToolStripMenuItem("窗口回中");
+        var showSettingsItem = new ToolStripMenuItem("设置");
         var exitMenuItem = new ToolStripMenuItem("退出");
         var contextMenu = new ContextMenuStrip();
         contextMenu.Items.AddRange(
             TrayStatusItem, _trayUpdateItem, new ToolStripSeparator(),
-            showMainWindowItem, showSettingsItem, pauseSyncItem, new ToolStripSeparator(),
-            exitMenuItem);
+            showMainWindowItem, centerWindowItem, pauseSyncItem, showSettingsItem,
+            new ToolStripSeparator(), exitMenuItem);
         showSettingsItem.Click += (_, _) =>
         {
             using var settingsForm = new SettingsForm();
@@ -245,13 +380,8 @@ internal static class Program
             settingsForm.ShowDialog();
             _mainForm?.ApplyAppearance();
         };
-        showMainWindowItem.Click += (_, _) =>
-        {
-            if (_mainForm == null) return;
-            _mainForm.Show();
-            _mainForm.WindowState = FormWindowState.Normal;
-            _mainForm.Activate();
-        };
+        showMainWindowItem.Click += (_, _) => ShowMainWindow();
+        centerWindowItem.Click += (_, _) => CenterMainWindow();
         exitMenuItem.Click += (_, _) => Application.Exit();
         var notifyIcon = new NotifyIcon
         {
@@ -259,13 +389,7 @@ internal static class Program
             Text = "MuSync",
             ContextMenuStrip = contextMenu
         };
-        notifyIcon.DoubleClick += (_, _) =>
-        {
-            if (_mainForm == null) return;
-            _mainForm.Show();
-            _mainForm.WindowState = FormWindowState.Normal;
-            _mainForm.Activate();
-        };
+        notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
         return notifyIcon;
     }
 

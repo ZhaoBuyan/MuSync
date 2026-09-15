@@ -21,6 +21,8 @@ internal class RpcManager(SteamStatusManager steamManager)
         public IMusicPlayer? Player { get; set; }
         public PlayerInfo? LastPolledInfo { get; set; }
         public DateTime LastPollTime { get; set; } = DateTime.MinValue;
+        /// <summary>最近一次「进程探测 + 轮询」的时间（用于非活跃播放器降频）。</summary>
+        public DateTime LastCheckTime { get; set; } = DateTime.MinValue;
         public PlayerInfo? PendingUpdateInfo { get; set; }
         public DateTime LastChangeDetectedTime { get; set; } = DateTime.MinValue;
         public ErrorCode LastError { get; set; } = ErrorCode.None;
@@ -53,6 +55,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     private string? _activeAppDisplay;
     private string? _activeAppIconPath;
     private DateTime _lastAppCheckTime = DateTime.MinValue;
+    private List<string>? _cachedPlayerOrder;
+    private string _cachedPlayerOrderSignature = "";
     private static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou"];
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
@@ -66,6 +70,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     // 有播放器在跑时高频轮询；空闲时降低频率省电
     private static readonly TimeSpan ActivePollInterval = TimeSpan.FromMilliseconds(233);
     private static readonly TimeSpan IdlePollInterval = TimeSpan.FromMilliseconds(1200);
+    // 非活跃源的探测/轮询间隔（秒）：只有当前活跃源保持全速，节省内存读取与进程枚举
+    private const double InactiveCheckIntervalSeconds = 1.0;
     private DateTime _lastProgressUpdateTime = DateTime.MinValue;
     private DateTime _lastTrayStatusUpdateTime = DateTime.MinValue;
 
@@ -95,45 +101,6 @@ internal class RpcManager(SteamStatusManager steamManager)
         _ => ""
     };
 
-    public (PlayerInfo? PlayerInfo, string PlayerName, bool IsActive, ErrorCode LastError)[] GetAllPlayersStatus()
-    {
-        return
-        [
-            (
-                _netEaseState is { Player: not null, LastPolledInfo: not null }
-                    ? _netEaseState.LastPolledInfo
-                    : null,
-                "网易云音乐",
-                _netEaseState.Player != null,
-                _netEaseState.LastError
-            ),
-            (
-                _tencentState is { Player: not null, LastPolledInfo: not null }
-                    ? _tencentState.LastPolledInfo
-                    : null,
-                "QQ音乐",
-                _tencentState.Player != null,
-                _tencentState.LastError
-            ),
-            (
-                _lxMusicState is { Player: not null, LastPolledInfo: not null }
-                    ? _lxMusicState.LastPolledInfo
-                    : null,
-                "LX Music",
-                _lxMusicState.Player != null,
-                _lxMusicState.LastError
-            ),
-            (
-                _kuGouState is { Player: not null, LastPolledInfo: not null }
-                    ? _kuGouState.LastPolledInfo
-                    : null,
-                "酷狗音乐",
-                _kuGouState.Player != null,
-                _kuGouState.LastError
-            )
-        ];
-    }
-
     /// <summary>
     /// 按优先级挑选当前应展示到 Steam 的播放器：
     /// 第一优先：正在播放的；第二优先：有信息但暂停的。
@@ -141,12 +108,22 @@ internal class RpcManager(SteamStatusManager steamManager)
     private (PlayerState? State, string Name) ResolveActiveState()
     {
         // 顺序来自设置（缺项自动补全），正在播放的始终优先于暂停的
-        var order = (Configurations.Instance.Settings.PlayerPriority ?? [])
-            .Concat(DefaultPlayerOrder)
-            .Distinct()
-            .ToList();
+        var order = GetPlayerOrder();
         var playing = ResolveActiveStatePass(order, playingOnly: true);
         return playing.State != null ? playing : ResolveActiveStatePass(order, playingOnly: false);
+    }
+
+    /// <summary>播放器优先顺序（按设置缓存，设置变化时自动失效；避免每 tick 重复分配）。</summary>
+    private List<string> GetPlayerOrder()
+    {
+        var priority = Configurations.Instance.Settings.PlayerPriority ?? [];
+        var signature = string.Join('|', priority);
+        if (_cachedPlayerOrder is null || signature != _cachedPlayerOrderSignature)
+        {
+            _cachedPlayerOrderSignature = signature;
+            _cachedPlayerOrder = priority.Concat(DefaultPlayerOrder).Distinct().ToList();
+        }
+        return _cachedPlayerOrder;
     }
 
     private (PlayerState? State, string Name) ResolveActiveStatePass(List<string> order, bool playingOnly)
@@ -206,164 +183,31 @@ internal class RpcManager(SteamStatusManager steamManager)
             var anyPlayerActive = false;
             try
             {
-                var neteaseHwnd = Win32Api.User32.FindWindow("OrpheusBrowserHost", null);
-                if (neteaseHwnd != IntPtr.Zero &&
-                    Win32Api.User32.GetWindowThreadProcessId(neteaseHwnd, out var neteasePid) != 0)
+                // 本 tick 的活跃源（活跃源全速轮询；其余降频，节省内存读取与进程枚举）
+                var activeSnapshot = ResolveActiveState().State;
+
+                if (ShouldCheckPlayer(_netEaseState, activeSnapshot, currentTime))
                 {
-                    anyPlayerActive = true;
-                    try
-                    {
-                        await PollAndUpdatePlayer(_netEaseState, "NetEase CloudMusic", neteasePid,
-                            pid => new NetEase(pid), currentTime);
-                        RecordPollSuccess(_netEaseState);
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        if (_netEaseState.LastError != ErrorCode.PermissionDenied)
-                        {
-                            Logger.Error("[NetEase] 无权限读取进程内存，可能需要以管理员身份运行。");
-                        }
-                        _netEaseState.LastError = ErrorCode.PermissionDenied;
-                    }
-                    catch (DllNotFoundException)
-                    {
-                        // cloudmusic.dll 通常比主窗口晚加载：宽限期后仍失败才提示
-                        RecordDllMissing(_netEaseState);
-                        Debug.WriteLine("[NetEase] 等待 cloudmusic.dll 加载 (DllNotFound).");
-                    }
-                    catch (EntryPointNotFoundException)
-                    {
-                        if (_netEaseState.LastError != ErrorCode.VersionNotSupported)
-                        {
-                            Logger.Error("[NetEase] 内存特征码未命中，播放器版本可能不兼容。");
-                        }
-                        _netEaseState.LastError = ErrorCode.VersionNotSupported;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[NetEase] Error: {ex.Message}");
-                        _netEaseState.LastError = ErrorCode.None;
-                    }
-                }
-                else
-                {
-                    CleanupPlayerState(_netEaseState, "NetEase CloudMusic");
-                    RecordPollSuccess(_netEaseState);
+                    _netEaseState.LastCheckTime = currentTime;
+                    anyPlayerActive |= await PollNetEaseAsync(currentTime);
                 }
 
-                var tencentHwnd = Win32Api.User32.FindWindow("QQMusic_Daemon_Wnd", null);
-                if (tencentHwnd != IntPtr.Zero &&
-                    Win32Api.User32.GetWindowThreadProcessId(tencentHwnd, out var tencentPid) != 0)
+                if (ShouldCheckPlayer(_tencentState, activeSnapshot, currentTime))
                 {
-                    anyPlayerActive = true;
-                    try
-                    {
-                        await PollAndUpdatePlayer(_tencentState, "Tencent QQMusic", tencentPid,
-                            pid => new Tencent(pid), currentTime);
-                        RecordPollSuccess(_tencentState);
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        if (_tencentState.LastError != ErrorCode.PermissionDenied)
-                        {
-                            Logger.Error("[Tencent] 无权限读取进程内存，可能需要以管理员身份运行。");
-                        }
-                        _tencentState.LastError = ErrorCode.PermissionDenied;
-                    }
-                    catch (DllNotFoundException)
-                    {
-                        RecordDllMissing(_tencentState);
-                        Debug.WriteLine("[Tencent] 等待 QQMusic.dll 加载 (DllNotFound).");
-                    }
-                    catch (EntryPointNotFoundException)
-                    {
-                        if (_tencentState.LastError != ErrorCode.VersionNotSupported)
-                        {
-                            Logger.Error("[Tencent] 内存特征码未命中，播放器版本可能不兼容。");
-                        }
-                        _tencentState.LastError = ErrorCode.VersionNotSupported;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[Tencent] Error: {ex.Message}");
-                        _tencentState.LastError = ErrorCode.None;
-                    }
-                }
-                else
-                {
-                    CleanupPlayerState(_tencentState, "Tencent QQMusic");
-                    RecordPollSuccess(_tencentState);
+                    _tencentState.LastCheckTime = currentTime;
+                    anyPlayerActive |= await PollTencentAsync(currentTime);
                 }
 
-                var lxProcess = Process.GetProcessesByName("lx-music-desktop").FirstOrDefault();
-                if (lxProcess != null)
+                if (ShouldCheckPlayer(_lxMusicState, activeSnapshot, currentTime))
                 {
-                    anyPlayerActive = true;
-                    try
-                    {
-                        await PollAndUpdatePlayer(_lxMusicState, "LX Music", lxProcess.Id,
-                            pid => new LxMusic(pid), currentTime);
-                        RecordPollSuccess(_lxMusicState);
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        if (_lxMusicState.LastError != ErrorCode.PermissionDenied)
-                        {
-                            Logger.Error("[LX Music] 无权限读取进程信息。");
-                        }
-                        _lxMusicState.LastError = ErrorCode.PermissionDenied;
-                    }
-                    catch (DllNotFoundException)
-                    {
-                        RecordDllMissing(_lxMusicState);
-                        Debug.WriteLine("[LX Music] 等待组件加载 (DllNotFound).");
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[LX Music] Error: {ex.Message}");
-                        _lxMusicState.LastError = ErrorCode.None;
-                    }
-                }
-                else
-                {
-                    CleanupPlayerState(_lxMusicState, "LX Music");
-                    RecordPollSuccess(_lxMusicState);
+                    _lxMusicState.LastCheckTime = currentTime;
+                    anyPlayerActive |= await PollLxMusicAsync(currentTime);
                 }
 
-                var kugouProcess = KuGou.FindMainProcess();
-                if (kugouProcess != null)
+                if (ShouldCheckPlayer(_kuGouState, activeSnapshot, currentTime))
                 {
-                    anyPlayerActive = true;
-                    // 酷狗重启（进程更替）后重建读取实例
-                    if (_kuGouState.Player is KuGou kuGouPlayer && kuGouPlayer.Pid != kugouProcess.Id)
-                    {
-                        Debug.WriteLine("[KuGou] Player process changed. Recreating instance.");
-                        CleanupPlayerState(_kuGouState, "KuGou");
-                    }
-                    try
-                    {
-                        await PollAndUpdatePlayer(_kuGouState, "KuGou", kugouProcess.Id,
-                            pid => new KuGou(pid), currentTime);
-                        RecordPollSuccess(_kuGouState);
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        if (_kuGouState.LastError != ErrorCode.PermissionDenied)
-                        {
-                            Logger.Error("[KuGou] 无权限读取进程内存，可能需要以管理员身份运行。");
-                        }
-                        _kuGouState.LastError = ErrorCode.PermissionDenied;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[KuGou] Error: {ex.Message}");
-                        _kuGouState.LastError = ErrorCode.None;
-                    }
-                }
-                else
-                {
-                    CleanupPlayerState(_kuGouState, "KuGou");
-                    RecordPollSuccess(_kuGouState);
+                    _kuGouState.LastCheckTime = currentTime;
+                    anyPlayerActive |= await PollKuGouAsync(currentTime);
                 }
 
                 // 内存快照：每 10 分钟记一次（用于排查内存增长趋势）
@@ -440,6 +284,181 @@ internal class RpcManager(SteamStatusManager steamManager)
                 await Task.Delay(anyPlayerActive ? ActivePollInterval : IdlePollInterval);
             }
         }
+    }
+
+    /// <summary>非活跃源降频：活跃源每 tick 检查；其余每 1 秒检查一次。</summary>
+    private static bool ShouldCheckPlayer(PlayerState state, PlayerState? activeState, DateTime currentTime)
+    {
+        if (state == activeState) return true;
+        return (currentTime - state.LastCheckTime).TotalSeconds >= InactiveCheckIntervalSeconds;
+    }
+
+    /// <summary>网易云：探测进程 + 轮询。返回是否检测到进程（决定主循环频率）。</summary>
+    private async Task<bool> PollNetEaseAsync(DateTime currentTime)
+    {
+        var hwnd = Win32Api.User32.FindWindow("OrpheusBrowserHost", null);
+        if (hwnd != IntPtr.Zero &&
+            Win32Api.User32.GetWindowThreadProcessId(hwnd, out var pid) != 0)
+        {
+            try
+            {
+                await PollAndUpdatePlayer(_netEaseState, "NetEase CloudMusic", pid,
+                    p => new NetEase(p), currentTime);
+                RecordPollSuccess(_netEaseState);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                if (_netEaseState.LastError != ErrorCode.PermissionDenied)
+                {
+                    Logger.Error("[NetEase] 无权限读取进程内存，可能需要以管理员身份运行。");
+                }
+                _netEaseState.LastError = ErrorCode.PermissionDenied;
+            }
+            catch (DllNotFoundException)
+            {
+                // cloudmusic.dll 通常比主窗口晚加载：宽限期后仍失败才提示
+                RecordDllMissing(_netEaseState);
+                Debug.WriteLine("[NetEase] 等待 cloudmusic.dll 加载 (DllNotFound).");
+            }
+            catch (EntryPointNotFoundException)
+            {
+                if (_netEaseState.LastError != ErrorCode.VersionNotSupported)
+                {
+                    Logger.Error("[NetEase] 内存特征码未命中，播放器版本可能不兼容。");
+                }
+                _netEaseState.LastError = ErrorCode.VersionNotSupported;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NetEase] Error: {ex.Message}");
+                _netEaseState.LastError = ErrorCode.None;
+            }
+            return true;
+        }
+        CleanupPlayerState(_netEaseState, "NetEase CloudMusic");
+        RecordPollSuccess(_netEaseState);
+        return false;
+    }
+
+    /// <summary>QQ 音乐：探测进程 + 轮询。返回是否检测到进程。</summary>
+    private async Task<bool> PollTencentAsync(DateTime currentTime)
+    {
+        var hwnd = Win32Api.User32.FindWindow("QQMusic_Daemon_Wnd", null);
+        if (hwnd != IntPtr.Zero &&
+            Win32Api.User32.GetWindowThreadProcessId(hwnd, out var pid) != 0)
+        {
+            try
+            {
+                await PollAndUpdatePlayer(_tencentState, "Tencent QQMusic", pid,
+                    p => new Tencent(p), currentTime);
+                RecordPollSuccess(_tencentState);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                if (_tencentState.LastError != ErrorCode.PermissionDenied)
+                {
+                    Logger.Error("[Tencent] 无权限读取进程内存，可能需要以管理员身份运行。");
+                }
+                _tencentState.LastError = ErrorCode.PermissionDenied;
+            }
+            catch (DllNotFoundException)
+            {
+                RecordDllMissing(_tencentState);
+                Debug.WriteLine("[Tencent] 等待 QQMusic.dll 加载 (DllNotFound).");
+            }
+            catch (EntryPointNotFoundException)
+            {
+                if (_tencentState.LastError != ErrorCode.VersionNotSupported)
+                {
+                    Logger.Error("[Tencent] 内存特征码未命中，播放器版本可能不兼容。");
+                }
+                _tencentState.LastError = ErrorCode.VersionNotSupported;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Tencent] Error: {ex.Message}");
+                _tencentState.LastError = ErrorCode.None;
+            }
+            return true;
+        }
+        CleanupPlayerState(_tencentState, "Tencent QQMusic");
+        RecordPollSuccess(_tencentState);
+        return false;
+    }
+
+    /// <summary>LX Music：探测进程 + 轮询。返回是否检测到进程。</summary>
+    private async Task<bool> PollLxMusicAsync(DateTime currentTime)
+    {
+        var lxProcess = Process.GetProcessesByName("lx-music-desktop").FirstOrDefault();
+        if (lxProcess != null)
+        {
+            try
+            {
+                await PollAndUpdatePlayer(_lxMusicState, "LX Music", lxProcess.Id,
+                    p => new LxMusic(p), currentTime);
+                RecordPollSuccess(_lxMusicState);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                if (_lxMusicState.LastError != ErrorCode.PermissionDenied)
+                {
+                    Logger.Error("[LX Music] 无权限读取进程信息。");
+                }
+                _lxMusicState.LastError = ErrorCode.PermissionDenied;
+            }
+            catch (DllNotFoundException)
+            {
+                RecordDllMissing(_lxMusicState);
+                Debug.WriteLine("[LX Music] 等待组件加载 (DllNotFound).");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[LX Music] Error: {ex.Message}");
+                _lxMusicState.LastError = ErrorCode.None;
+            }
+            return true;
+        }
+        CleanupPlayerState(_lxMusicState, "LX Music");
+        RecordPollSuccess(_lxMusicState);
+        return false;
+    }
+
+    /// <summary>酷狗：探测主进程 + 轮询（进程更替时重建实例）。返回是否检测到进程。</summary>
+    private async Task<bool> PollKuGouAsync(DateTime currentTime)
+    {
+        var kugouProcess = KuGou.FindMainProcess();
+        if (kugouProcess != null)
+        {
+            // 酷狗重启（进程更替）后重建读取实例
+            if (_kuGouState.Player is KuGou kuGouPlayer && kuGouPlayer.Pid != kugouProcess.Id)
+            {
+                Debug.WriteLine("[KuGou] Player process changed. Recreating instance.");
+                CleanupPlayerState(_kuGouState, "KuGou");
+            }
+            try
+            {
+                await PollAndUpdatePlayer(_kuGouState, "KuGou", kugouProcess.Id,
+                    p => new KuGou(p), currentTime);
+                RecordPollSuccess(_kuGouState);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                if (_kuGouState.LastError != ErrorCode.PermissionDenied)
+                {
+                    Logger.Error("[KuGou] 无权限读取进程内存，可能需要以管理员身份运行。");
+                }
+                _kuGouState.LastError = ErrorCode.PermissionDenied;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[KuGou] Error: {ex.Message}");
+                _kuGouState.LastError = ErrorCode.None;
+            }
+            return true;
+        }
+        CleanupPlayerState(_kuGouState, "KuGou");
+        RecordPollSuccess(_kuGouState);
+        return false;
     }
 
     private async Task PollAndUpdatePlayer(PlayerState state, string playerName,
