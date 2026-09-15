@@ -645,7 +645,9 @@ internal class MainForm : Form
                 try
                 {
                     using var stream = File.OpenRead(settings.AppearanceBackgroundImage);
-                    BackgroundImage = Image.FromStream(stream);
+                    using var loaded = Image.FromStream(stream);
+                    // 复制一份：Image.FromStream 要求源流保持打开，而 stream 会被释放
+                    BackgroundImage = new Bitmap(loaded);
                     BackgroundImageLayout = settings.AppearanceBackgroundLayout switch
                     {
                         "Zoom" => ImageLayout.Zoom,

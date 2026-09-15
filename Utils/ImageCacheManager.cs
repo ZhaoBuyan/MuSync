@@ -123,7 +123,7 @@ internal static class ImageCacheManager
             case >= 8 when
                 data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 &&
                 data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A:
-            case >= 4 when
+            case >= 6 when
                 (data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38) && 
                 (data[4] == 0x37 || data[4] == 0x39) && 
                 data[5] == 0x61:

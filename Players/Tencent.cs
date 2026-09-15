@@ -23,19 +23,30 @@ internal sealed class Tencent : IMusicPlayer
                 "Could not find QQMusic.dll in the target process. It might not be fully loaded yet.");
         }
         _process = new ProcessMemory(pid);
-        if (Memory.FindPattern(CurrentSongInfoPattern, pid, moduleBaseAddress, out var patternAddress))
+        try
         {
-            var songInfoPointer = _process.ReadInt32(patternAddress, 1);
-            _currentSongInfoAddress = songInfoPointer;
+            if (Memory.FindPattern(CurrentSongInfoPattern, pid, moduleBaseAddress, out var patternAddress))
+            {
+                var songInfoPointer = _process.ReadInt32(patternAddress, 1);
+                _currentSongInfoAddress = songInfoPointer;
+            }
+            if (_currentSongInfoAddress == 0)
+            {
+                throw new EntryPointNotFoundException(
+                    "_currentSongInfoAddress is 0. Pattern might be outdated or process state is invalid.");
+            }
         }
-        if (_currentSongInfoAddress == 0)
+        catch
         {
-            throw new EntryPointNotFoundException(
-                "_currentSongInfoAddress is 0. Pattern might be outdated or process state is invalid.");
+            // 构造失败（如特征码失效）时释放句柄，避免调用方反复重试导致句柄泄漏
+            _process.Dispose();
+            throw;
         }
     }
     public bool Validate(int pid)
         => _pid == pid;
+    public void Dispose() => _process.Dispose();
+
     public Task<PlayerInfo?> GetPlayerInfoAsync()
     {
         var id = GetSongIdentity();
@@ -75,7 +86,7 @@ internal sealed class Tencent : IMusicPlayer
     private string ReadStdString(nint address)
     {
         var strLength = _process.ReadInt32(address, 0x10);
-        if (strLength == 0)
+        if (strLength <= 0 || strLength > 4096)
         {
             return string.Empty;
         } 

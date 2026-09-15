@@ -23,6 +23,7 @@ internal sealed class LxMusic : IMusicPlayer
     private string _currentSongId = Guid.NewGuid().ToString();
     private PlayerInfo? _lastInfoCache;
     private DateTime _lastRequestUtc = DateTime.MinValue;
+    private DateTime _lastSuccessUtc = DateTime.MinValue;
 
     public LxMusic(int pid)
     {
@@ -61,6 +62,11 @@ internal sealed class LxMusic : IMusicPlayer
             Debug.WriteLine($"[ERROR] Failed to initialize LX Music player: {e.Message}");
             _isEnabled = false;
         }
+    }
+
+    // LX Music 没有需要手动释放的长期资源（HttpClient 为全局共享）
+    public void Dispose()
+    {
     }
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
@@ -113,13 +119,20 @@ internal sealed class LxMusic : IMusicPlayer
                 Url = string.Empty
             };
             _lastInfoCache = info;
+            _lastSuccessUtc = DateTime.UtcNow;
             return info;
         }
         catch (Exception e)
         {
             Debug.WriteLine($"[Lx Music] API request failed: {e.Message}");
-            // 请求失败时沿用上次成功状态，避免网络抖动导致 Steam 状态被误清
-            return _lastInfoCache;
+            // 请求失败时短暂沿用上次成功状态（避免网络抖动导致 Steam 状态被误清），
+            // 超过 15 秒仍未恢复则视为不可用，交还仲裁层处理
+            if (_lastInfoCache is { } fallback && (DateTime.UtcNow - _lastSuccessUtc).TotalSeconds <= 15.0)
+            {
+                return fallback;
+            }
+            _lastInfoCache = null;
+            return null;
         }
     }
 }

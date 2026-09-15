@@ -79,7 +79,8 @@ internal static class Memory
         }
         var patternBytes = ParseSignature(pattern);
         var firstByte = patternBytes[0];
-        var searchRange = memoryBlock.Length - patternBytes.Length;
+        // +1：最后一个可能起点（i = Length - patternLength）也要检查
+        var searchRange = memoryBlock.Length - patternBytes.Length + 1;
         for (var i = 0; i < searchRange; i++)
         {
             if (firstByte != 0xFFFF)
@@ -169,7 +170,11 @@ internal sealed partial class ProcessMemory(nint process) : IDisposable
         var buffer = ArrayPool<byte>.Shared.Rent(length);
         try
         {
-            ReadProcessMemory(process, offset, buffer, length, IntPtr.Zero);
+            // 读取失败时返回全零（而不是池中残留的脏数据），避免上层解析出垃圾值
+            if (!ReadProcessMemory(process, offset, buffer, length, IntPtr.Zero))
+            {
+                return new byte[length];
+            }
             var result = new byte[length];
             Array.Copy(buffer, 0, result, 0, length);
             return result;

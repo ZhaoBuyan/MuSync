@@ -154,11 +154,16 @@ internal class Configurations
     }
 
     /// <summary>原子写盘：先写临时文件再整体替换，避免写到一半被中断产生损坏配置。</summary>
+    private static readonly object WriteLock = new();
+
     private static void WriteAtomic(string path, string content)
     {
-        var tmp = path + ".tmp";
-        File.WriteAllText(tmp, content, new UTF8Encoding(false));
-        File.Move(tmp, path, overwrite: true);
+        lock (WriteLock)
+        {
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, content, new UTF8Encoding(false));
+            File.Move(tmp, path, overwrite: true);
+        }
     }
 
     private void Load()
@@ -177,6 +182,13 @@ internal class Configurations
         catch (Exception e)
         {
             Logger.Error($"加载配置失败，使用默认值: {e.Message}");
+            if (e is IOException or UnauthorizedAccessException)
+            {
+                // 读取/权限/占用等临时故障：保留磁盘上的原文件，本次仅用内存默认值，下次启动重试
+                Logger.Warn("配置文件暂时不可读（可能是占用或权限问题），本次不会覆盖磁盘文件");
+                Settings = new ConfigData();
+                return;
+            }
             try
             {
                 File.Copy(_path, _path + ".failed.json", overwrite: true);

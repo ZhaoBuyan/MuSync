@@ -54,23 +54,32 @@ internal sealed class NetEase : IMusicPlayer
         }
         _cloudMusicDllBase = moduleBaseAddress;
         _process = new ProcessMemory(pid);
-        _clientVersion = GetClientVersion(pid);
-        if (Memory.FindPattern(AudioPlayerPattern, pid, moduleBaseAddress, out var app))
+        try
         {
-            var textAddress = nint.Add(app, 3);
-            var displacement = _process.ReadInt32(textAddress);
-            _audioPlayerPointer = textAddress + displacement + sizeof(int);
+            _clientVersion = GetClientVersion(pid);
+            if (Memory.FindPattern(AudioPlayerPattern, pid, moduleBaseAddress, out var app))
+            {
+                var textAddress = nint.Add(app, 3);
+                var displacement = _process.ReadInt32(textAddress);
+                _audioPlayerPointer = textAddress + displacement + sizeof(int);
+            }
+            if (Memory.FindPattern(AudioSchedulePattern, pid, moduleBaseAddress, out var asp))
+            {
+                var textAddress = nint.Add(asp, 4);
+                var displacement = _process.ReadInt32(textAddress);
+                _schedulePointer = textAddress + displacement + sizeof(int);
+            }
+            if (_audioPlayerPointer == nint.Zero || _schedulePointer == nint.Zero)
+            {
+                _isLegacyMemoryMode = true;
+                Debug.WriteLine($"[NetEase] Memory pattern mismatch for version {_clientVersion}. Using Target Version Memory Mode.");
+            }
         }
-        if (Memory.FindPattern(AudioSchedulePattern, pid, moduleBaseAddress, out var asp))
+        catch
         {
-            var textAddress = nint.Add(asp, 4);
-            var displacement = _process.ReadInt32(textAddress);
-            _schedulePointer = textAddress + displacement + sizeof(int);
-        }
-        if (_audioPlayerPointer == nint.Zero || _schedulePointer == nint.Zero)
-        {
-            _isLegacyMemoryMode = true;
-            Debug.WriteLine($"[NetEase] Memory pattern mismatch for version {_clientVersion}. Using Target Version Memory Mode.");
+            // 构造中途失败（权限/特征码异常等）时释放句柄，避免调用方反复重试导致句柄泄漏
+            _process.Dispose();
+            throw;
         }
     }
     private string GetClientVersion(int pid)
@@ -86,6 +95,8 @@ internal sealed class NetEase : IMusicPlayer
             return "Unknown";
         }
     }
+    public void Dispose() => _process.Dispose();
+
     public Task<PlayerInfo?> GetPlayerInfoAsync()
     {
         PlayerInfo? info;
@@ -220,9 +231,9 @@ internal sealed class NetEase : IMusicPlayer
             {
                 Identity = identity,
                 Title = track.Name,
-                Artists = string.Join(',', track.Artists.Select(x => x.Singer)),
-                Album = track.Album.Name,
-                Cover = track.Album.Cover,
+                Artists = string.Join(',', (track.Artists ?? []).Select(x => x.Singer)),
+                Album = track.Album?.Name ?? "",
+                Cover = track.Album?.Cover ?? "",
                 Duration = track.Duration / 1000.0,
                 Schedule = GetSchedule(),
                 Pause = status == PlayStatus.Paused,
@@ -273,9 +284,9 @@ internal sealed class NetEase : IMusicPlayer
             {
                 Identity = identity,
                 Title = currentTrackItem.Name,
-                Artists = string.Join(',', currentTrackItem.Artists.Select(x => x.Singer)),
-                Album = currentTrackItem.Album.Name,
-                Cover = currentTrackItem.Album.Cover,
+                Artists = string.Join(',', (currentTrackItem.Artists ?? []).Select(x => x.Singer)),
+                Album = currentTrackItem.Album?.Name ?? "",
+                Cover = currentTrackItem.Album?.Cover ?? "",
                 Duration = currentTrackItem.Duration / 1000.0,
                 Schedule = GetSchedule(),
                 Pause = status == PlayStatus.Paused,
@@ -384,6 +395,8 @@ internal sealed class NetEase : IMusicPlayer
         }
         var strPtr = audioPlayInfo + 0x10;
         var strLength = _process.ReadInt64((nint)strPtr, 0x10);
+        // 合理性上限：读取错位/版本变化时避免按垃圾长度分配巨量内存
+        if (strLength < 0 || strLength > 4096) return string.Empty;
         byte[] strBuffer;
         if (strLength <= 15)
         {

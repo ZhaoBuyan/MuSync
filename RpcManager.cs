@@ -571,6 +571,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     {
         if (state.Player is null) return;
         Debug.WriteLine($"[{playerName}] Player process lost. Clearing local state (active source re-evaluated).");
+        // 释放播放器持有的进程句柄等资源（如网易云/QQ音乐的 ProcessMemory）
+        state.Player.Dispose();
         state.Player = null;
         state.LastPolledInfo = null;
         state.PendingUpdateInfo = null;

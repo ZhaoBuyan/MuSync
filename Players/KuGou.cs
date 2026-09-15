@@ -33,6 +33,7 @@ internal sealed class KuGou : IMusicPlayer
     private int _candidatesPid = -1;
 
     private DateTime _lastGrowthUtc = DateTime.UtcNow;
+    private DateTime _lastProgressScanUtc = DateTime.MinValue;
     private string _currentSongId = Guid.NewGuid().ToString();
     private string? _lastTitle;
     private string? _lastArtist;
@@ -62,6 +63,7 @@ internal sealed class KuGou : IMusicPlayer
                     if (icon != null)
                     {
                         _appIconImage = icon.ToBitmap();
+                        icon.Dispose();
                         return _appIconImage;
                     }
                 }
@@ -111,6 +113,11 @@ internal sealed class KuGou : IMusicPlayer
         return null;
     }
 
+    // 酷狗读取不长期持有进程句柄（每轮开/关），无需释放资源
+    public void Dispose()
+    {
+    }
+
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
         // 1) 窗口标题 → 歌手 / 歌名
@@ -125,6 +132,7 @@ internal sealed class KuGou : IMusicPlayer
             _currentSongId = Guid.NewGuid().ToString();
             _lastTitle = t.Title;
             _lastArtist = t.Artist;
+            _lastProgressScanUtc = DateTime.MinValue;   // 切歌后允许立即重新扫描
             _candidateAddrs.Clear();
             _liveAddrs.Clear();
             _lastValues.Clear();
@@ -135,8 +143,9 @@ internal sealed class KuGou : IMusicPlayer
         var (progress, duration) = await Task.Run(ReadProgressFromMemory);
 
         // 暂停判定：进度文本是秒级的、轮询比它快，单轮“未增长”不能当作暂停；
-        // 统一用“距最后一次观察到增长的时间”判断，超过 2 秒视为暂停
-        var paused = (DateTime.UtcNow - _lastGrowthUtc).TotalSeconds > 2.0;
+        // 统一用“距最后一次观察到增长的时间”判断，超过 2 秒视为暂停；
+        // 读不到进度（duration=0，如内存读取异常）时不判定为暂停，避免把播放中的歌误显示为已暂停
+        var paused = duration > 0 && (DateTime.UtcNow - _lastGrowthUtc).TotalSeconds > 2.0;
 
         return new PlayerInfo
         {
@@ -231,6 +240,9 @@ internal sealed class KuGou : IMusicPlayer
             // 候选未就绪（首次 / 切歌后）→ 全内存搜索
             if (_candidatesPid != _pid || _candidateAddrs.Count == 0)
             {
+                // 扫描失败时做节流（异常情形下避免每轮全内存扫描占用 CPU）
+                if ((DateTime.UtcNow - _lastProgressScanUtc).TotalSeconds < 5.0) return (0, 0);
+                _lastProgressScanUtc = DateTime.UtcNow;
                 var found = ScanForProgressStrings();
                 if (found.Count == 0) return (0, 0);
                 _candidatesPid = _pid;
