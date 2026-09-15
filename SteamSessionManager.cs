@@ -37,7 +37,12 @@ internal class SteamSessionManager : IDisposable
     public bool IsConnected => _steamClient?.IsConnected ?? false;
 
     /// <summary>当前连接协议（TCP / WebSocket），供诊断信息展示。</summary>
-    public string ConnectionProtocolText => _currentProtocol.ToString();
+    public string ConnectionProtocolText => _currentProtocol switch
+    {
+        ProtocolTypes.WebSocket => "WebSocket",
+        ProtocolTypes.Tcp => "TCP",
+        _ => _currentProtocol.ToString()
+    };
     public bool IsLoggedOn { get; private set; }
     public bool IsRealGameActive { get; private set; }
     /// <summary>密码登录成功后是否保存 refresh token（用于下次自动登录）；不保存则每次启动需手动登录。</summary>
