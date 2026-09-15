@@ -10,7 +10,7 @@
         <RootNamespace>MuSync</RootNamespace>
 
 
-        <Version>0.3.0</Version>
+        <Version>0.4.0</Version>
         <!-- 发行形态：full=自包含完整版；lite=框架依赖版（发布时 SelfContained=false 自动标记，也可 -p:MuSyncEdition= 显式指定） -->
         <MuSyncEdition Condition="'$(MuSyncEdition)' == '' and '$(SelfContained)' == 'false'">lite</MuSyncEdition>
         <MuSyncEdition Condition="'$(MuSyncEdition)' == ''">full</MuSyncEdition>
