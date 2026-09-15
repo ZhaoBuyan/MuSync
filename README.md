@@ -28,7 +28,7 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 
 ### 音乐同步
 
-- 支持网易云音乐 / QQ 音乐 / LX Music（洛雪）
+- 支持网易云音乐 / QQ 音乐 / LX Music（洛雪）/ 酷狗音乐
 - 多播放器同时运行时自动仲裁：正在播放的优先；播放器优先级可在设置中调整，立即生效
 - 音乐与程序同步有各自独立的开关；开启「暂停时隐藏」后，挂着暂停的播放器不会出现在好友列表里
 
@@ -37,6 +37,7 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 - 积木编辑器：以积木块的方式编辑状态文本——歌名 / 歌手 / 进度条 / 程序名 / 分隔符 / 自定义文字，可自由排序、实时预览
 - 模板预设：一键切换「简洁 / 带前缀（正在玩·正在听）/ 只要名字」
 - 进度条样式：预设样式 + 任意字符，格数 1~50 可调；emoji 直接粘贴即可使用，例如 `[❤️❤️❤️❤️❤️❤️💕💕💕💕] 1:59/3:32`
+- 界面外观：标题 / 歌名颜色、字体、背景色、背景图（拉伸 / 适应 / 平铺 / 居中）均可自定义，一键恢复默认
 - 组合显示与分隔符均可自定义；文本超过 Steam 上限时按 128 字节智能截断
 
 ### Steam 连接
@@ -53,7 +54,7 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 - 主界面两个面板：「音乐」（跟随当前播放器）与「程序」，实时显示同步状态；双击歌曲标题可在浏览器中打开歌曲页面
 - 托盘常驻：悬停显示当前状态，右键可「暂停同步」临时隐身，支持开机自启
 - 设置窗口为单窗多页：常规 / 同步 / 显示 / 程序 / 诊断 / 关于
-- 检查更新：启动时静默检查，有新版本时「设置」按钮与托盘菜单出现提示；更新窗口内可直接下载，完成后「退出并打开文件夹」，替换文件即可完成升级
+- 检查更新：启动后自动检查 + 每 6 小时复查；有新版本时「设置」按钮与托盘菜单出现提示；更新窗口内可直接下载——完整版 / lite 版「退出并打开文件夹」手动替换，安装器版「立即更新」一键自动完成
 - 诊断页提供「打开日志文件夹」；日志保存在 `%LocalAppData%\MuSync\logs\`
 
 ## 使用
@@ -62,13 +63,13 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 2. 首次启动登录 Steam（支持手机令牌 / 邮箱验证码）。若遇到「异常登录」提示，按登录窗口中的指引操作：手机 Steam App → 选择「Steam 客户端」→ 确认实际所在地
 3. 打开音乐播放器即可自动同步
 4. 想让好友看到你在用什么程序：设置 → 同步 → 打开「同步非游戏应用」
-5. 升级：程序会自动检查更新；更新窗口内下载新版后，点「退出并打开文件夹」，拖拽替换即可
+5. 升级：程序会自动检查更新——完整版 / lite 版下载后点「退出并打开文件夹」拖拽替换；安装器版点「立即更新」自动完成
 
 > **洛雪音乐用户注意**：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，并允许来自局域网的访问。
 
 > **与 Steam 客户端共存**：MuSync 与 Steam 客户端同账号登录不会互相顶下线（同属 SteamKit 会话）。Steam 账号管理中会出现名为 MuSync 的设备会话，属正常现象。
 
-> **版本选择**：普通用户推荐 **MuSync.exe**（免安装单文件，内置运行时）；**MuSync-lite.exe** 体积更小，但需要已安装 [.NET 9 桌面运行时](https://dotnet.microsoft.com/download/dotnet/9.0)。
+> **版本选择**：普通用户推荐 **MuSync.exe**（免安装单文件，内置运行时）；**MuSync-lite.exe** 体积更小，但需要已安装 [.NET 9 桌面运行时](https://dotnet.microsoft.com/download/dotnet/9.0)；**MuSync-Setup.exe** 是安装器版——装好后新版本可一键自动更新，无需手动替换。三种版本功能一致，配置与登录通用。
 
 ## 常见问题
 
@@ -91,13 +92,16 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 
 ```powershell
 dotnet build MuSync.sln -c Release     # 编译
-dotnet test  MuSync.sln                # 单元测试（75 个）
+dotnet test  MuSync.sln                # 单元测试（87 个）
 
 # 免安装单文件发布（内置 .NET 运行时）
 dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+
+# 安装器（需已安装 Inno Setup 6.5+）
+powershell -ExecutionPolicy Bypass -File installer\build.ps1
 ```
 
-CI（`main` push / `v*` tag）自动构建两个产物：`MuSync.exe`（免安装）与 `MuSync-lite.exe`（轻量版，需 .NET 9 运行时）。
+CI（`main` push / `v*` tag）自动构建三个产物：`MuSync.exe`（免安装）、`MuSync-lite.exe`（轻量版，需 .NET 9 运行时）、`MuSync-Setup.exe`（安装器版）。
 
 ## 与上游项目的关系
 
@@ -122,11 +126,12 @@ MainForm / SettingsForm        # 主界面 / 设置窗口（单窗多页）
 FormatBlockEditorForm          # 积木编辑器
 UpdateForm                     # 更新窗口（下载 / 跳转发布页）
 SteamLoginForm                 # Steam 登录窗口
-Players/                       # 播放器读取（网易云 / QQ / LX Music）
+Players/                       # 播放器读取（网易云 / QQ / LX Music / 酷狗）
 Utils/                         # 前台检测 / 分类器 / 模板编解码 / 更新 / 日志 / DPAPI 等
 Models/                        # 数据模型
 Win32Api/                      # Win32 / 进程内存访问
-tests/MuSync.Tests/            # xUnit 单元测试（75 个）
+installer/                     # Inno Setup 安装器脚本与本地构建
+tests/MuSync.Tests/            # xUnit 单元测试（87 个）
 reference-yySync/              # 上游参考源码（MIT，不参与编译，仅对照）
 ```
 
