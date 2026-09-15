@@ -450,6 +450,10 @@ internal static class Program
 
     public static void ShowMinimizeToTrayNotification()
     {
-        TrayIcon?.ShowBalloonTip(1000, "应用仍在运行", "MuSync 已最小化到托盘区域。", ToolTipIcon.Info);
+        // 静音版托盘气泡：保留文字提示，但不播放系统提示音
+        if (TrayIcon is { } icon)
+        {
+            Win32Api.TrayBalloon.ShowSilent(icon, "应用仍在运行", "MuSync 已最小化到托盘区域。");
+        }
     }
 }
