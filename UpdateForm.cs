@@ -24,7 +24,7 @@ internal sealed class UpdateForm : Form
 
     private readonly UpdateChecker.UpdateInfo _info;
     private readonly UpdateChecker.UpdateAsset? _asset;
-    private readonly bool _isSetupEdition;
+    private readonly bool _canAutoUpdate;
     private readonly Button _actionButton;
     private readonly Button _browserButton;
     private readonly ProgressBar _progressBar;
@@ -37,7 +37,11 @@ internal sealed class UpdateForm : Form
     {
         _info = info;
         _asset = UpdateChecker.SelectAsset(info.Assets);
-        _isSetupEdition = UpdateChecker.NormalizeEdition(UpdateChecker.GetCurrentEdition()) == "setup";
+        // 一键更新仅限「安装器版 + 选中的包确为安装器包」；
+        // 包缺失兜底可能选到其他形态，此时退回手动替换流程，避免把绿色包当安装器跑
+        _canAutoUpdate = _asset != null &&
+                         UpdateChecker.GetAssetEdition(_asset.Name) == "setup" &&
+                         UpdateChecker.NormalizeEdition(UpdateChecker.GetCurrentEdition()) == "setup";
 
         Text = "发现新版本";
         Size = new Size(560, 490);
@@ -139,7 +143,7 @@ internal sealed class UpdateForm : Form
                 _cts?.Cancel();
                 break;
             case DownloadState.Done:
-                if (_isSetupEdition) RunInstaller();
+                if (_canAutoUpdate) RunInstaller();
                 else ExitAndOpenFolders();
                 break;
         }
@@ -215,12 +219,12 @@ internal sealed class UpdateForm : Form
     private void SetDoneState(bool alreadyExisted)
     {
         _state = DownloadState.Done;
-        _actionButton.Text = "退出并打开文件夹";
+        _actionButton.Text = _canAutoUpdate ? "立即更新" : "退出并打开文件夹";
         _actionButton.Enabled = true;
         _browserButton.Enabled = true;
         _progressBar.Visible = false;
         var prefix = alreadyExisted ? "更新包已在本地：" : "已下载：";
-        var actionHint = _isSetupEdition
+        var actionHint = _canAutoUpdate
             ? "点「立即更新」→ 自动安装新版本，完成后自动重启。"
             : "点「退出并打开文件夹」→ 拖过去替换旧程序即可。";
         SetStatus($"{prefix}{Path.GetFileName(_packagePath)}\n{actionHint}", Color.Green);
