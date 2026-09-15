@@ -49,6 +49,28 @@ jobs:
           path: publish-lite/
           if-no-files-found: error
 
+      - name: Publish Setup payload (self-contained, edition=setup)
+        run: dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:MuSyncEdition=setup -o publish-setup
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path MuSync.csproj -Pattern '<Version>([^<]+)</Version>').Matches[0].Groups[1].Value
+          $iscc = @("C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "未找到 ISCC.exe（Inno Setup 安装失败？）" }
+          & $iscc "/DAppVersion=$version" "installer\MuSync.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败" }
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MuSync-win-x64-setup
+          path: dist-setup/
+          if-no-files-found: error
+
   release:
     name: Create GitHub Release (tags v*)
     if: startsWith(github.ref, 'refs/tags/v')
@@ -67,8 +89,15 @@ jobs:
           name: MuSync-win-x64-lite
           path: dist-lite
 
-      - name: Merge lite into dist
-        run: mv dist-lite/MuSync.exe dist/MuSync-lite.exe
+      - uses: actions/download-artifact@v4
+        with:
+          name: MuSync-win-x64-setup
+          path: dist-setup
+
+      - name: Merge lite & installer into dist
+        run: |
+          mv dist-lite/MuSync.exe dist/MuSync-lite.exe
+          mv dist-setup/MuSync-Setup.exe dist/MuSync-Setup.exe
 
       - name: Verify tag matches csproj version
         run: |

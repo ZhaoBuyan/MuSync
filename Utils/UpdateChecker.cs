@@ -106,7 +106,7 @@ internal static class UpdateChecker
     }
 
     /// <summary>
-    /// 挑选与当前程序形态一致的更新包：lite 版取 lite 包、完整版取完整包。
+    /// 挑选与当前程序形态一致的更新包：完整版取完整包、lite 版取 lite 包、安装器版取安装器包。
     /// 形态取自编译期标记（与 exe 文件名无关，改名后也能选对）；
     /// 仅在发行方未提供对应形态包时，退回「与当前 exe 同名」的包，最后退回第一个可执行文件。
     /// </summary>
@@ -120,9 +120,9 @@ internal static class UpdateChecker
             .ToList();
         if (exeAssets.Count == 0) return null;
 
-        var wantsLite = IsLiteEdition(edition ?? GetCurrentEdition());
+        var current = NormalizeEdition(edition ?? GetCurrentEdition());
         var byEdition = exeAssets.FirstOrDefault(
-            a => a.Name.Contains("lite", StringComparison.OrdinalIgnoreCase) == wantsLite);
+            a => string.Equals(GetAssetEdition(a.Name), current, StringComparison.Ordinal));
         if (byEdition != null) return byEdition;
 
         var exeName = currentExeName ?? Path.GetFileName(Environment.ProcessPath ?? "");
@@ -151,12 +151,33 @@ internal static class UpdateChecker
         }
     }
 
-    /// <summary>发行形态展示名（诊断信息用）：完整版 / lite 版。</summary>
-    public static string GetCurrentEditionText() =>
-        IsLiteEdition(GetCurrentEdition()) ? "lite 版" : "完整版";
+    /// <summary>发行形态展示名（诊断信息用）：完整版 / lite 版 / 安装器版。</summary>
+    public static string GetCurrentEditionText() => NormalizeEdition(GetCurrentEdition()) switch
+    {
+        "lite" => "lite 版",
+        "setup" => "安装器版",
+        _ => "完整版"
+    };
 
-    private static bool IsLiteEdition(string edition) =>
-        edition.Contains("lite", StringComparison.OrdinalIgnoreCase);
+    /// <summary>把任意形态文本规整为 full / lite / setup 之一（未识别按完整版）。</summary>
+    internal static string NormalizeEdition(string edition)
+    {
+        if (edition.Contains("lite", StringComparison.OrdinalIgnoreCase)) return "lite";
+        if (IsSetupEdition(edition)) return "setup";
+        return "full";
+    }
+
+    /// <summary>按资产名判断所属形态：安装器包（含 setup / installer）&gt; lite 包（含 lite）&gt; 完整包。</summary>
+    internal static string GetAssetEdition(string assetName)
+    {
+        if (IsSetupEdition(assetName)) return "setup";
+        if (assetName.Contains("lite", StringComparison.OrdinalIgnoreCase)) return "lite";
+        return "full";
+    }
+
+    private static bool IsSetupEdition(string text) =>
+        text.Contains("setup", StringComparison.OrdinalIgnoreCase) ||
+        text.Contains("installer", StringComparison.OrdinalIgnoreCase);
 
     public static Version GetCurrentVersion() =>
         NormalizeVersion(typeof(UpdateChecker).Assembly.GetName().Version);

@@ -24,6 +24,7 @@ internal sealed class UpdateForm : Form
 
     private readonly UpdateChecker.UpdateInfo _info;
     private readonly UpdateChecker.UpdateAsset? _asset;
+    private readonly bool _isSetupEdition;
     private readonly Button _actionButton;
     private readonly Button _browserButton;
     private readonly ProgressBar _progressBar;
@@ -36,6 +37,7 @@ internal sealed class UpdateForm : Form
     {
         _info = info;
         _asset = UpdateChecker.SelectAsset(info.Assets);
+        _isSetupEdition = UpdateChecker.NormalizeEdition(UpdateChecker.GetCurrentEdition()) == "setup";
 
         Text = "发现新版本";
         Size = new Size(560, 490);
@@ -137,7 +139,8 @@ internal sealed class UpdateForm : Form
                 _cts?.Cancel();
                 break;
             case DownloadState.Done:
-                ExitAndOpenFolders();
+                if (_isSetupEdition) RunInstaller();
+                else ExitAndOpenFolders();
                 break;
         }
     }
@@ -217,15 +220,50 @@ internal sealed class UpdateForm : Form
         _browserButton.Enabled = true;
         _progressBar.Visible = false;
         var prefix = alreadyExisted ? "更新包已在本地：" : "已下载：";
-        SetStatus(
-            $"{prefix}{Path.GetFileName(_packagePath)}\n点「退出并打开文件夹」→ 拖过去替换旧程序即可。",
-            Color.Green);
+        var actionHint = _isSetupEdition
+            ? "点「立即更新」→ 自动安装新版本，完成后自动重启。"
+            : "点「退出并打开文件夹」→ 拖过去替换旧程序即可。";
+        SetStatus($"{prefix}{Path.GetFileName(_packagePath)}\n{actionHint}", Color.Green);
     }
 
     private void SetStatus(string text, Color color)
     {
         _statusLabel.Text = text;
         _statusLabel.ForeColor = color;
+    }
+
+    /// <summary>安装器版：静默运行已下载的新版安装器；本程序退出后由安装器完成升级并自动重启。</summary>
+    private void RunInstaller()
+    {
+        if (_packagePath.Length == 0) return;
+        var result = MessageBox.Show(
+            this,
+            "MuSync 将退出，并静默安装新版本。\n安装完成后会自动重新启动，无需其他操作。",
+            "立即更新",
+            MessageBoxButtons.OKCancel,
+            MessageBoxIcon.Question);
+        if (result != DialogResult.OK) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(
+                _packagePath, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /FORCECLOSEAPPLICATIONS")
+            {
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(_packagePath) ?? ""
+            });
+            Logger.Info("[Update] 已启动安装器，程序即将退出");
+            Application.Exit();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"[Update] 启动安装器失败: {ex.Message}");
+            MessageBox.Show(
+                this,
+                $"启动安装器失败：{ex.Message}\n\n也可以点「在浏览器中打开」手动下载安装。",
+                "更新失败",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 
     /// <summary>二次确认后：打开新旧两个文件夹，然后退出程序，让用户直接做替换。</summary>

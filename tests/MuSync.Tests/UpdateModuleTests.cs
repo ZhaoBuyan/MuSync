@@ -98,6 +98,44 @@ public class UpdateCheckerTests
     }
 
     [Fact]
+    public void SelectAsset_SetupEdition_PicksSetupPackage()
+    {
+        var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.exe"), Asset("MuSync-lite.exe"), Asset("MuSync-Setup.exe") };
+        var selected = UpdateChecker.SelectAsset(assets, "setup", "MuSync.exe");
+        Assert.NotNull(selected);
+        Assert.Equal("MuSync-Setup.exe", selected!.Name);
+    }
+
+    [Fact]
+    public void SelectAsset_FullEdition_WithSetupAsset_PrefersGreenPackage()
+    {
+        // 回归：安装器包排在前面时，完整版不能被它抢走（含 setup 的资产不算完整包）
+        var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync-Setup.exe"), Asset("MuSync.exe") };
+        var selected = UpdateChecker.SelectAsset(assets, "full", "MuSync.exe");
+        Assert.NotNull(selected);
+        Assert.Equal("MuSync.exe", selected!.Name);
+    }
+
+    [Fact]
+    public void SelectAsset_LiteEdition_WithSetupAsset_PrefersLitePackage()
+    {
+        var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync-Setup.exe"), Asset("MuSync-lite.exe") };
+        var selected = UpdateChecker.SelectAsset(assets, "lite", "MuSync-lite.exe");
+        Assert.NotNull(selected);
+        Assert.Equal("MuSync-lite.exe", selected!.Name);
+    }
+
+    [Fact]
+    public void SelectAsset_SetupEdition_MissingSetupPackage_FallsBack()
+    {
+        // 发行方没有提供安装器包时，也要兜底拿到可用的包
+        var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.exe") };
+        var selected = UpdateChecker.SelectAsset(assets, "setup", "MuSync.exe");
+        Assert.NotNull(selected);
+        Assert.Equal("MuSync.exe", selected!.Name);
+    }
+
+    [Fact]
     public void SelectAsset_NoExeAssets_ReturnsNull()
     {
         var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.zip"), Asset("source.tar.gz") };
