@@ -1331,22 +1331,12 @@ internal sealed class SettingsForm : Form
         }
     }
 
-    /// <summary>把版本 / 内存 / 配置与日志路径复制到剪贴板（反馈问题时方便粘贴）。</summary>
+    /// <summary>把诊断信息（版本 / 运行状态 / 关键设置 / 路径）复制到剪贴板。</summary>
     private static bool CopyDiagnosticsInfo()
     {
         try
         {
-            var memoryInfo = PerformanceMonitor.GetMemoryInfo();
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var text = $"""
-                        MuSync {UpdateChecker.GetCurrentVersionText()}
-                        时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}
-                        系统：{Environment.OSVersion.VersionString}
-                        内存：工作集 {memoryInfo.GetFormattedWorkingSet()} / 私有 {memoryInfo.GetFormattedPrivateMemory()} / GC {memoryInfo.GetFormattedGcMemory()}
-                        配置：{Path.Combine(localAppData, "MuSync", "config.json")}
-                        日志：{Path.Combine(localAppData, "MuSync", "logs")}
-                        """;
-            Clipboard.SetText(text);
+            Clipboard.SetText(DiagnosticsReport.Build());
             return true;
         }
         catch (Exception ex)

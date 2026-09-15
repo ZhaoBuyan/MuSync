@@ -101,6 +101,32 @@ internal class RpcManager(SteamStatusManager steamManager)
         _ => ""
     };
 
+    /// <summary>各播放器的诊断快照（供「复制诊断信息」使用）。</summary>
+    public List<PlayerStatus> GetPlayerStatusSnapshot()
+    {
+        var active = ResolveActiveState().State;
+        return
+        [
+            SnapshotOf(_netEaseState, "网易云音乐", active),
+            SnapshotOf(_tencentState, "QQ音乐", active),
+            SnapshotOf(_lxMusicState, "LX Music", active),
+            SnapshotOf(_kuGouState, "酷狗音乐", active)
+        ];
+
+        static PlayerStatus SnapshotOf(PlayerState state, string name, PlayerState? activeState)
+        {
+            var info = state.LastPolledInfo;
+            return new PlayerStatus(
+                name,
+                state.Player != null,
+                info?.Title ?? "",
+                info?.Artists ?? "",
+                info?.Pause ?? false,
+                state.LastError,
+                state == activeState);
+        }
+    }
+
     /// <summary>
     /// 按优先级挑选当前应展示到 Steam 的播放器：
     /// 第一优先：正在播放的；第二优先：有信息但暂停的。
@@ -630,3 +656,13 @@ internal class RpcManager(SteamStatusManager steamManager)
         }
     }
 }
+
+/// <summary>单个播放器的诊断快照（供「复制诊断信息」使用）。</summary>
+internal readonly record struct PlayerStatus(
+    string Name,
+    bool Running,
+    string Title,
+    string Artists,
+    bool Pause,
+    RpcManager.ErrorCode LastError,
+    bool IsActive);

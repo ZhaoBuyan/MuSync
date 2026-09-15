@@ -21,6 +21,9 @@ internal static class Program
     /// <summary>后台检查发现的可用更新（供主窗口红点与托盘菜单项使用）；无更新时为 null。</summary>
     public static UpdateChecker.UpdateInfo? PendingUpdate => _pendingUpdate;
 
+    /// <summary>本次启动时间（诊断信息用）。</summary>
+    public static DateTime StartedAt { get; } = DateTime.Now;
+
     /// <summary>全局异常兜底：写日志（同步、最小依赖）+ 用 MessageBox 提示（不用普通窗体，防二次崩溃）。</summary>
     private static void HandleFatalException(string source, Exception? exception)
     {
