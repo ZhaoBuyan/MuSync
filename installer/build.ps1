@@ -22,8 +22,8 @@ if (-not $Version) {
 Write-Host "MuSync 安装器构建 — 版本 $Version"
 Write-Host ""
 
-Write-Host "[1/2] 发布 setup 载荷 → publish-setup\"
-dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:MuSyncEdition=setup -o publish-setup
+Write-Host "[1/2] 发布 setup 载荷 → setup-payload\"
+dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:MuSyncEdition=setup -o setup-payload
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish 失败" }
 Write-Host ""
 

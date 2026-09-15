@@ -49,7 +49,7 @@ Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "..\publish-setup\*"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\setup-payload\*"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\MuSync"; Filename: "{app}\MuSync.exe"

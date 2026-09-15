@@ -6,6 +6,7 @@ publish/
 publish-sc/
 publish-lite/
 publish-setup/
+setup-payload/
 dist-setup/
 commit-msg.txt
 
