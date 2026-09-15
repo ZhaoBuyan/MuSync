@@ -250,7 +250,8 @@ internal sealed class UpdateForm : Form
         try
         {
             Process.Start(new ProcessStartInfo(
-                _packagePath, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /FORCECLOSEAPPLICATIONS")
+                // 不带 /SUPPRESSMSGBOXES：安装失败时弹出错误框，避免“程序退出后无任何提示”
+                _packagePath, "/VERYSILENT /NORESTART /FORCECLOSEAPPLICATIONS")
             {
                 UseShellExecute = false,
                 WorkingDirectory = Path.GetDirectoryName(_packagePath) ?? ""
