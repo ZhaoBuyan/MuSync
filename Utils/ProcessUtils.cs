@@ -46,8 +46,8 @@ internal static partial class ProcessUtils
         var fallbackHandle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
         if (fallbackHandle == IntPtr.Zero)
         {
-             ModuleAddressCache[cacheKey] = IntPtr.Zero;
-             return IntPtr.Zero;
+            // 失败结果不缓存：模块尚未加载完成时，下次查询能重新探测
+            return IntPtr.Zero;
         }
         try
         {
@@ -83,7 +83,7 @@ internal static partial class ProcessUtils
         {
              CloseHandle(fallbackHandle);
         }
-        ModuleAddressCache[cacheKey] = IntPtr.Zero;
+        // 失败结果不缓存（同上）
         return IntPtr.Zero;
     }
     private static void CleanupCache()

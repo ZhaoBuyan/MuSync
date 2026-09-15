@@ -264,6 +264,8 @@ internal class SteamSessionManager : IDisposable
             IsLoggedOn = true;
             _selfSteamId = cb.ClientSteamID;
             IsRealGameActive = false;
+            // 新会话：上一次会话的“已发送”缓存作废（断线重连后必须允许重推，否则状态不会恢复）
+            _currentGameName = string.Empty;
             LoginError = null;
             Debug.WriteLine($"[SteamSession] 登录成功! SteamID: {MaskSteamId(cb.ClientSteamID)}");
             Logger.Info($"[SteamSession] 登录成功! SteamID: {MaskSteamId(cb.ClientSteamID)}");

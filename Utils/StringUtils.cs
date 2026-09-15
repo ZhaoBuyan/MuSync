@@ -21,7 +21,7 @@ public static class StringUtils
             int required;
             switch (lead >> 4)
             {
-                case 0b1100: required = 1; break; 
+                case 0b1100 or 0b1101: required = 1; break; 
                 case 0b1110: required = 2; break; 
                 case 0b1111: required = 3; break; 
                 default: continue; 
