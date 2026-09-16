@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using MuSync.Utils;
 namespace MuSync;
+/// <summary>程序入口：单实例启动、托盘与主窗口，及会话 / 状态 / 轮询各管理器的组装。</summary>
 internal static class Program
 {
     private static RpcManager? _rpcManager;

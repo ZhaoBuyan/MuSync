@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 namespace MuSync.Utils;
+/// <summary>字符串工具：UTF-8 截断边界处理（不切断多字节字符）。</summary>
 public static class StringUtils
 {
     private static int FindLastCompleteCharIndex(byte[] buffer, int byteCount)

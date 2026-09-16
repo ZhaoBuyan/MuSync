@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using MuSync.Models;
 namespace MuSync.Utils;
+/// <summary>StringBuilder 轻量复用池（降低高频拼接的分配开销）。</summary>
 internal static class StringBuilderPool
 {
     private static readonly ConcurrentQueue<StringBuilder> Pool = new();
@@ -20,6 +21,7 @@ internal static class StringBuilderPool
         }
     }
 }
+/// <summary>状态文本格式化：含零宽字符处理，生成 Steam 显示用的标题 / 歌手文本。</summary>
 internal static class StringFormatter
 {
     private const char ZeroWidthSpace = '\u200B';

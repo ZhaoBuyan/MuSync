@@ -13,6 +13,7 @@ using Xunit;
 
 namespace MuSync.Tests;
 
+/// <summary>更新检查测试：资产选择（按程序形态取包）与版本比较。</summary>
 public class UpdateCheckerTests
 {
     private static UpdateChecker.UpdateAsset Asset(string name, long size = 100) =>
@@ -150,6 +151,7 @@ public class UpdateCheckerTests
     }
 }
 
+/// <summary>更新下载器测试：临时文件 / 校验转正 / 失败清理。</summary>
 public class UpdateDownloaderTests
 {
     [Theory]
@@ -237,6 +239,7 @@ public class UpdateDownloaderTests
 /// </summary>
 public class UpdateDownloaderIntegrationTests
 {
+    /// <summary>把进度回调包装成 IProgress 的测试辅助类。</summary>
     private sealed class InlineProgress(Action<UpdateDownloader.DownloadProgress> onReport)
         : IProgress<UpdateDownloader.DownloadProgress>
     {

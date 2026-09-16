@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 namespace MuSync.Utils;
+/// <summary>缓存内存压力监控：统计缓存占用，超阈值时触发淘汰与主动清理。</summary>
 internal static class MemoryPressureMonitor
 {
     private const long MaxMemoryBytes = 40 * 1024 * 1024; 

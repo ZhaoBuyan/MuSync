@@ -4,6 +4,7 @@ using Xunit;
 
 namespace MuSync.Tests;
 
+/// <summary>程序分类器测试：常见程序字典命中与内置忽略名单（音乐播放器等）。</summary>
 public class AppClassifierTests
 {
     [Fact]
@@ -48,6 +49,7 @@ public class AppClassifierTests
     }
 }
 
+/// <summary>User32 冒烟测试：无效句柄等边界下 P/Invoke 不得抛异常（回归保护）。</summary>
 public class User32SmokeTests
 {
     [Fact]

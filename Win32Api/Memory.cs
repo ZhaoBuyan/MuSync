@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MuSync.Utils;
 namespace MuSync.Win32Api;
+/// <summary>进程内存工具：特征码搜索（带模块缓存与定期清理）。</summary>
 internal static class Memory
 {
     private static readonly Dictionary<(int, nint), (nint pStart, byte[] memory)> ModuleCache = new();
@@ -138,6 +139,7 @@ internal static class Memory
             $"[DIAGNOSE] Memory module cache cleanup: removed {keysToRemove} items, {ModuleCache.Count} items remaining");
     }
 }
+/// <summary>进程内存读取封装（句柄生命周期 / 基础类型读写 / 权限错误提示）。</summary>
 internal sealed partial class ProcessMemory(nint process) : IDisposable
 {
     private bool _disposed;

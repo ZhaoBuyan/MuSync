@@ -14,6 +14,7 @@ using MuSync.Players.Interfaces;
 using MuSync.Utils;
 using MuSync.Win32Api;
 namespace MuSync.Players;
+/// <summary>网易云音乐读取：进程内存指针取播放状态与进度，播放列表 JSON 文件取歌名 / 歌手 / 封面。</summary>
 internal sealed class NetEase : IMusicPlayer
 {
     private readonly ProcessMemory _process;
@@ -368,6 +369,7 @@ internal sealed class NetEase : IMusicPlayer
             return false;
         }
     }
+    /// <summary>网易云客户端内部的播放状态值（与内存取值一一对应）。</summary>
     private enum PlayStatus
     {
         Waiting,
@@ -418,6 +420,7 @@ internal sealed class NetEase : IMusicPlayer
         return separatorIndex > 0 ? str[..separatorIndex] : str.Replace("\0", "");
     }
 }
+/// <summary>宽容时长转换器：字段可能是数字 / 字符串 / 对象（取 dt），统一解析为秒数。</summary>
 internal class FlexibleDurationConverter : JsonConverter<double>
 {
     public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -443,23 +446,30 @@ internal class FlexibleDurationConverter : JsonConverter<double>
         writer.WriteNumberValue(value);
     }
 }
+/// <summary>播放列表 JSON：歌手条目。</summary>
 internal record NetEasePlaylistTrackArtist([property: JsonPropertyName("name")] string Singer);
+/// <summary>播放列表 JSON：专辑条目（名称 / 封面）。</summary>
 internal record NetEasePlaylistTrackAlbum(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("cover")] string Cover);
+/// <summary>播放列表 JSON：单曲条目（名称 / 歌手数组 / 专辑 / 时长）。</summary>
 internal record NetEasePlaylistTrack(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("artists")]
     NetEasePlaylistTrackArtist[] Artists,
     [property: JsonPropertyName("album")] NetEasePlaylistTrackAlbum Album,
     [property: JsonPropertyName("duration"), JsonConverter(typeof(FlexibleDurationConverter))] double Duration);
+/// <summary>播放列表 JSON：列表项（id + 曲目）。</summary>
 internal record NetEasePlaylistItem(
     [property: JsonPropertyName("id")] string Identity,
     [property: JsonPropertyName("track")] NetEasePlaylistTrack Track);
+/// <summary>播放列表 JSON 根节点（list 数组）。</summary>
 internal record NetEasePlaylist([property: JsonPropertyName("list")] List<NetEasePlaylistItem> List);
+/// <summary>私人 FM JSON 根节点（queue 队列）。</summary>
 internal record NetEaseFmPlaylist(
     [property: JsonPropertyName("queue")] List<NetEaseFmPlaylistItem> Queue
 );
+/// <summary>私人 FM JSON：队列条目（id / 名称 / 歌手 / 专辑 / 时长）。</summary>
 internal record NetEaseFmPlaylistItem(
     [property: JsonPropertyName("id")] string Identity,
     [property: JsonPropertyName("name")] string Name,

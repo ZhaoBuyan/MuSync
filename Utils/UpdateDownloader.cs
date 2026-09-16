@@ -12,6 +12,7 @@ namespace MuSync.Utils;
 /// </summary>
 internal static class UpdateDownloader
 {
+    /// <summary>下载结果状态（完成 / 取消 / 失败）。</summary>
     public enum DownloadStatus
     {
         Completed,
@@ -19,6 +20,7 @@ internal static class UpdateDownloader
         Failed
     }
 
+    /// <summary>下载结果（状态 / 文件路径 / 错误信息）。</summary>
     public sealed class DownloadResult
     {
         public DownloadStatus Status { get; init; }
@@ -26,6 +28,7 @@ internal static class UpdateDownloader
         public string ErrorMessage { get; init; } = "";
     }
 
+    /// <summary>下载进度（已接收字节 / 总字节）。</summary>
     public readonly record struct DownloadProgress(long Received, long Total);
 
     private static readonly TimeSpan ReportInterval = TimeSpan.FromMilliseconds(150);

@@ -467,6 +467,7 @@ internal sealed class KuGou : IMusicPlayer
 
     // ================= Win32 =================
 
+    /// <summary>酷狗读取所需的 Win32 P/Invoke 封装（进程内存读取 / 窗口枚举）。</summary>
     private static class Native
     {
         public const int ProcessVmRead = 0x0010;
@@ -477,6 +478,7 @@ internal sealed class KuGou : IMusicPlayer
 
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
+        /// <summary>VirtualQueryEx 返回的内存区域信息（基址 / 大小 / 状态 / 保护属性）。</summary>
         [StructLayout(LayoutKind.Sequential)]
         public struct MemoryBasicInformation
         {

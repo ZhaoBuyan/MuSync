@@ -3,6 +3,7 @@ using Xunit;
 
 namespace MuSync.Tests;
 
+/// <summary>诊断报告测试：核心段落齐全。</summary>
 public class DiagnosticsReportTests
 {
     [Fact]

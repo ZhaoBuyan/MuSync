@@ -3,6 +3,7 @@ using Xunit;
 
 namespace MuSync.Tests;
 
+/// <summary>进度条字符解析测试：预设 / 自定义字符与零宽字符过滤。</summary>
 public class BarStyleParserTests
 {
     [Theory]

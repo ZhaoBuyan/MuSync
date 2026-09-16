@@ -6,6 +6,7 @@ using MuSync.Models;
 using MuSync.Utils;
 namespace MuSync;
 
+/// <summary>积木编辑器编辑的模板种类：音乐 / 程序 / 组合。</summary>
 internal enum TemplateKind
 {
     Music,

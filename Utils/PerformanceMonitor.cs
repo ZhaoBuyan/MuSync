@@ -42,6 +42,7 @@ internal static class PerformanceMonitor
     }
 }
 
+/// <summary>进程内存快照（工作集 / 私有内存 / 虚拟内存 / GC 内存，带格式化显示）。</summary>
 internal record ProcessMemoryInfo
 {
     public long WorkingSetSize { get; init; }
@@ -69,6 +70,7 @@ internal record ProcessMemoryInfo
     }
 }
 
+/// <summary>各缓存数量统计（图片 / 模块 / 进程模块）。</summary>
 internal record CacheStatistics
 {
     public int ImageCacheCount { get; init; }

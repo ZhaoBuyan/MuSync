@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using Microsoft.Win32;
 namespace MuSync.Win32Api;
+/// <summary>开机自启管理：注册表 Run 项读写，兼容旧版 yySync 条目迁移。</summary>
 internal static class AutoStart
 {
     private const string AppValueName = "MuSync";

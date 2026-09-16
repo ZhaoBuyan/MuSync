@@ -17,6 +17,7 @@ internal static class TrayBalloon
     private const uint NIIF_INFO = 0x00000001;
     private const uint NIIF_NOSOUND = 0x00000010;
 
+    /// <summary>NOTIFYICONDATA 互操作结构（托盘图标与气泡信息）。</summary>
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NotifyIconData
     {

@@ -9,6 +9,7 @@ using MuSync.Models;
 using MuSync.Players;
 using MuSync.Utils;
 namespace MuSync;
+/// <summary>主窗口：音乐与程序面板的实时状态展示，含「设置」按钮 / 连接状态 / 更新提示。</summary>
 internal class MainForm : Form
 {
     private readonly Timer _updateTimer;

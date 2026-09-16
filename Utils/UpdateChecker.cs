@@ -24,6 +24,7 @@ internal static class UpdateChecker
         public string Digest { get; init; } = "";
     }
 
+    /// <summary>一次更新检查的结果：版本 / 更新日志 / 发布页与资产列表。</summary>
     public sealed class UpdateInfo
     {
         public string Tag { get; init; } = "";

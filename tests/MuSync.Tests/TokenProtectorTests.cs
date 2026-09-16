@@ -3,6 +3,7 @@ using Xunit;
 
 namespace MuSync.Tests;
 
+/// <summary>令牌加密测试：DPAPI 加密 / 解密往返一致。</summary>
 public class TokenProtectorTests
 {
     [Fact]

@@ -9,6 +9,7 @@ using MuSync.Models;
 using MuSync.Players.Interfaces;
 using MuSync.Utils;
 namespace MuSync.Players;
+/// <summary>LX Music（洛雪）读取：调用其开放 API（HTTP）获取播放状态，进度由调度层插值推进。</summary>
 internal sealed class LxMusic : IMusicPlayer
 {
     // LX Music 走 HTTP API，无需高频轮询：每秒最多请求一次，
@@ -136,15 +137,18 @@ internal sealed class LxMusic : IMusicPlayer
         }
     }
 }
+/// <summary>洛雪 config 文件的映射模型（读取 openAPI 开关与端口）。</summary>
 file record LxMusicConfig
 {
     [JsonPropertyName("setting")] public LxMusicSetting? Setting { get; init; }
 }
+/// <summary>洛雪设置节：开放 API 是否启用与监听端口。</summary>
 file record LxMusicSetting
 {
     [JsonPropertyName("openAPI.enable")] public bool Enable { get; init; }
     [JsonPropertyName("openAPI.port")] public string? Port { get; init; }
 }
+/// <summary>洛雪开放 API 返回的播放状态（歌名 / 歌手 / 专辑 / 时长 / 进度 / 封面）。</summary>
 file record LxMusicStatus(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("name")] string Name,

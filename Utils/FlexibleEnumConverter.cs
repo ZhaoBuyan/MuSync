@@ -19,6 +19,7 @@ internal sealed class FlexibleEnumConverterFactory : JsonConverterFactory
     }
 }
 
+/// <summary>宽容枚举转换器（泛型实现）：从字符串 / 数字解析枚举，未知值安全回退默认。</summary>
 internal sealed class FlexibleEnumConverter<T> : JsonConverter<T> where T : struct, Enum
 {
     public override bool HandleNull => true;

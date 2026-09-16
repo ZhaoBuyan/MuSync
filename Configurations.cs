@@ -17,6 +17,7 @@ internal enum SyncSpeedLevel
     Economic
 }
 
+/// <summary>配置数据模型：config.json 的全部设置字段（同步 / 外观 / 程序规则 / 语言等）。</summary>
 internal class ConfigData
 {
     /// <summary>进度同步频率档位（快速 0.25s / 标准 0.5s / 省流 1s）。</summary>
@@ -108,6 +109,7 @@ internal class ConfigData
     public string AiApiModel { get; set; } = "";
 }
 
+/// <summary>配置管理器（单例）：读取 / 保存 config.json——宽容解析、写入加锁、坏文件自动备份。</summary>
 internal class Configurations
 {
     // ⚠️ 注意：Instance 的构造函数会立即读取/写入配置文件。

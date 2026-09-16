@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using MuSync.Utils;
 namespace MuSync;
+/// <summary>Steam 登录窗口：账号密码 / 手机令牌输入，含「记住我」与异常登录指引。</summary>
 internal sealed class SteamLoginForm : Form
 {
     private TextBox _txtUser;

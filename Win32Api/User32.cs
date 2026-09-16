@@ -1,8 +1,10 @@
 using System;
 using System.Runtime.InteropServices;
 namespace MuSync.Win32Api;
+/// <summary>User32 P/Invoke 封装（前台窗口 / 窗口标题 / 窗口矩形等）。</summary>
 internal static partial class User32
 {
+    /// <summary>RECT 窗口矩形结构（左 / 上 / 右 / 下）。</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect
     {

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 namespace MuSync.Utils;
+/// <summary>进程工具：模块基址获取（带缓存与定期清理）及句柄 / 模块信息查询。</summary>
 internal static partial class ProcessUtils
 {
     private static readonly Dictionary<(int, string), nint> ModuleAddressCache = new();
@@ -116,6 +117,7 @@ internal static partial class ProcessUtils
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool CloseHandle(IntPtr hObject);
+    /// <summary>PSAPI 模块信息结构（基址 / 映像大小 / 入口点）。</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct MODULEINFO
     {

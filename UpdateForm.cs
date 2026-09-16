@@ -15,6 +15,7 @@ namespace MuSync;
 /// </summary>
 internal sealed class UpdateForm : Form
 {
+    /// <summary>更新包下载状态（空闲 / 下载中 / 完成）。</summary>
     private enum DownloadState
     {
         Idle,

@@ -16,6 +16,7 @@ namespace MuSync;
 /// </summary>
 internal class RpcManager(SteamStatusManager steamManager)
 {
+    /// <summary>单个播放器的轮询状态：最近信息、时间戳、错误码与降频控制。</summary>
     private class PlayerState
     {
         public IMusicPlayer? Player { get; set; }
@@ -30,6 +31,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         public DateTime DllNotFoundSinceUtc { get; set; } = DateTime.MinValue;
     }
 
+    /// <summary>播放器读取错误码（无 / 权限不足 / DLL 未找到 / 版本不支持）。</summary>
     public enum ErrorCode
     {
         None,

@@ -5,6 +5,7 @@ using MuSync.Models;
 using MuSync.Players.Interfaces;
 using MuSync.Win32Api;
 namespace MuSync.Players;
+/// <summary>QQ 音乐读取：以特征码定位当前歌曲信息结构，从进程内存读取歌名 / 歌手与进度。</summary>
 internal sealed class Tencent : IMusicPlayer
 {
     private const string CurrentSongInfoPattern

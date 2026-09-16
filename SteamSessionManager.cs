@@ -9,6 +9,7 @@ using SteamKit2.Authentication;
 using SteamKit2.Internal;
 using SteamKit2.Discovery;
 namespace MuSync;
+/// <summary>Steam 会话管理：连接、登录（令牌 / Guard 验证码）、断线重连与服务器切换。</summary>
 internal class SteamSessionManager : IDisposable
 {
     // 断线自动重连：初始退避 5 秒，翻倍至上限 60 秒
@@ -491,6 +492,7 @@ internal class SteamSessionManager : IDisposable
         _ => Loc.L($"登录失败（{result}）", $"Sign-in failed ({result})")
     };
 
+    /// <summary>登录等待结果（成功 / 被拒 / 断网 / 超时）。</summary>
     private enum LogOnWaitResult
     {
         Success,
@@ -614,6 +616,7 @@ internal class SteamSessionManager : IDisposable
         }
     }
 
+    /// <summary>Steam Guard 验证器：把令牌 / 邮箱验证码需求转为界面回调，等待用户输入。</summary>
     private class SteamGuardAuthenticator(SteamSessionManager manager) : IAuthenticator
     {
         public Task<string> GetDeviceCodeAsync(bool previousCodeWasIncorrect)

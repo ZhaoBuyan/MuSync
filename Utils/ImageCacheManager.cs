@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 namespace MuSync.Utils;
+/// <summary>封面图片 LRU 缓存：容量上限 / 内存压力联动清理 / 活动键保护。</summary>
 internal static class ImageCacheManager
 {
     private static readonly int MaxCacheSize = PerformanceConfig.ImageCacheMaxSize;
@@ -25,6 +26,7 @@ internal static class ImageCacheManager
         }
     }
     private static readonly HashSet<string> LoggedCacheKeys = [];
+    /// <summary>缓存条目（键 / 图片 / 最近访问时间）。</summary>
     private class CacheItem(string key, Image image)
     {
         public string Key { get; } = key;

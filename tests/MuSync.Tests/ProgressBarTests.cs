@@ -3,6 +3,7 @@ using Xunit;
 
 namespace MuSync.Tests;
 
+/// <summary>进度条渲染测试：格数 / emoji / 边界值。</summary>
 public class ProgressBarTests
 {
     private static PlayerInfo Song(double schedule, double duration) => new()

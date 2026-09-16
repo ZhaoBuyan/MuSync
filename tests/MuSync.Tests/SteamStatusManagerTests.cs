@@ -5,6 +5,7 @@ using Xunit;
 
 namespace MuSync.Tests;
 
+/// <summary>状态文本生成测试：模板 / 截断 / 组合显示等。</summary>
 public class SteamStatusManagerTests
 {
     private static PlayerInfo MakeSong(
