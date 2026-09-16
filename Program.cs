@@ -38,7 +38,7 @@ internal static class Program
         try
         {
             MessageBox.Show(
-                $"MuSync 遇到了一个未处理的错误，详情已记录到日志：\n\n{exception?.Message}",
+                Loc.L($"MuSync 遇到了一个未处理的错误，详情已记录到日志：\n\n{exception?.Message}", $"MuSync ran into an unhandled error. Details were saved to the log:\n\n{exception?.Message}"),
                 "MuSync",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
@@ -73,7 +73,7 @@ internal static class Program
             // 已有实例在运行：请求它把主窗口唤起到前台，然后安静退出
             if (!TryActivateExistingInstance())
             {
-                MessageBox.Show("MuSync 已在运行。可从任务栏右下角的托盘图标打开主窗口。",
+                MessageBox.Show(Loc.L("MuSync 已在运行。可从任务栏右下角的托盘图标打开主窗口。", "MuSync is already running. Open the main window from the tray icon in the notification area."),
                     "MuSync", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             return;
@@ -173,9 +173,9 @@ internal static class Program
             else
             {
                 MessageBox.Show(
-                    "未登录 Steam，音乐状态将不会同步到好友列表。\n\n" +
-                    "你可以在设置中重新登录。",
-                    "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Loc.L("未登录 Steam，音乐状态将不会同步到好友列表。\n\n", "You're not signed in to Steam, so your music status won't sync to friends.\n\n") +
+                    Loc.L("你可以在设置中重新登录。", "You can sign in again from Settings."),
+                    Loc.L("提示", "Notice"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
         catch (Exception ex)
@@ -217,7 +217,7 @@ internal static class Program
         void Apply()
         {
             if (_trayUpdateItem == null) return;
-            _trayUpdateItem.Text = $"⬆ 有新版本 {info.Tag}";
+            _trayUpdateItem.Text = Loc.L($"⬆ 有新版本 {info.Tag}", $"⬆ New version {info.Tag} available");
             _trayUpdateItem.Visible = true;
         }
         try
@@ -346,7 +346,7 @@ internal static class Program
     {
         // 菜单顶部状态行（禁用态，由 UpdateTrayStatus 节流刷新）
         TrayStatusItem = new ToolStripMenuItem("MuSync") { Enabled = false };
-        var pauseSyncItem = new ToolStripMenuItem("暂停同步") { CheckOnClick = true };
+        var pauseSyncItem = new ToolStripMenuItem(Loc.L("暂停同步", "Pause sync")) { CheckOnClick = true };
         pauseSyncItem.Click += (_, _) =>
         {
             var steamManager = GetSteamManager();
@@ -360,17 +360,17 @@ internal static class Program
             }
         };
         // 更新提示项：默认隐藏，后台发现新版本后点亮
-        _trayUpdateItem = new ToolStripMenuItem("有新版本") { Visible = false };
+        _trayUpdateItem = new ToolStripMenuItem(Loc.L("有新版本", "New version available")) { Visible = false };
         _trayUpdateItem.Click += (_, _) =>
         {
             if (_pendingUpdate is not { } info) return;
             using var updateForm = new UpdateForm(UpdateChecker.GetCurrentVersionText(), info);
             updateForm.ShowDialog();
         };
-        var showMainWindowItem = new ToolStripMenuItem("主窗口");
-        var centerWindowItem = new ToolStripMenuItem("窗口回中");
-        var showSettingsItem = new ToolStripMenuItem("设置");
-        var exitMenuItem = new ToolStripMenuItem("退出");
+        var showMainWindowItem = new ToolStripMenuItem(Loc.L("主窗口", "Main window"));
+        var centerWindowItem = new ToolStripMenuItem(Loc.L("窗口回中", "Center window"));
+        var showSettingsItem = new ToolStripMenuItem(Loc.L("设置", "Settings"));
+        var exitMenuItem = new ToolStripMenuItem(Loc.L("退出", "Exit"));
         var contextMenu = new ContextMenuStrip();
         contextMenu.Items.AddRange(
             TrayStatusItem, _trayUpdateItem, new ToolStripSeparator(),
@@ -407,11 +407,11 @@ internal static class Program
             if (config.EnableSteamSync && config.PauseWhenPlayingGame &&
                 GetSteamManager()?.IsRealGameActive == true)
             {
-                text = "游戏中，音乐同步已暂停";
+                text = Loc.L("游戏中，音乐同步已暂停", "In a game — music sync paused");
             }
             else if (GetSteamManager()?.ManualPause == true)
             {
-                text = "同步已手动暂停";
+                text = Loc.L("同步已手动暂停", "Sync paused manually");
             }
             else
             {
@@ -427,11 +427,11 @@ internal static class Program
                 }
                 else if (current?.PlayerInfo is { } onlySong)
                 {
-                    text = $"正在播放 {current.Value.PlayerName}: {onlySong.Title}";
+                    text = Loc.L($"正在播放 {Loc.PlayerName(current.Value.PlayerName)}: {onlySong.Title}", $"Playing on {Loc.PlayerName(current.Value.PlayerName)}: {onlySong.Title}");
                 }
                 else
                 {
-                    text = "未在播放音乐";
+                    text = Loc.L("未在播放音乐", "Not playing");
                 }
             }
             text = StringUtils.GetTruncatedStringByMaxByteLength(text, 60);
@@ -453,7 +453,7 @@ internal static class Program
         // 静音版托盘气泡：保留文字提示，但不播放系统提示音
         if (TrayIcon is { } icon)
         {
-            Win32Api.TrayBalloon.ShowSilent(icon, "应用仍在运行", "MuSync 已最小化到托盘区域。");
+            Win32Api.TrayBalloon.ShowSilent(icon, Loc.L("应用仍在运行", "MuSync is still running"), Loc.L("MuSync 已最小化到托盘区域。", "MuSync is now in the tray."));
         }
     }
 }

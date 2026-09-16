@@ -32,7 +32,11 @@ internal class MainForm : Form
     private FadingButton _settingsButton = null!;
     private bool _updateBadgeVisible;
     private GradientDivider? _appSyncDivider;
-    private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐", "酷狗音乐"];
+    private readonly string[] _playerNames =
+    [
+        Loc.L("网易云音乐", "NetEase Cloud Music"), Loc.L("QQ音乐", "QQ Music"),
+        Loc.L("洛雪音乐", "LX Music"), Loc.L("酷狗音乐", "KuGou Music")
+    ];
     // 播放器品牌色（主界面标题、歌名与面板图标共用）：网易云红 / QQ音乐绿 / 洛雪青绿 / 酷狗蓝
     private static readonly Color[] _playerColors =
     [
@@ -77,11 +81,11 @@ internal class MainForm : Form
             ForeColor = Color.Gray,
             Location = new Point(10, 345),
             Size = new Size(150, 13),
-            Text = "最后更新: --:--:--"
+            Text = Loc.L("最后更新: --:--:--", "Last update: --:--:--")
         };
         _settingsButton = new FadingButton
         {
-            Text = "设置",
+            Text = Loc.L("设置", "Settings"),
             Size = new Size(75, 30),
             Location = new Point(516, 340),
             ForeColor = Color.Black,
@@ -112,7 +116,7 @@ internal class MainForm : Form
             Font = new Font("Microsoft YaHei", 10, FontStyle.Bold),
             ForeColor = Color.FromArgb(122, 120, 220),
             Location = new Point(10, 15),
-            Text = "程序同步"
+            Text = Loc.L("程序同步", "App Sync")
         };
         _appNameLabel = new Label
         {
@@ -121,7 +125,7 @@ internal class MainForm : Form
             Font = new Font("Microsoft YaHei", 11, FontStyle.Bold),
             ForeColor = Color.Black,
             Location = new Point(100, 15),
-            Text = "未检测到程序"
+            Text = Loc.L("未检测到程序", "No app detected")
         };
         _appCategoryLabel = new Label
         {
@@ -138,7 +142,7 @@ internal class MainForm : Form
             Font = new Font("Microsoft YaHei", 9),
             ForeColor = Color.Gray,
             Location = new Point(100, 80),
-            Text = "前台出现新程序会自动加入设置列表"
+            Text = Loc.L("前台出现新程序会自动加入设置列表", "New foreground apps are added to the list automatically")
         };
         _appIconBox = new PictureBox
         {
@@ -153,7 +157,7 @@ internal class MainForm : Form
             Font = new Font("Microsoft YaHei", 8),
             ForeColor = Color.Gray,
             Location = new Point(10, 130),
-            Text = "在 设置 → 程序同步设置 中管理分类与显示名"
+            Text = Loc.L("在 设置 → 程序同步设置 中管理分类与显示名", "Manage categories and display names in Settings → Apps")
         };
         panel.Controls.AddRange(titleLabel, _appNameLabel, _appCategoryLabel, _appStatusLabel, _appIconBox, hintLabel);
         _appSyncPanel = panel;
@@ -196,7 +200,7 @@ internal class MainForm : Form
             // 未启用程序同步时隐藏整个面板（及分隔线），把主界面让给音乐面板
             _appSyncPanel.Visible = false;
             if (_appSyncDivider != null) _appSyncDivider.Visible = false;
-            _appNameLabel.Text = "程序同步未启用";
+            _appNameLabel.Text = Loc.L("程序同步未启用", "App sync is disabled");
             _appCategoryLabel.Text = "";
             _appStatusLabel.Text = "";
             _appStatusLabel.ForeColor = Color.Gray;
@@ -208,16 +212,16 @@ internal class MainForm : Form
         var display = rpc.GetActiveAppDisplay();
         if (display == null)
         {
-            _appNameLabel.Text = "未检测到程序";
+            _appNameLabel.Text = Loc.L("未检测到程序", "No app detected");
             _appCategoryLabel.Text = "";
-            _appStatusLabel.Text = "切到已启用的程序后将在 Steam 中显示";
+            _appStatusLabel.Text = Loc.L("切到已启用的程序后将在 Steam 中显示", "Will show on Steam when you switch to an enabled app");
             _appStatusLabel.ForeColor = Color.Gray;
         }
         else
         {
             _appNameLabel.Text = display;
-            _appCategoryLabel.Text = $"分类：{rpc.GetActiveAppCategoryText()}";
-            _appStatusLabel.Text = "已作为当前 Steam 状态显示";
+            _appCategoryLabel.Text = Loc.L($"分类：{rpc.GetActiveAppCategoryText()}", $"Category: {rpc.GetActiveAppCategoryText()}");
+            _appStatusLabel.Text = Loc.L("已作为当前 Steam 状态显示", "Shown as your current Steam status");
             _appStatusLabel.ForeColor = Color.Green;
         }
     }
@@ -263,7 +267,7 @@ internal class MainForm : Form
             MaximumSize = new Size(240, 0),
             Font = new Font("Microsoft YaHei", 11, FontStyle.Bold),
             ForeColor = Color.Black,
-            Text = "暂无播放",
+            Text = Loc.L("暂无播放", "Nothing playing"),
             Padding = new Padding(0, 0, 0, 5),
             Margin = new Padding(0)
         };
@@ -295,7 +299,7 @@ internal class MainForm : Form
             ForeColor = Color.Gray,
             Location = new Point(350, 15),
             Size = new Size(80, 14),
-            Text = "未在播放"
+            Text = Loc.L("未在播放", "Not playing")
         };
         var progressBar = new ProgressBar
         {
@@ -328,7 +332,7 @@ internal class MainForm : Form
     }
     private void SetupForm()
     {
-        Text = "MuSync - 音乐状态同步";
+        Text = Loc.L("MuSync - 音乐状态同步", "MuSync - Music status sync");
         Size = new Size(620, 430);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -389,7 +393,7 @@ internal class MainForm : Form
             var (currentInfo, currentName) = rpcManager.GetCurrentPlayerInfo();
             UpdateMusicPanel(currentInfo, currentName, forceRefresh);
             ImageCacheManager.SetActiveKeys(_currentCacheKeys.Where(k => !string.IsNullOrEmpty(k)));
-            _lastUpdateLabel.Text = $"最后更新: {DateTime.Now:HH:mm:ss}";
+            _lastUpdateLabel.Text = Loc.L($"最后更新: {DateTime.Now:HH:mm:ss}", $"Last update: {DateTime.Now:HH:mm:ss}");
             UpdateSteamStateLabel();
             UpdateAppSyncDisplay();
             UpdateAppIcon();
@@ -397,7 +401,7 @@ internal class MainForm : Form
         }
         catch (Exception ex)
         {
-            _lastUpdateLabel.Text = $"更新失败: {ex.Message}";
+            _lastUpdateLabel.Text = Loc.L($"更新失败: {ex.Message}", $"Update failed: {ex.Message}");
         }
     }
     private void UpdateSteamStateLabel()
@@ -409,27 +413,27 @@ internal class MainForm : Form
         Color color;
         if (!config.EnableSteamSync)
         {
-            text = "Steam 同步未启用";
+            text = Loc.L("Steam 同步未启用", "Steam sync is disabled");
             color = Color.Gray;
         }
         else if (session == null)
         {
-            text = "Steam 服务未初始化";
+            text = Loc.L("Steam 服务未初始化", "Steam service not initialized");
             color = Color.Red;
         }
         else if (!session.IsLoggedOn)
         {
-            text = session.IsConnected ? "Steam 未登录" : "正在连接 Steam...";
+            text = session.IsConnected ? Loc.L("Steam 未登录", "Not signed in to Steam") : Loc.L("正在连接 Steam...", "Connecting to Steam...");
             color = session.IsConnected ? Color.Orange : Color.Gray;
         }
         else if (config.PauseWhenPlayingGame && Program.GetSteamManager()?.IsRealGameActive == true)
         {
-            text = "正在玩真实游戏，音乐同步已暂停";
+            text = Loc.L("正在玩真实游戏，音乐同步已暂停", "Playing a real game — music sync paused");
             color = Color.Orange;
         }
         else
         {
-            text = "Steam 已登录，同步中";
+            text = Loc.L("Steam 已登录，同步中", "Signed in to Steam — syncing");
             color = Color.Green;
         }
         if (_steamStateLabel.Text != text)
@@ -444,7 +448,7 @@ internal class MainForm : Form
         if (!string.IsNullOrEmpty(playerName) && _lastMusicSourceName != playerName)
         {
             _lastMusicSourceName = playerName;
-            _playerNameLabels[0].Text = playerName;
+            _playerNameLabels[0].Text = Loc.PlayerName(playerName);
             _playerNameLabels[0].ForeColor = playerName switch
             {
                 "网易云音乐" => _playerColors[0],
@@ -483,7 +487,7 @@ internal class MainForm : Form
         {
             const string zeroWidthSpace = "\u200B";
             var title = string.IsNullOrEmpty(playerInfo.Value.Title)
-                ? StringUtils.GetTruncatedStringByMaxByteLength("未知歌曲", 128)
+                ? StringUtils.GetTruncatedStringByMaxByteLength(Loc.L("未知歌曲", "Unknown track"), 128)
                 : StringUtils.GetTruncatedStringByMaxByteLength(playerInfo.Value.Title + zeroWidthSpace, 128);
             var artists = string.IsNullOrEmpty(playerInfo.Value.Artists)
                 ? ""
@@ -502,7 +506,7 @@ internal class MainForm : Form
             if (_artistLabels[index].Text != artistText) _artistLabels[index].Text = artistText;
             var albumText = string.IsNullOrEmpty(album) ? "" : $"💿 {album}";
             if (_albumLabels[index].Text != albumText) _albumLabels[index].Text = albumText;
-            var statusText = playerInfo.Value.Pause ? "⏸️ 已暂停" : "▶️ 正在播放";
+            var statusText = playerInfo.Value.Pause ? Loc.L("⏸️ 已暂停", "⏸️ Paused") : Loc.L("▶️ 正在播放", "▶️ Playing");
             var statusColor = playerInfo.Value.Pause ? Color.Orange : Color.Green;
             if (_statusLabels[index].Text != statusText)
             {
@@ -576,7 +580,7 @@ internal class MainForm : Form
         }
         else
         {
-            var defaultTitle = StringUtils.GetTruncatedStringByMaxByteLength("未在播放音乐", 128);
+            var defaultTitle = StringUtils.GetTruncatedStringByMaxByteLength(Loc.L("未在播放音乐", "Nothing playing"), 128);
             if (_songTitleLabels[index].Text != defaultTitle) _songTitleLabels[index].Text = defaultTitle;
             if (_artistLabels[index].Text != "") _artistLabels[index].Text = "";
             if (_albumLabels[index].Text != "") _albumLabels[index].Text = "";
@@ -584,16 +588,16 @@ internal class MainForm : Form
             switch (lastError)
             {
                 case RpcManager.ErrorCode.PermissionDenied:
-                    statusText = "⚠️ 需要管理员运行";
+                    statusText = Loc.L("⚠️ 需要管理员运行", "⚠️ Admin rights required");
                     break;
                 case RpcManager.ErrorCode.DllNotFound:
-                    statusText = "⚠️ 播放器组件未加载";
+                    statusText = Loc.L("⚠️ 播放器组件未加载", "⚠️ Player component not loaded");
                     break;
                 case RpcManager.ErrorCode.VersionNotSupported:
-                    statusText = "⚠️ 版本不支持/特征码失效";
+                    statusText = Loc.L("⚠️ 版本不支持/特征码失效", "⚠️ Unsupported version / pattern not found");
                     break;
                 default:
-                    statusText = "未在播放";
+                    statusText = Loc.L("未在播放", "Not playing");
                     break;
             }
             if (_statusLabels[index].Text != statusText)
@@ -807,8 +811,10 @@ internal class MainForm : Form
         var afterMemory = MemoryPressureMonitor.GetCurrentMemoryUsage();
         var freedMemory = beforeMemory - afterMemory;
         MessageBox.Show(
-            $"缓存清理完成！\n清理前: {beforeMemory / 1024 / 1024:F1} MB\n清理后: {afterMemory / 1024 / 1024:F1} MB\n释放: {freedMemory / 1024 / 1024:F1} MB\n\n提示: 按 Ctrl+R 可随时清理缓存",
-            "缓存清理", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Loc.L(
+                $"缓存清理完成！\n清理前: {beforeMemory / 1024 / 1024:F1} MB\n清理后: {afterMemory / 1024 / 1024:F1} MB\n释放: {freedMemory / 1024 / 1024:F1} MB\n\n提示: 按 Ctrl+R 可随时清理缓存",
+                $"Cache cleared!\nBefore: {beforeMemory / 1024 / 1024:F1} MB\nAfter: {afterMemory / 1024 / 1024:F1} MB\nFreed: {freedMemory / 1024 / 1024:F1} MB\n\nTip: press Ctrl+R anytime to clear the cache"),
+            Loc.L("缓存清理", "Clear cache"), MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
     protected override void Dispose(bool disposing)
     {
