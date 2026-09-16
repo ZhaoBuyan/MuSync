@@ -726,13 +726,6 @@ internal sealed class SettingsForm : Form
             ForeColor = Color.FromArgb(233, 74, 62),
             Visible = false
         };
-        var installerTip = new Label
-        {
-            AutoSize = true,
-            Location = new Point(22, 176),
-            ForeColor = Color.Gray,
-            Text = "提示：安装器版支持一键更新（见「下载与更新日志」）。"
-        };
         var licenseLabel = new Label
         {
             Location = new Point(22, 204),
@@ -743,11 +736,6 @@ internal sealed class SettingsForm : Form
         };
 
         page.Controls.AddRange([title, subtitle, _aboutVersionLabel, repoButton, releaseButton, checkUpdateButton, _updateNoticeLabel, licenseLabel]);
-        // 安装器版本身支持一键更新，无需此提示
-        if (UpdateChecker.NormalizeEdition(UpdateChecker.GetCurrentEdition()) != "setup")
-        {
-            page.Controls.Add(installerTip);
-        }
         RefreshUpdateNotice();
         return page;
     }
