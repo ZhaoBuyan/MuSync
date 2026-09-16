@@ -59,7 +59,7 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 
 ## 使用
 
-1. 从 [Releases](https://github.com/ZhaoBuyan/MuSync/releases) 下载 **MuSync-Setup.exe**（安装器版，推荐——装好后新版本可一键自动更新）；不想安装的话下载 **MuSync.exe**（免安装单文件，双击即用）
+1. 从 [Releases](https://github.com/ZhaoBuyan/MuSync/releases) 下载 **MuSync.exe**（完整版，推荐——免安装单文件，双击即用）；也可以选择 **MuSync-Setup.exe**（安装器版，装好后新版本可一键自动更新）
 2. 首次启动登录 Steam（支持手机令牌 / 邮箱验证码）。若遇到「异常登录」提示，按登录窗口中的指引操作：手机 Steam App → 选择「Steam 客户端」→ 确认实际所在地
 3. 打开音乐播放器即可自动同步
 4. 想让好友看到你在用什么程序：设置 → 同步 → 打开「同步非游戏应用」
@@ -69,7 +69,7 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 
 > **与 Steam 客户端共存**：MuSync 与 Steam 客户端同账号登录不会互相顶下线（同属 SteamKit 会话）。Steam 账号管理中会出现名为 MuSync 的设备会话，属正常现象。
 
-> **版本选择**：推荐 **MuSync-Setup.exe**（安装器版）——装好后新版本可一键自动更新，无需手动替换文件；不想安装则选 **MuSync.exe**（免安装单文件，内置运行时）；**MuSync-lite.exe** 体积更小，但需要已安装 [.NET 9 桌面运行时](https://dotnet.microsoft.com/download/dotnet/9.0)。三种版本功能一致，配置与登录通用。
+> **版本选择**：推荐 **MuSync.exe**（完整版）——免安装单文件，双击即用；**MuSync-Setup.exe**（安装器版）适合想省事的用户——装好后新版本可一键自动更新，无需手动替换文件；**MuSync-lite.exe** 体积更小，但需要已安装 [.NET 9 桌面运行时](https://dotnet.microsoft.com/download/dotnet/9.0)。三种版本功能一致，配置与登录通用。
 
 ## 常见问题
 
