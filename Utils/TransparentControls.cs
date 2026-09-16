@@ -26,10 +26,19 @@ internal sealed class FadingBottomPanel : Panel
     protected override void OnPaint(PaintEventArgs e)
     {
         var solid = Math.Clamp(_solidHeight, 0, Height);
-        if (solid > 0)
+        int topFade = Math.Min(20, Math.Max(0, Height - solid) / 2);
+        if (topFade > 0)
+        {
+            var topRect = new Rectangle(0, 0, Width, topFade);
+            using var topBrush = new LinearGradientBrush(
+                topRect, Color.FromArgb(0, 255, 255, 255), Color.FromArgb(200, 255, 255, 255),
+                LinearGradientMode.Vertical);
+            e.Graphics.FillRectangle(topBrush, topRect);
+        }
+        if (solid > topFade)
         {
             using var solidBrush = new SolidBrush(Color.FromArgb(200, 255, 255, 255));
-            e.Graphics.FillRectangle(solidBrush, 0, 0, Width, solid);
+            e.Graphics.FillRectangle(solidBrush, 0, topFade, Width, solid - topFade);
         }
         if (Height > solid)
         {

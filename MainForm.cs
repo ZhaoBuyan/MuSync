@@ -102,8 +102,8 @@ internal class MainForm : Form
     {
         var panel = new FadingBottomPanel
         {
-            Size = new Size(580, 155),
-            Location = new Point(10, 160),
+            Size = new Size(620, 155),
+            Location = new Point(0, 160),
             BorderStyle = BorderStyle.None
         };
         var titleLabel = new Label
@@ -227,8 +227,8 @@ internal class MainForm : Form
         var playerColor = _playerColors[index];
         var panel = new FadingBottomPanel
         {
-            Size = new Size(580, 155),
-            Location = new Point(10, yOffset),
+            Size = new Size(620, 155),
+            Location = new Point(0, yOffset),
             BorderStyle = BorderStyle.None
         };
         var coverPictureBox = new PictureBox
