@@ -43,7 +43,7 @@ internal sealed class UpdateForm : Form
                          UpdateChecker.GetAssetEdition(_asset.Name) == "setup" &&
                          UpdateChecker.NormalizeEdition(UpdateChecker.GetCurrentEdition()) == "setup";
 
-        Text = "发现新版本";
+        Text = Loc.L("发现新版本", "Update available");
         Size = new Size(560, 490);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -57,14 +57,14 @@ internal sealed class UpdateForm : Form
             AutoSize = true,
             Location = new Point(20, 18),
             Font = new Font("Microsoft YaHei", 12, FontStyle.Bold),
-            Text = $"MuSync {info.Tag} 已发布"
+            Text = Loc.L($"MuSync {info.Tag} 已发布", $"MuSync {info.Tag} has been released")
         };
         var subtitle = new Label
         {
             AutoSize = true,
             Location = new Point(22, 54),
             ForeColor = Color.Gray,
-            Text = $"当前版本 v{currentVersion} → 最新版本 {info.Version}"
+            Text = Loc.L($"当前版本 v{currentVersion} → 最新版本 {info.Version}", $"Current version v{currentVersion} → Latest version {info.Version}")
         };
         var logsBox = new TextBox
         {
@@ -74,7 +74,7 @@ internal sealed class UpdateForm : Form
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
             BackColor = Color.FromArgb(248, 248, 248),
-            Text = string.IsNullOrWhiteSpace(info.Body) ? "(本次更新暂无说明)" : info.Body
+            Text = string.IsNullOrWhiteSpace(info.Body) ? Loc.L("(本次更新暂无说明)", "(No release notes for this version)") : info.Body
         };
         _progressBar = new ProgressBar
         {
@@ -91,7 +91,7 @@ internal sealed class UpdateForm : Form
         };
         _actionButton = new Button
         {
-            Text = "下载更新",
+            Text = Loc.L("下载更新", "Download update"),
             Location = new Point(188, 402),
             Size = new Size(125, 32),
             BackColor = Color.White
@@ -99,7 +99,7 @@ internal sealed class UpdateForm : Form
         _actionButton.Click += ActionButton_Click;
         _browserButton = new Button
         {
-            Text = "在浏览器中打开",
+            Text = Loc.L("在浏览器中打开", "Open in browser"),
             Location = new Point(319, 402),
             Size = new Size(105, 32),
             BackColor = Color.White
@@ -107,7 +107,7 @@ internal sealed class UpdateForm : Form
         _browserButton.Click += (_, _) => OpenInBrowser();
         var closeButton = new Button
         {
-            Text = "稍后",
+            Text = Loc.L("稍后", "Later"),
             Location = new Point(430, 402),
             Size = new Size(95, 32),
             BackColor = Color.White
@@ -123,7 +123,7 @@ internal sealed class UpdateForm : Form
         if (_asset == null)
         {
             _actionButton.Enabled = false;
-            SetStatus("该版本未提供可直接下载的文件，请点「在浏览器中打开」手动下载。", Color.DarkOrange);
+            SetStatus(Loc.L("该版本未提供可直接下载的文件，请点「在浏览器中打开」手动下载。", "No direct download is available for this release. Use \"Open in browser\" to download it manually."), Color.DarkOrange);
         }
         else if (UpdateDownloader.IsAlreadyDownloaded(_asset, info.Version, out var existingPath))
         {
@@ -161,11 +161,11 @@ internal sealed class UpdateForm : Form
 
         _cts = new CancellationTokenSource();
         _state = DownloadState.Downloading;
-        _actionButton.Text = "取消下载";
+        _actionButton.Text = Loc.L("取消下载", "Cancel download");
         _browserButton.Enabled = false;
         _progressBar.Visible = true;
         _progressBar.Value = 0;
-        SetStatus("正在连接下载服务器…", Color.Gray);
+        SetStatus(Loc.L("正在连接下载服务器…", "Connecting to the download server..."), Color.Gray);
 
         var progress = new Progress<UpdateDownloader.DownloadProgress>(OnDownloadProgress);
         var result = await UpdateDownloader.DownloadAsync(_asset, _info.Version, progress, _cts.Token);
@@ -181,11 +181,11 @@ internal sealed class UpdateForm : Form
                 SetDoneState(alreadyExisted: false);
                 break;
             case UpdateDownloader.DownloadStatus.Canceled:
-                ResetToIdle("已取消下载。");
+                ResetToIdle(Loc.L("已取消下载。", "Download canceled."));
                 break;
             default:
                 ResetToIdle(
-                    $"下载失败：{result.ErrorMessage}\n可重试，或点「在浏览器中打开」手动下载。",
+                    Loc.L($"下载失败：{result.ErrorMessage}\n可重试，或点「在浏览器中打开」手动下载。", $"Download failed: {result.ErrorMessage}\nYou can retry, or use \"Open in browser\" to download manually."),
                     Color.Firebrick);
                 break;
         }
@@ -201,15 +201,15 @@ internal sealed class UpdateForm : Form
         var receivedMb = progress.Received / 1048576.0;
         var totalMb = progress.Total / 1048576.0;
         _statusLabel.Text = progress.Total > 0
-            ? $"正在下载… {percent}%（{receivedMb:F1} / {totalMb:F1} MB）"
-            : $"正在下载… {receivedMb:F1} MB";
+            ? Loc.L($"正在下载… {percent}%（{receivedMb:F1} / {totalMb:F1} MB）", $"Downloading... {percent}% ({receivedMb:F1} / {totalMb:F1} MB)")
+            : Loc.L($"正在下载… {receivedMb:F1} MB", $"Downloading... {receivedMb:F1} MB");
         _statusLabel.ForeColor = Color.Gray;
     }
 
     private void ResetToIdle(string status, Color? color = null)
     {
         _state = DownloadState.Idle;
-        _actionButton.Text = "下载更新";
+        _actionButton.Text = Loc.L("下载更新", "Download update");
         _actionButton.Enabled = true;
         _browserButton.Enabled = true;
         _progressBar.Visible = false;
@@ -219,14 +219,14 @@ internal sealed class UpdateForm : Form
     private void SetDoneState(bool alreadyExisted)
     {
         _state = DownloadState.Done;
-        _actionButton.Text = _canAutoUpdate ? "立即更新" : "退出并打开文件夹";
+        _actionButton.Text = _canAutoUpdate ? Loc.L("立即更新", "Update now") : Loc.L("退出并打开文件夹", "Exit & open folder");
         _actionButton.Enabled = true;
         _browserButton.Enabled = true;
         _progressBar.Visible = false;
-        var prefix = alreadyExisted ? "更新包已在本地：" : "已下载：";
+        var prefix = alreadyExisted ? Loc.L("更新包已在本地：", "Update package saved locally:") : Loc.L("已下载：", "Downloaded:");
         var actionHint = _canAutoUpdate
-            ? "点「立即更新」→ 自动安装新版本，完成后自动重启。"
-            : "点「退出并打开文件夹」→ 拖过去替换旧程序即可。";
+            ? Loc.L("点「立即更新」→ 自动安装新版本，完成后自动重启。", "Click \"Update now\" — the new version installs automatically and MuSync restarts when installation finishes.")
+            : Loc.L("点「退出并打开文件夹」→ 拖过去替换旧程序即可。", "Click \"Exit & open folder\" — then drag the new file over the old one.");
         SetStatus($"{prefix}{Path.GetFileName(_packagePath)}\n{actionHint}", Color.Green);
     }
 
@@ -242,8 +242,8 @@ internal sealed class UpdateForm : Form
         if (_packagePath.Length == 0) return;
         var result = MessageBox.Show(
             this,
-            "MuSync 将退出，并静默安装新版本。\n安装完成后会自动重新启动，无需其他操作。",
-            "立即更新",
+            Loc.L("MuSync 将退出，并静默安装新版本。\n安装完成后会自动重新启动，无需其他操作。", "MuSync will exit and install the new version silently.\nIt will restart automatically when finished — no further action needed."),
+            Loc.L("立即更新", "Update now"),
             MessageBoxButtons.OKCancel,
             MessageBoxIcon.Question);
         if (result != DialogResult.OK) return;
@@ -264,8 +264,8 @@ internal sealed class UpdateForm : Form
             Logger.Error($"[Update] 启动安装器失败: {ex.Message}");
             MessageBox.Show(
                 this,
-                $"启动安装器失败：{ex.Message}\n\n也可以点「在浏览器中打开」手动下载安装。",
-                "更新失败",
+                Loc.L($"启动安装器失败：{ex.Message}\n\n也可以点「在浏览器中打开」手动下载安装。", $"Failed to launch the installer: {ex.Message}\n\nYou can also use \"Open in browser\" to download it manually."),
+                Loc.L("更新失败", "Update failed"),
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
@@ -276,8 +276,8 @@ internal sealed class UpdateForm : Form
     {
         var result = MessageBox.Show(
             this,
-            "MuSync 将退出，并打开新包与程序所在的两个文件夹。\n替换完成后，双击新版程序即可继续使用。",
-            "退出并替换",
+            Loc.L("MuSync 将退出，并打开新包与程序所在的两个文件夹。\n替换完成后，双击新版程序即可继续使用。", "MuSync will exit and open two folders: the new package and the current app.\nAfter replacing the file, double-click the new version to continue."),
+            Loc.L("退出并替换", "Exit & replace"),
             MessageBoxButtons.OKCancel,
             MessageBoxIcon.Question);
         if (result != DialogResult.OK) return;

@@ -3,6 +3,7 @@ using System;
 using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using MuSync.Utils;
 namespace MuSync;
 internal sealed class SteamLoginForm : Form
 {
@@ -35,30 +36,30 @@ internal sealed class SteamLoginForm : Form
 
     private void InitializeComponent()
     {
-        Text = "Steam 登录";
-        Size = new Size(350, 340);
+        Text = Loc.L("Steam 登录", "Steam Sign In");
+        Size = new Size(350, 384);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        var lblUser = new Label { Text = "Steam 账号:", Location = new Point(20, 20), AutoSize = true };
+        var lblUser = new Label { Text = Loc.L("Steam 账号:", "Steam account:"), Location = new Point(20, 20), AutoSize = true };
         _txtUser = new TextBox { Location = new Point(20, 45), Width = 290 };
         if (!string.IsNullOrEmpty(Configurations.Instance.Settings.SteamUsername))
         {
             _txtUser.Text = Configurations.Instance.Settings.SteamUsername;
         }
-        var lblPass = new Label { Text = "密码:", Location = new Point(20, 80), AutoSize = true };
+        var lblPass = new Label { Text = Loc.L("密码:", "Password:"), Location = new Point(20, 80), AutoSize = true };
         _txtPass = new TextBox { Location = new Point(20, 105), Width = 290, UseSystemPasswordChar = true };
         _chkRemember = new CheckBox
         {
-            Text = "记住我（下次自动登录）",
+            Text = Loc.L("记住我（下次自动登录）", "Remember me (auto sign-in next time)"),
             Location = new Point(20, 140),
             AutoSize = true,
             Checked = true
         };
         _btnLogin = new Button
         {
-            Text = "登录",
+            Text = Loc.L("登录", "Sign in"),
             Location = new Point(130, 180),
             Width = 80,
             Height = 30,
@@ -67,7 +68,7 @@ internal sealed class SteamLoginForm : Form
         _btnLogin.Click += async (s, e) => await PerformLogin();
         _btnCancel = new Button
         {
-            Text = "取消",
+            Text = Loc.L("取消", "Cancel"),
             Location = new Point(230, 180),
             Width = 80,
             Height = 30,
@@ -82,10 +83,10 @@ internal sealed class SteamLoginForm : Form
         };
         var lblPhoneHint = new Label
         {
-            Text = "手机验证提示：打开手机端 Steam App → 选择「Steam 客户端」→ 确认实际所在地；\n未收到推送时，在 App 的「确认 → 登录请求」中手动批准。",
+            Text = Loc.L("手机验证提示：打开手机端 Steam App → 选择「Steam 客户端」→ 确认实际所在地；\n未收到推送时，在 App 的「确认 → 登录请求」中手动批准。", "Mobile confirmation: Open the Steam app on your phone → select \"Steam Client\" → confirm your location.\nIf no prompt appears, approve it manually in the app under \"Confirmations → Login requests\"."),
             Location = new Point(20, 250),
             Width = 310,
-            Height = 48,
+            Height = 78,
             Font = new Font("Microsoft YaHei", 8),
             ForeColor = Color.FromArgb(130, 130, 130)
         };
@@ -105,7 +106,7 @@ internal sealed class SteamLoginForm : Form
         _isLoginInProgress = true;
         UpdateUiState();
         _lblStatus.ForeColor = Color.Blue;
-        _lblStatus.Text = "正在自动登录...";
+        _lblStatus.Text = Loc.L("正在自动登录...", "Signing in automatically...");
         var success = await Task.Run(() => _session.LoginWithTokenAsync(savedUser, savedToken));
         if (IsDisposed || !IsHandleCreated) return;
         if (success)
@@ -117,7 +118,7 @@ internal sealed class SteamLoginForm : Form
         else
         {
             _lblStatus.ForeColor = Color.Red;
-            _lblStatus.Text = "自动登录失败，请手动登录。";
+            _lblStatus.Text = Loc.L("自动登录失败，请手动登录。", "Auto sign-in failed. Please sign in manually.");
             _isLoginInProgress = false;
             UpdateUiState();
         }
@@ -130,12 +131,12 @@ internal sealed class SteamLoginForm : Form
         var pass = _txtPass.Text.Trim();
         if (string.IsNullOrEmpty(user) || string.IsNullOrEmpty(pass))
         {
-            ShowStatus("请输入账号和密码", Color.Red);
+            ShowStatus(Loc.L("请输入账号和密码", "Please enter your account and password"), Color.Red);
             return;
         }
         _isLoginInProgress = true;
         UpdateUiState();
-        ShowStatus("正在登录...", Color.Blue);
+        ShowStatus(Loc.L("正在登录...", "Signing in..."), Color.Blue);
         // 勾选"记住我"才保存令牌用于下次自动登录
         _session.RememberSession = _chkRemember.Checked;
         if (_guardHandler == null)
@@ -153,7 +154,7 @@ internal sealed class SteamLoginForm : Form
         }
         else
         {
-            ShowStatus(_session.LoginError ?? "登录失败", Color.Red);
+            ShowStatus(_session.LoginError ?? Loc.L("登录失败", "Sign-in failed"), Color.Red);
             _isLoginInProgress = false;
             UpdateUiState();
         }
@@ -170,20 +171,20 @@ internal sealed class SteamLoginForm : Form
                 if (IsDisposed) return;
                 if (isMobile)
                 {
-                    ShowStatus("请在手机 Steam 端完成验证（步骤见下方提示）", Color.Blue);
+                    ShowStatus(Loc.L("请在手机 Steam 端完成验证（步骤见下方提示）", "Complete verification in the Steam mobile app (steps below)"), Color.Blue);
                 }
                 else
                 {
-                    var code = InputBox("Steam Guard 验证", "请输入邮箱验证码:", isMobile);
+                    var code = InputBox(Loc.L("Steam Guard 验证", "Steam Guard"), Loc.L("请输入邮箱验证码:", "Enter email code:"), isMobile);
                     if (!string.IsNullOrEmpty(code))
                     {
                         _session.SubmitSteamGuardCode(code);
-                        ShowStatus("正在验证...", Color.Blue);
+                        ShowStatus(Loc.L("正在验证...", "Verifying..."), Color.Blue);
                     }
                     else
                     {
                         _session.SubmitSteamGuardCode("");
-                        ShowStatus("已取消。", Color.Red);
+                        ShowStatus(Loc.L("已取消。", "Canceled."), Color.Red);
                     }
                 }
             });
@@ -220,7 +221,7 @@ internal sealed class SteamLoginForm : Form
         _txtPass.Enabled = !_isLoginInProgress;
         _btnLogin.Enabled = !_isLoginInProgress;
         _chkRemember.Enabled = !_isLoginInProgress;
-        _btnLogin.Text = _isLoginInProgress ? "..." : "登录";
+        _btnLogin.Text = _isLoginInProgress ? "..." : Loc.L("登录", "Sign in");
         Cursor = _isLoginInProgress ? Cursors.WaitCursor : Cursors.Default;
     }
 
@@ -238,7 +239,7 @@ internal sealed class SteamLoginForm : Form
         };
         Label textLabel = new Label() { Left = 20, Top = 20, Text = prompt, AutoSize = true };
         TextBox textBox = new TextBox() { Left = 20, Top = 50, Width = 270 };
-        Button confirmation = new Button() { Text = "确定", Left = 210, Width = 80, Top = 85, DialogResult = DialogResult.OK };
+        Button confirmation = new Button() { Text = Loc.L("确定", "OK"), Left = 210, Width = 80, Top = 85, DialogResult = DialogResult.OK };
         promptForm.Controls.AddRange(new Control[] { textLabel, textBox, confirmation });
         promptForm.AcceptButton = confirmation;
         return promptForm.ShowDialog(this) == DialogResult.OK ? textBox.Text : null;

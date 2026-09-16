@@ -696,7 +696,7 @@ internal sealed class SettingsForm : Form
     // ================= 关于页 =================
     private TabPage CreateAboutPage()
     {
-        var page = new TabPage("关于") { BackColor = Color.White };
+        var page = new TabPage(Loc.L("关于", "About")) { BackColor = Color.White };
 
         var title = new Label
         {
@@ -710,17 +710,17 @@ internal sealed class SettingsForm : Form
             AutoSize = true,
             Location = new Point(22, 70),
             ForeColor = Color.Gray,
-            Text = "把音乐软件与任意程序的当前状态同步到 Steam"
+            Text = Loc.L("把音乐软件与任意程序的当前状态同步到 Steam", "Sync your music player and any app's status to Steam")
         };
         _aboutVersionLabel = new Label
         {
             AutoSize = true,
             Location = new Point(22, 102),
-            Text = "版本：-"
+            Text = Loc.L("版本：-", "Version: -")
         };
         var repoButton = new Button
         {
-            Text = "项目主页（GitHub）",
+            Text = Loc.L("项目主页（GitHub）", "Project page (GitHub)"),
             Location = new Point(20, 140),
             Size = new Size(170, 30),
             BackColor = Color.White
@@ -728,17 +728,17 @@ internal sealed class SettingsForm : Form
         repoButton.Click += (_, _) => OpenUrl("https://github.com/ZhaoBuyan/MuSync");
         var releaseButton = new Button
         {
-            Text = "下载与更新日志",
+            Text = Loc.L("下载与更新日志", "Downloads && changelog"),
             Location = new Point(205, 140),
-            Size = new Size(150, 30),
+            Size = new Size(170, 30),
             BackColor = Color.White
         };
         releaseButton.Click += (_, _) => OpenUrl("https://github.com/ZhaoBuyan/MuSync/releases");
         var checkUpdateButton = new Button
         {
-            Text = "检查更新",
-            Location = new Point(370, 140),
-            Size = new Size(110, 30),
+            Text = Loc.L("检查更新", "Check for updates"),
+            Location = new Point(390, 140),
+            Size = new Size(150, 30),
             BackColor = Color.White
         };
         checkUpdateButton.Click += async (_, _) => await CheckUpdateFromAboutAsync();
@@ -755,7 +755,7 @@ internal sealed class SettingsForm : Form
             Size = new Size(620, 130),
             ForeColor = Color.Gray,
             Font = new Font("Microsoft YaHei", 8.5f),
-            Text = "作者：ZhaoBuyan ｜ 本项目以 MIT 协议开源发布。\n基于开源谱系「半新写」构建，感谢所有铺路者（详见仓库 THIRD-PARTY-NOTICES）。\n\n洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，\n并允许来自局域网的访问。"
+            Text = Loc.L("作者：ZhaoBuyan ｜ 本项目以 MIT 协议开源发布。\n基于开源谱系「半新写」构建，感谢所有铺路者（详见仓库 THIRD-PARTY-NOTICES）。\n\n洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，\n并允许来自局域网的访问。", "By ZhaoBuyan | Open source under the MIT license.\nBuilt on an open-source lineage, roughly half rewritten — thanks to everyone who paved the way (see THIRD-PARTY-NOTICES in the repo).\n\nLX Music users: enable \"Open API service\" in LX Music → Settings → Open API, and allow LAN access.")
         };
 
         page.Controls.AddRange([title, subtitle, _aboutVersionLabel, repoButton, releaseButton, checkUpdateButton, _updateNoticeLabel, licenseLabel]);
@@ -774,7 +774,7 @@ internal sealed class SettingsForm : Form
         var info = await Task.Run(UpdateChecker.CheckAsync);
         if (info == null)
         {
-            MessageBox.Show("当前已是最新版本（或网络暂不可用，稍后再试）。", "检查更新",
+            MessageBox.Show(Loc.L("当前已是最新版本（或网络暂不可用，稍后再试）。", "You're on the latest version (or the network is unavailable — try again later)."), Loc.L("检查更新", "Check for updates"),
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
@@ -798,7 +798,7 @@ internal sealed class SettingsForm : Form
             _updateNoticeLabel.Visible = false;
             return;
         }
-        _updateNoticeLabel.Text = $"● 有新版本 {info.Tag}";
+        _updateNoticeLabel.Text = Loc.L($"● 有新版本 {info.Tag}", $"● New version {info.Tag} available");
         _updateNoticeLabel.Visible = true;
     }
 
@@ -810,7 +810,7 @@ internal sealed class SettingsForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"打开链接失败：{ex.Message}", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(Loc.L($"打开链接失败：{ex.Message}", $"Failed to open the link: {ex.Message}"), Loc.L("提示", "Notice"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 
@@ -1215,7 +1215,7 @@ internal sealed class SettingsForm : Form
         RefreshMemoryInfo();
         var versionText = $"v{UpdateChecker.GetCurrentVersionText()}";
         _versionLabel.Text = $"MuSync {versionText} ｜ 配置文件：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync";
-        _aboutVersionLabel.Text = $"版本：MuSync {versionText}";
+        _aboutVersionLabel.Text = Loc.L($"版本：MuSync {versionText}", $"Version: MuSync {versionText}");
     }
 
     private void SaveSettings()
