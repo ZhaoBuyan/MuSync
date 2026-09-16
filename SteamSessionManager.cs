@@ -477,18 +477,18 @@ internal class SteamSessionManager : IDisposable
 
     private static string DescribeAuthResult(EResult result) => result switch
     {
-        EResult.InvalidPassword => "账号或密码错误",
-        EResult.InvalidLoginAuthCode => "邮箱验证码错误",
-        EResult.TwoFactorCodeMismatch => "手机令牌验证码错误",
-        EResult.AccountLoginDeniedNeedTwoFactor => "该账号需要手机令牌（请先在 Steam 绑定令牌）",
-        EResult.AccountLogonDenied => "需要邮箱验证码验证",
-        EResult.RateLimitExceeded => "操作过于频繁，请稍后再试",
-        EResult.Expired => "验证码已过期，请重新登录",
-        EResult.AccessDenied => "访问被拒绝（可能受 IP / 地区限制）",
-        EResult.Timeout => "服务器响应超时，请重试",
-        EResult.ServiceUnavailable => "Steam 服务暂不可用，请稍后再试",
-        EResult.TryAnotherCM => "服务器繁忙，正在自动重试…",
-        _ => $"登录失败（{result}）"
+        EResult.InvalidPassword => Loc.L("账号或密码错误", "Incorrect username or password"),
+        EResult.InvalidLoginAuthCode => Loc.L("邮箱验证码错误", "Incorrect email code"),
+        EResult.TwoFactorCodeMismatch => Loc.L("手机令牌验证码错误", "Incorrect mobile authenticator code"),
+        EResult.AccountLoginDeniedNeedTwoFactor => Loc.L("该账号需要手机令牌（请先在 Steam 绑定令牌）", "This account requires a mobile authenticator (set it up in Steam first)"),
+        EResult.AccountLogonDenied => Loc.L("需要邮箱验证码验证", "Email verification required"),
+        EResult.RateLimitExceeded => Loc.L("操作过于频繁，请稍后再试", "Too many attempts — please try again later"),
+        EResult.Expired => Loc.L("验证码已过期，请重新登录", "The code has expired — please sign in again"),
+        EResult.AccessDenied => Loc.L("访问被拒绝（可能受 IP / 地区限制）", "Access denied (possibly IP / region restrictions)"),
+        EResult.Timeout => Loc.L("服务器响应超时，请重试", "The server timed out — please try again"),
+        EResult.ServiceUnavailable => Loc.L("Steam 服务暂不可用，请稍后再试", "Steam is temporarily unavailable — please try again later"),
+        EResult.TryAnotherCM => Loc.L("服务器繁忙，正在自动重试…", "Server busy — retrying automatically..."),
+        _ => Loc.L($"登录失败（{result}）", $"Sign-in failed ({result})")
     };
 
     private enum LogOnWaitResult

@@ -92,12 +92,12 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// <summary>当前生效程序的分类中文名（无则空串）。</summary>
     public string GetActiveAppCategoryText() => _activeAppRule?.Category switch
     {
-        AppCategory.Game => "游戏",
-        AppCategory.Work => "工作",
-        AppCategory.Media => "媒体",
-        AppCategory.Social => "社交",
-        AppCategory.Other => "其他",
-        AppCategory.Ignore => "忽略",
+        AppCategory.Game => Loc.L("游戏", "Game"),
+        AppCategory.Work => Loc.L("工作", "Work"),
+        AppCategory.Media => Loc.L("媒体", "Media"),
+        AppCategory.Social => Loc.L("社交", "Social"),
+        AppCategory.Other => Loc.L("其他", "Other"),
+        AppCategory.Ignore => Loc.L("忽略", "Ignore"),
         _ => ""
     };
 

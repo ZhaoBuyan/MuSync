@@ -15,7 +15,7 @@ internal static class DiagnosticsReport
     public static string Build()
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"—— MuSync 诊断信息（{DateTime.Now:yyyy-MM-dd HH:mm:ss}）——");
+        sb.AppendLine(Loc.L($"—— MuSync 诊断信息（{DateTime.Now:yyyy-MM-dd HH:mm:ss}）——", $"—— MuSync diagnostics ({DateTime.Now:yyyy-MM-dd HH:mm:ss}) ——"));
         AppendVersionInfo(sb);
         AppendSteamInfo(sb);
         AppendPlayerInfo(sb);
