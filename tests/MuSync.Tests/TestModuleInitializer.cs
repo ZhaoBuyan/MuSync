@@ -16,5 +16,9 @@ internal static class TestModuleInitializer
         var logDir = Path.Combine(
             Path.GetTempPath(), "musync-test-logs", Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("MUSYNC_LOG_DIR", logDir);
+
+        // 本地化：报告等文案按当前语言输出；测试断言基于中文，固定为中文，
+        // 避免受开发机真实配置（%LocalAppData%\MuSync\config.json）影响。
+        Configurations.Instance.Settings.Language = 0;
     }
 }
