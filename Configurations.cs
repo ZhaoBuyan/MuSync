@@ -22,6 +22,9 @@ internal class ConfigData
     /// <summary>进度同步频率档位（快速 0.25s / 标准 0.5s / 省流 1s）。</summary>
     public SyncSpeedLevel SyncSpeed { get; set; } = SyncSpeedLevel.Standard;
     public bool AutoStart { get; set; }
+
+    /// <summary>界面语言：0 = 中文（默认），1 = English；切换后重启生效。</summary>
+    public int Language { get; set; }
     public bool CloseToTray { get; set; } = true;
     public bool StartInTray { get; set; }
 

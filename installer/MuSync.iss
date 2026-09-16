@@ -27,6 +27,7 @@ AppPublisher=ZhaoBuyan
 AppCopyright=Copyright (c) 2026 ZhaoBuyan
 VersionInfoVersion={#AppVersion}.0
 UsePreviousTasks=yes
+UsePreviousLanguage=yes
 DefaultDirName={localappdata}\Programs\MuSync
 DisableDirPage=yes
 DisableProgramGroupPage=yes
@@ -45,6 +46,7 @@ UninstallDisplayIcon={app}\MuSync.exe
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"

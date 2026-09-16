@@ -22,6 +22,7 @@ internal sealed class SettingsForm : Form
     private CheckBox _autoStartCheckBox = null!;
     private CheckBox _closeToTrayCheckBox = null!;
     private CheckBox _startInTrayCheckBox = null!;
+    private ComboBox _languageCombo = null!;
     private CheckBox _allowWebSocketFallbackCheckBox = null!;
     private Label _accountStatusLabel = null!;
     private Button _loginButton = null!;
@@ -174,7 +175,29 @@ internal sealed class SettingsForm : Form
         _autoStartCheckBox = CreateCheckBox("开机自启", 20, 30);
         _closeToTrayCheckBox = CreateCheckBox("关闭窗口时隐藏到托盘", 20, 62);
         _startInTrayCheckBox = CreateCheckBox("启动时隐藏到托盘", 20, 94);
-        startupGroup.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox]);
+
+        var languageLabel = new Label
+        {
+            AutoSize = true,
+            Location = new Point(340, 34),
+            Text = Loc.L("语言:", "Language:")
+        };
+        _languageCombo = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Location = new Point(400, 30),
+            Size = new Size(110, 28)
+        };
+        _languageCombo.Items.AddRange(["中文", "English"]);
+        _languageCombo.SelectedIndex = Math.Clamp(Configurations.Instance.Settings.Language, 0, 1);
+        var languageHint = new Label
+        {
+            AutoSize = true,
+            Location = new Point(518, 34),
+            ForeColor = Color.Gray,
+            Text = Loc.L("（重启后生效）", "(applies after restart)")
+        };
+        startupGroup.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox, languageLabel, _languageCombo, languageHint]);
 
         var networkGroup = CreateGroupBox("网络", 10, 172, 650, 72);
         _allowWebSocketFallbackCheckBox = CreateCheckBox("TCP 连接失败时自动用 WebSocket (443) 重试", 20, 28);
@@ -1126,6 +1149,7 @@ internal sealed class SettingsForm : Form
         _closeToTrayCheckBox.Checked = settings.CloseToTray;
         _startInTrayCheckBox.Checked = settings.StartInTray;
         _allowWebSocketFallbackCheckBox.Checked = settings.AllowWebSocketFallback;
+        _languageCombo.SelectedIndex = Math.Clamp(settings.Language, 0, 1);
 
         _enableSteamSyncCheckBox.Checked = settings.EnableSteamSync;
         _musicSyncCheckBox.Checked = settings.MusicSyncEnabled;
@@ -1201,6 +1225,7 @@ internal sealed class SettingsForm : Form
         settings.AutoStart = isAutoStartChecked;
         settings.CloseToTray = _closeToTrayCheckBox.Checked;
         settings.StartInTray = _startInTrayCheckBox.Checked;
+        settings.Language = Math.Clamp(_languageCombo.SelectedIndex, 0, 1);
         settings.AllowWebSocketFallback = _allowWebSocketFallbackCheckBox.Checked;
 
         settings.EnableSteamSync = _enableSteamSyncCheckBox.Checked;
