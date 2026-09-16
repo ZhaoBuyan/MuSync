@@ -6,9 +6,11 @@
 
 **把你在听的音乐，实时同步到 Steam 状态。**
 
-支持网易云音乐 / QQ 音乐 / LX Music（洛雪）/ 酷狗音乐——下载、登录、即用，永久免费。
+支持网易云音乐 / QQ 音乐 / LX Music（洛雪）/ 酷狗音乐——下载、登录、即用，永久免费。适用于 64 位 Windows 10 / 11。
 
 ![Steam 好友列表效果](docs/steam-preview.png)
+
+![MuSync 主界面](docs/ui-preview.png)
 
 ## 快速开始
 
@@ -75,7 +77,7 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 - 托盘常驻：悬停显示当前状态，右键可「暂停同步」临时隐身，支持开机自启
 - 设置窗口为单窗多页：常规 / 同步 / 显示 / 程序 / 诊断 / 关于
 - 检查更新：启动后自动检查 + 每 6 小时复查；有新版本时「设置」按钮与托盘菜单出现提示；更新窗口内可直接下载——完整版 / lite 版「退出并打开文件夹」手动替换，安装器版「立即更新」一键自动完成
-- 诊断页提供「打开日志文件夹」；日志保存在 `%LocalAppData%\MuSync\logs\`
+- 诊断页提供「复制诊断信息」（一键复制完整状态）与「打开日志文件夹」；日志保存在 `%LocalAppData%\MuSync\logs\`
 
 ## 版本选择与升级
 
@@ -100,6 +102,12 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 - **配置或登录态异常**
   配置读取失败时程序会自动备份（`config.json.bak`）并尽量保留其余设置。日志位于 `%LocalAppData%\MuSync\logs`（设置 → 诊断 → 「打开日志文件夹」一键直达）。
 
+- **遇到问题 / 想提建议**
+  欢迎到 [GitHub Issues](https://github.com/ZhaoBuyan/MuSync/issues) 反馈；附上设置 → 诊断 → 「复制诊断信息」的内容，定位会快很多。
+
+- **如何卸载**
+  安装器版：从 Windows「设置 → 应用」或开始菜单的卸载项卸载；卸载只移除程序文件，配置与日志（`%LocalAppData%\MuSync`）会保留——想彻底清理再手动删除该文件夹。完整版 / lite 版：直接删除程序文件即可。
+
 ## 安全与隐私
 
 把 Steam 账号授权给 MuSync 之前，建议先阅读 [SECURITY.md](SECURITY.md)：登录流程、读取范围、网络流量、风险说明与撤销方法，全部如实交代。
@@ -116,16 +124,16 @@ MuSync（本项目）
              └─ Copyright (c) 2018 Kyle 的原始项目
 ```
 
-仅播放器内存逆向实现（网易云特征码 / QQ 音乐偏移 / LX 接口）来自该谱系；连接层、状态仲裁、显示引擎、程序同步、配置与安全体系均为本项目独立实现。相对 yySync 的全部改动见 [CHANGELOG.md](CHANGELOG.md)。
+仅播放器内存逆向实现（网易云特征码 / QQ 音乐偏移 / LX 接口）来自该谱系；其余——包括酷狗音乐读取、连接层、状态仲裁、显示引擎、程序同步、配置与安全体系——均为本项目独立实现。相对 yySync 的全部改动见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 构建与测试
 
 ```powershell
 dotnet build MuSync.sln -c Release     # 编译
-dotnet test  MuSync.sln                # 单元测试（87 个）
+dotnet test  MuSync.sln                # 单元测试
 
 # 免安装单文件发布（内置 .NET 运行时）
-dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish
 
 # 安装器（需已安装 Inno Setup 6.5+）
 powershell -ExecutionPolicy Bypass -File installer\build.ps1
@@ -147,7 +155,8 @@ Utils/                         # 前台检测 / 分类器 / 模板编解码 / �
 Models/                        # 数据模型
 Win32Api/                      # Win32 / 进程内存访问
 installer/                     # Inno Setup 安装器脚本与本地构建
-tests/MuSync.Tests/            # xUnit 单元测试（87 个）
+tools/                         # 图标生成脚本（make-icon.ps1）
+tests/MuSync.Tests/            # xUnit 单元测试
 reference-yySync/              # 上游参考源码（MIT，不参与编译，仅对照）
 ```
 

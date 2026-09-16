@@ -6,9 +6,11 @@ By [ZhaoBuyan](https://github.com/ZhaoBuyan)
 
 **Sync what you're listening to — and what you're running — to your Steam status, in real time.**
 
-Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music — download, sign in, done. Free forever.
+Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music — download, sign in, done. Free forever. Runs on 64-bit Windows 10 / 11.
 
 ![Steam friends list](docs/steam-preview.png)
+
+![MuSync main window](docs/ui-preview-en.png)
 
 ## Quick Start
 
@@ -75,7 +77,7 @@ Strinova                                                         ← playing a n
 - Lives in the notification area: hover shows the current status, right-click offers "Pause sync" for temporary invisibility, optional start with Windows
 - The Settings dialog is a single window with tabs: General / Sync / Display / Apps / Diagnostics / About
 - Update check: on launch, then every 6 hours; new versions surface on the "Settings" button and tray menu; the update dialog can download directly — the full/lite editions use "Exit & open folder" for a manual replace, the installer edition updates with one click ("Update now")
-- The Diagnostics tab offers "Open logs folder"; logs live in `%LocalAppData%\MuSync\logs\`
+- The Diagnostics tab offers "Copy diagnostics" (one-click copy of the full state) and "Open logs folder"; logs live in `%LocalAppData%\MuSync\logs\`
 
 ## Editions & Upgrading
 
@@ -100,6 +102,12 @@ Upgrading: the app checks for updates automatically — for the full/lite editio
 - **Config or login state looks broken**
   If config parsing fails, the app backs it up automatically (`config.json.bak`) and keeps as much as it can. Logs are in `%LocalAppData%\MuSync\logs` (Settings → Diagnostics → "Open logs folder").
 
+- **Found a problem or have a suggestion?**
+  Please open a [GitHub Issue](https://github.com/ZhaoBuyan/MuSync/issues) — attaching the output of Settings → Diagnostics → "Copy diagnostics" helps a lot.
+
+- **How do I uninstall MuSync?**
+  Installer edition: uninstall from Windows "Settings → Apps", or via the Start Menu shortcut. The uninstaller removes the program files only — your config and logs in `%LocalAppData%\MuSync` are kept; delete that folder for a complete cleanup. Full and lite editions: just delete the program file.
+
 ## Security & privacy
 
 Before you hand your Steam account to MuSync, please read [SECURITY.md](SECURITY.md): the sign-in flow, what it reads, network traffic, the risks, and how to revoke access — all explained honestly.
@@ -116,16 +124,16 @@ MuSync (this project)
              └─ Copyright (c) 2018 Kyle's original project
 ```
 
-Only the player memory-reverse-engineering (NetEase pattern scan / QQ Music offsets / the LX interface) comes from that lineage; the connection layer, state arbitration, display engine, app sync, config and security systems are all implemented independently by this project. As a note: the Chinese description 「半新写」 literally means "only half rewritten" — it refers to this lineage, not to a project name. For the full list of changes relative to yySync, see [CHANGELOG.md](CHANGELOG.md).
+Only the player memory-reverse-engineering (NetEase pattern scan / QQ Music offsets / the LX interface) comes from that lineage; everything else — including the KuGou reader, the connection layer, state arbitration, display engine, app sync, config and security systems — is implemented independently by this project. As a note: the Chinese description 「半新写」 literally means "only half rewritten" — it refers to this lineage, not to a project name. For the full list of changes relative to yySync, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Build & test
 
 ```powershell
 dotnet build MuSync.sln -c Release     # build
-dotnet test  MuSync.sln                # unit tests (87)
+dotnet test  MuSync.sln                # unit tests
 
 # Portable single-file publish (bundled .NET runtime)
-dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish
 
 # Installer (requires Inno Setup 6.5+)
 powershell -ExecutionPolicy Bypass -File installer\build.ps1
@@ -147,7 +155,8 @@ Utils/                         # foreground watcher / classifier / template code
 Models/                        # data models
 Win32Api/                      # Win32 / process memory access
 installer/                     # Inno Setup installer script and local build
-tests/MuSync.Tests/            # xUnit unit tests (87)
+tools/                         # icon generator script (make-icon.ps1)
+tests/MuSync.Tests/            # xUnit unit tests
 reference-yySync/              # upstream reference source (MIT; not compiled, for comparison only)
 ```
 
