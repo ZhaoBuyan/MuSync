@@ -359,15 +359,6 @@ internal sealed class SettingsForm : Form
             Value = 10
         };
 
-        var variablesHint = new Label
-        {
-            AutoSize = true,
-            Location = new Point(20, 200),
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8),
-            Text = "变量：{app} 程序名｜{song} 歌名｜{artist} 歌手｜{artistPart} 自动连接符的歌手｜{progress} 进度｜{sep} 分隔符"
-        };
-
         _previewLabel = new Label
         {
             Location = new Point(20, 228),
@@ -389,7 +380,7 @@ internal sealed class SettingsForm : Form
             combinedFormatLabel, _combinedFormatBox, combinedBlocksButton,
             separatorLabel, _separatorCombo, barStyleLabel, _progressBarStyleCombo,
             barLengthLabel, _barLengthBox,
-            variablesHint, _previewLabel
+            _previewLabel
         ]);
 
         var appearanceGroup = CreateAppearanceGroup();
