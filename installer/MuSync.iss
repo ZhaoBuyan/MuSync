@@ -24,6 +24,7 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=ZhaoBuyan
+AppCopyright=Copyright (c) 2026 ZhaoBuyan
 VersionInfoVersion={#AppVersion}.0
 UsePreviousTasks=yes
 DefaultDirName={localappdata}\Programs\MuSync
