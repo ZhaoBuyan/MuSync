@@ -367,16 +367,16 @@ internal sealed class SettingsForm : Form
         var barStyleLabel = new Label { Text = Loc.L("进度条样式:", "Progress bar style:"), Location = new Point(250, 170), AutoSize = true };
         _progressBarStyleCombo = new ComboBox
         {
-            Location = new Point(350, 166),
-            Width = 160,
+            Location = new Point(385, 166),
+            Width = 120,
             DropDownStyle = ComboBoxStyle.DropDown
         };
         _progressBarStyleCombo.Items.AddRange(["#-", "█░", "▰▱", "●○", "■□", "▮▯"]);
-        var barLengthLabel = new Label { Text = Loc.L("长度:", "Length:"), Location = new Point(525, 170), AutoSize = true };
+        var barLengthLabel = new Label { Text = Loc.L("长度:", "Length:"), Location = new Point(512, 170), AutoSize = true };
         _barLengthBox = new NumericUpDown
         {
-            Location = new Point(568, 166),
-            Width = 72,
+            Location = new Point(576, 166),
+            Width = 64,
             Minimum = 1,
             Maximum = 50,
             Value = 10
