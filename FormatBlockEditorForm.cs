@@ -21,7 +21,10 @@ internal sealed class FormatBlockEditorForm : Form
 {
     private static readonly string[] TypeNames =
     [
-        "歌名", "歌手", "歌手（无连接符）", "进度条", "程序名", "分隔符", "自定义文字"
+        Loc.L("歌名", "Song"), Loc.L("歌手", "Artist (auto separator)"),
+        Loc.L("歌手（无连接符）", "Artist (no separator)"),
+        Loc.L("进度条", "Progress bar"), Loc.L("程序名", "App name"),
+        Loc.L("分隔符", "Separator"), Loc.L("自定义文字", "Custom text")
     ];
 
     private static readonly FormatBlockType[] TypeValues =
@@ -52,9 +55,9 @@ internal sealed class FormatBlockEditorForm : Form
     {
         Text = _kind switch
         {
-            TemplateKind.Music => "编辑「音乐」模板 — 积木编辑",
-            TemplateKind.Program => "编辑「程序」模板 — 积木编辑",
-            _ => "编辑「组合」模板 — 积木编辑"
+            TemplateKind.Music => Loc.L("编辑「音乐」模板 — 积木编辑", "Edit \"Music\" template — Block editor"),
+            TemplateKind.Program => Loc.L("编辑「程序」模板 — 积木编辑", "Edit \"App\" template — Block editor"),
+            _ => Loc.L("编辑「组合」模板 — 积木编辑", "Edit \"Combined\" template — Block editor")
         };
         Size = new Size(560, 520);
         StartPosition = FormStartPosition.CenterParent;
@@ -74,7 +77,7 @@ internal sealed class FormatBlockEditorForm : Form
 
         var addButton = new Button
         {
-            Text = "＋ 添加积木",
+            Text = Loc.L("＋ 添加积木", "+ Add block"),
             Location = new Point(12, 310),
             Size = new Size(110, 28),
             BackColor = Color.White
@@ -95,7 +98,7 @@ internal sealed class FormatBlockEditorForm : Form
 
         var okButton = new Button
         {
-            Text = "确定",
+            Text = Loc.L("确定", "OK"),
             Location = new Point(400, 440),
             Size = new Size(64, 28),
             BackColor = Color.White,
@@ -109,7 +112,7 @@ internal sealed class FormatBlockEditorForm : Form
         };
         var cancelButton = new Button
         {
-            Text = "取消",
+            Text = Loc.L("取消", "Cancel"),
             Location = new Point(472, 440),
             Size = new Size(64, 28),
             BackColor = Color.White,
@@ -226,9 +229,9 @@ internal sealed class FormatBlockEditorForm : Form
         var dummySong = new PlayerInfo
         {
             Identity = "preview",
-            Title = "稻香",
-            Artists = "周杰伦",
-            Album = "魔杰座",
+            Title = Loc.L("稻香", "Sunflower"),
+            Artists = Loc.L("周杰伦", "Post Malone"),
+            Album = Loc.L("魔杰座", "Spider-Man: Into the Spider-Verse"),
             Cover = "",
             Schedule = 150,
             Duration = 255,
@@ -249,13 +252,13 @@ internal sealed class FormatBlockEditorForm : Form
                 break;
             case TemplateKind.Program:
                 config.ProgramFormat = compiled;
-                text = SteamStatusManager.ComposeStatus(null, "卡拉彼丘", config);
+                text = SteamStatusManager.ComposeStatus(null, Loc.L("卡拉彼丘", "Strinova"), config);
                 break;
             default:
                 config.CombinedFormat = compiled;
-                text = SteamStatusManager.ComposeStatus(dummySong, "卡拉彼丘", config);
+                text = SteamStatusManager.ComposeStatus(dummySong, Loc.L("卡拉彼丘", "Strinova"), config);
                 break;
         }
-        _previewLabel.Text = $"好友看到：{text ?? "(无内容)"}";
+        _previewLabel.Text = Loc.L($"好友看到：{text ?? "(无内容)"}", $"Friends see: {text ?? "(None)"}");
     }
 }

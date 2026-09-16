@@ -95,7 +95,7 @@ internal sealed class SettingsForm : Form
 
     private void InitializeComponent()
     {
-        Text = "设置 - MuSync";
+        Text = Loc.L("设置 - MuSync", "MuSync - Settings");
         Size = new Size(700, 660);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -111,15 +111,15 @@ internal sealed class SettingsForm : Form
             Height = 52,
             BackColor = Color.White
         };
-        _okButton = CreateDialogButton("确定", 400);
+        _okButton = CreateDialogButton(Loc.L("确定", "OK"), 400);
         _okButton.Click += (_, _) =>
         {
             SaveSettings();
             Close();
         };
-        _cancelButton = CreateDialogButton("取消", 488);
+        _cancelButton = CreateDialogButton(Loc.L("取消", "Cancel"), 488);
         _cancelButton.Click += (_, _) => Close();
-        _applyButton = CreateDialogButton("应用", 576);
+        _applyButton = CreateDialogButton(Loc.L("应用", "Apply"), 576);
         _applyButton.Click += (_, _) => SaveSettings();
         buttonPanel.Controls.AddRange([_okButton, _cancelButton, _applyButton]);
 
@@ -169,12 +169,12 @@ internal sealed class SettingsForm : Form
     // ================= 常规页 =================
     private TabPage CreateGeneralPage()
     {
-        var page = new TabPage("常规") { BackColor = Color.White };
+        var page = new TabPage(Loc.L("常规", "General")) { BackColor = Color.White };
 
-        var startupGroup = CreateGroupBox("启动与托盘", 10, 10, 650, 150);
-        _autoStartCheckBox = CreateCheckBox("开机自启", 20, 30);
-        _closeToTrayCheckBox = CreateCheckBox("关闭窗口时隐藏到托盘", 20, 62);
-        _startInTrayCheckBox = CreateCheckBox("启动时隐藏到托盘", 20, 94);
+        var startupGroup = CreateGroupBox(Loc.L("启动与托盘", "Startup & Tray"), 10, 10, 650, 150);
+        _autoStartCheckBox = CreateCheckBox(Loc.L("开机自启", "Start with Windows"), 20, 30);
+        _closeToTrayCheckBox = CreateCheckBox(Loc.L("关闭窗口时隐藏到托盘", "Minimize to tray when the window is closed"), 20, 62);
+        _startInTrayCheckBox = CreateCheckBox(Loc.L("启动时隐藏到托盘", "Start minimized to tray"), 20, 94);
 
         var languageLabel = new Label
         {
@@ -199,21 +199,21 @@ internal sealed class SettingsForm : Form
         };
         startupGroup.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox, languageLabel, _languageCombo, languageHint]);
 
-        var networkGroup = CreateGroupBox("网络", 10, 172, 650, 72);
-        _allowWebSocketFallbackCheckBox = CreateCheckBox("TCP 连接失败时自动用 WebSocket (443) 重试", 20, 28);
+        var networkGroup = CreateGroupBox(Loc.L("网络", "Network"), 10, 172, 650, 72);
+        _allowWebSocketFallbackCheckBox = CreateCheckBox(Loc.L("TCP 连接失败时自动用 WebSocket (443) 重试", "Retry over WebSocket (443) if TCP fails"), 20, 28);
         networkGroup.Controls.AddRange([_allowWebSocketFallbackCheckBox]);
 
-        var accountGroup = CreateGroupBox("Steam 账户", 10, 256, 650, 125);
+        var accountGroup = CreateGroupBox(Loc.L("Steam 账户", "Steam Account"), 10, 256, 650, 125);
         _accountStatusLabel = new Label
         {
             AutoSize = true,
             Location = new Point(20, 30),
-            Text = "状态检查中…",
+            Text = Loc.L("状态检查中…", "Checking status..."),
             ForeColor = Color.Gray
         };
         _loginButton = new Button
         {
-            Text = "重新登录",
+            Text = Loc.L("重新登录", "Sign in again"),
             Location = new Point(20, 66),
             Size = new Size(110, 30),
             BackColor = Color.White
@@ -221,7 +221,7 @@ internal sealed class SettingsForm : Form
         _loginButton.Click += LoginButton_Click;
         _logoutButton = new Button
         {
-            Text = "退出登录",
+            Text = Loc.L("退出登录", "Sign out"),
             Location = new Point(145, 66),
             Size = new Size(110, 30),
             BackColor = Color.White,
@@ -237,26 +237,26 @@ internal sealed class SettingsForm : Form
     // ================= 同步页 =================
     private TabPage CreateSyncPage()
     {
-        var page = new TabPage("同步") { BackColor = Color.White };
+        var page = new TabPage(Loc.L("同步", "Sync")) { BackColor = Color.White };
 
-        var switchGroup = CreateGroupBox("同步开关", 10, 10, 650, 160);
-        _enableSteamSyncCheckBox = CreateCheckBox("启用 Steam 同步（总开关）", 20, 32);
-        _musicSyncCheckBox = CreateCheckBox("启用音乐同步", 20, 66);
-        _hidePausedMusicCheckBox = CreateCheckBox("音乐暂停时不在状态中显示", 20, 100);
-        _enableAppSyncCheckBox = CreateCheckBox("启用程序同步", 340, 32);
-        _syncNonGameCheckBox = CreateCheckBox("同步非游戏应用", 340, 66);
-        _pauseWhenPlayingGameCheckBox = CreateCheckBox("玩真实 Steam 游戏时自动暂停", 340, 100);
+        var switchGroup = CreateGroupBox(Loc.L("同步开关", "Sync options"), 10, 10, 650, 160);
+        _enableSteamSyncCheckBox = CreateCheckBox(Loc.L("启用 Steam 同步（总开关）", "Enable Steam sync (master switch)"), 20, 32);
+        _musicSyncCheckBox = CreateCheckBox(Loc.L("启用音乐同步", "Enable music sync"), 20, 66);
+        _hidePausedMusicCheckBox = CreateCheckBox(Loc.L("音乐暂停时不在状态中显示", "Hide music status when paused"), 20, 100);
+        _enableAppSyncCheckBox = CreateCheckBox(Loc.L("启用程序同步", "Enable app sync"), 340, 32);
+        _syncNonGameCheckBox = CreateCheckBox(Loc.L("同步非游戏应用", "Sync non-game apps"), 340, 66);
+        _pauseWhenPlayingGameCheckBox = CreateCheckBox(Loc.L("玩真实 Steam 游戏时自动暂停", "Auto-pause while playing a real Steam game"), 340, 100);
         switchGroup.Controls.AddRange([
             _enableSteamSyncCheckBox, _musicSyncCheckBox, _hidePausedMusicCheckBox,
             _enableAppSyncCheckBox, _syncNonGameCheckBox, _pauseWhenPlayingGameCheckBox
         ]);
 
-        var priorityGroup = CreateGroupBox("音乐播放器优先级", 10, 182, 650, 100);
+        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 182, 650, 100);
         var priorityLabel = new Label
         {
             AutoSize = true,
             Location = new Point(20, 32),
-            Text = "优先级从左到右（正在播放的始终优先）："
+            Text = Loc.L("优先级从左到右（正在播放的始终优先）：", "Priority goes left to right (now-playing always wins):")
         };
         priorityGroup.Controls.Add(priorityLabel);
         for (var i = 0; i < 4; i++)
@@ -267,28 +267,28 @@ internal sealed class SettingsForm : Form
                 Width = 145,
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
-            combo.Items.AddRange(["网易云音乐", "QQ音乐", "LX Music", "酷狗音乐"]);
+            combo.Items.AddRange([Loc.PlayerName("网易云音乐"), Loc.PlayerName("QQ音乐"), Loc.PlayerName("洛雪音乐"), Loc.PlayerName("酷狗音乐")]);
             combo.SelectedIndexChanged += (_, _) => ApplyPriorityFromCombos();
             _playerPriorityCombos.Add(combo);
             priorityGroup.Controls.Add(combo);
         }
 
-        var speedGroup = CreateGroupBox("同步频率", 10, 294, 650, 90);
-        var speedLabel = new Label { Text = "进度刷新档位:", Location = new Point(20, 32), AutoSize = true };
+        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 294, 650, 90);
+        var speedLabel = new Label { Text = Loc.L("进度刷新档位:", "Update rate:"), Location = new Point(20, 32), AutoSize = true };
         _syncSpeedCombo = new ComboBox
         {
             Location = new Point(130, 28),
             Width = 240,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
-        _syncSpeedCombo.Items.AddRange(["快速（0.25 秒）", "标准（0.5 秒，推荐）", "省流（1 秒）"]);
+        _syncSpeedCombo.Items.AddRange([Loc.L("快速（0.25 秒）", "Fast (0.25 s)"), Loc.L("标准（0.5 秒，推荐）", "Standard (0.5 s, recommended)"), Loc.L("省流（1 秒）", "Data saver (1 s)")]);
         var speedHint = new Label
         {
             AutoSize = true,
             Location = new Point(20, 60),
             ForeColor = Color.Gray,
             Font = new Font("Microsoft YaHei", 8),
-            Text = "更快的刷新让 Steam 端更顺滑；省流档可降低被服务器限流的概率"
+            Text = Loc.L("更快的刷新让 Steam 端更顺滑；省流档可降低被服务器限流的概率", "Faster updates look smoother on Steam; data saver reduces the chance of server rate-limiting")
         };
         speedGroup.Controls.AddRange([speedLabel, _syncSpeedCombo, speedHint]);
 
@@ -298,7 +298,7 @@ internal sealed class SettingsForm : Form
             Size = new Size(650, 60),
             ForeColor = Color.FromArgb(150, 110, 40),
             Font = new Font("Microsoft YaHei", 8.5f),
-            Text = "洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，并允许来自局域网的访问。"
+            Text = Loc.L("洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，并允许来自局域网的访问。", "LX Music users: please enable \"Open API service\" under LX Music → Settings → Open API, and allow LAN access.")
         };
 
         page.Controls.AddRange([switchGroup, priorityGroup, speedGroup, lxHint]);
@@ -308,54 +308,54 @@ internal sealed class SettingsForm : Form
     // ================= 显示页 =================
     private TabPage CreateDisplayPage()
     {
-        var page = new TabPage("显示") { BackColor = Color.White };
+        var page = new TabPage(Loc.L("显示", "Display")) { BackColor = Color.White };
 
-        var templateGroup = CreateGroupBox("状态文本模板", 10, 10, 650, 330);
+        var templateGroup = CreateGroupBox(Loc.L("状态文本模板", "Status text template"), 10, 10, 650, 330);
 
-        var presetLabel = new Label { Text = "模板预设:", Location = new Point(20, 34), AutoSize = true };
+        var presetLabel = new Label { Text = Loc.L("模板预设:", "Presets:"), Location = new Point(20, 34), AutoSize = true };
         _templatePresetCombo = new ComboBox
         {
             Location = new Point(95, 30),
             Width = 220,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
-        _templatePresetCombo.Items.AddRange(["自定义", "简洁（默认）", "带前缀：正在玩 / 正在听", "只要名字"]);
+        _templatePresetCombo.Items.AddRange([Loc.L("自定义", "Custom"), Loc.L("简洁（默认）", "Simple (default)"), Loc.L("带前缀：正在玩 / 正在听", "With prefix (Playing / Listening)"), Loc.L("只要名字", "Name only")]);
         _templatePresetCombo.SelectedIndexChanged += (_, _) => ApplyTemplatePreset(_templatePresetCombo.SelectedIndex);
 
-        var musicFormatLabel = new Label { Text = "音乐格式:", Location = new Point(20, 70), AutoSize = true };
+        var musicFormatLabel = new Label { Text = Loc.L("音乐格式:", "Music format:"), Location = new Point(20, 70), AutoSize = true };
         _musicFormatBox = new TextBox { Location = new Point(95, 66), Width = 440 };
         var musicBlocksButton = new Button
         {
-            Text = "积木",
+            Text = Loc.L("积木", "Blocks"),
             Location = new Point(545, 65),
             Size = new Size(85, 26),
             BackColor = Color.White
         };
         musicBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Music, _musicFormatBox);
 
-        var programFormatLabel = new Label { Text = "程序格式:", Location = new Point(20, 102), AutoSize = true };
+        var programFormatLabel = new Label { Text = Loc.L("程序格式:", "App format:"), Location = new Point(20, 102), AutoSize = true };
         _programFormatBox = new TextBox { Location = new Point(95, 98), Width = 440 };
         var programBlocksButton = new Button
         {
-            Text = "积木",
+            Text = Loc.L("积木", "Blocks"),
             Location = new Point(545, 97),
             Size = new Size(85, 26),
             BackColor = Color.White
         };
         programBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Program, _programFormatBox);
 
-        var combinedFormatLabel = new Label { Text = "组合格式:", Location = new Point(20, 134), AutoSize = true };
+        var combinedFormatLabel = new Label { Text = Loc.L("组合格式:", "Combined format:"), Location = new Point(20, 134), AutoSize = true };
         _combinedFormatBox = new TextBox { Location = new Point(95, 130), Width = 440 };
         var combinedBlocksButton = new Button
         {
-            Text = "积木",
+            Text = Loc.L("积木", "Blocks"),
             Location = new Point(545, 129),
             Size = new Size(85, 26),
             BackColor = Color.White
         };
         combinedBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Combined, _combinedFormatBox);
 
-        var separatorLabel = new Label { Text = "分隔符:", Location = new Point(20, 170), AutoSize = true };
+        var separatorLabel = new Label { Text = Loc.L("分隔符:", "Separator:"), Location = new Point(20, 170), AutoSize = true };
         _separatorCombo = new ComboBox
         {
             Location = new Point(95, 166),
@@ -364,7 +364,7 @@ internal sealed class SettingsForm : Form
         };
         _separatorCombo.Items.AddRange(["‖", " | ", " · ", " — ", " ~ ", " + "]);
 
-        var barStyleLabel = new Label { Text = "进度条样式:", Location = new Point(250, 170), AutoSize = true };
+        var barStyleLabel = new Label { Text = Loc.L("进度条样式:", "Progress bar style:"), Location = new Point(250, 170), AutoSize = true };
         _progressBarStyleCombo = new ComboBox
         {
             Location = new Point(350, 166),
@@ -372,7 +372,7 @@ internal sealed class SettingsForm : Form
             DropDownStyle = ComboBoxStyle.DropDown
         };
         _progressBarStyleCombo.Items.AddRange(["#-", "█░", "▰▱", "●○", "■□", "▮▯"]);
-        var barLengthLabel = new Label { Text = "长度:", Location = new Point(525, 170), AutoSize = true };
+        var barLengthLabel = new Label { Text = Loc.L("长度:", "Length:"), Location = new Point(525, 170), AutoSize = true };
         _barLengthBox = new NumericUpDown
         {
             Location = new Point(568, 166),
@@ -424,34 +424,34 @@ internal sealed class SettingsForm : Form
     /// <summary>「外观」分组：自定义主界面的颜色 / 字体 / 背景（显示页内，可滚动查看）。</summary>
     private GroupBox CreateAppearanceGroup()
     {
-        var group = CreateGroupBox("外观", 10, 350, 650, 196);
+        var group = CreateGroupBox(Loc.L("外观", "Appearance"), 10, 350, 650, 196);
 
         // 行 1：标题颜色 / 歌名颜色
-        var titleColorLabel = new Label { Text = "标题颜色:", Location = new Point(20, 36), AutoSize = true };
-        _titleFollowCheck = CreateCheckBox("跟随播放器", 110, 32);
+        var titleColorLabel = new Label { Text = Loc.L("标题颜色:", "Title color:"), Location = new Point(20, 36), AutoSize = true };
+        _titleFollowCheck = CreateCheckBox(Loc.L("跟随播放器", "Follow player"), 110, 32);
         _titleColorButton = CreateColorButton(new Point(230, 30));
-        var songColorLabel = new Label { Text = "歌名颜色:", Location = new Point(365, 36), AutoSize = true };
-        _songFollowCheck = CreateCheckBox("跟随标题", 455, 32);
+        var songColorLabel = new Label { Text = Loc.L("歌名颜色:", "Song title color:"), Location = new Point(365, 36), AutoSize = true };
+        _songFollowCheck = CreateCheckBox(Loc.L("跟随标题", "Follow title"), 455, 32);
         _songColorButton = CreateColorButton(new Point(565, 30));
 
         // 行 2：字体 / 背景色
-        var fontLabel = new Label { Text = "字体:", Location = new Point(20, 72), AutoSize = true };
+        var fontLabel = new Label { Text = Loc.L("字体:", "Font:"), Location = new Point(20, 72), AutoSize = true };
         _fontButton = new Button
         {
-            Text = "微软雅黑 9pt",
+            Text = Loc.L("微软雅黑 9pt", "Microsoft YaHei 9pt"),
             Location = new Point(110, 68),
             Size = new Size(160, 26),
             BackColor = Color.White
         };
         _fontButton.Click += FontButton_Click;
-        var backgroundColorLabel = new Label { Text = "背景色:", Location = new Point(365, 72), AutoSize = true };
+        var backgroundColorLabel = new Label { Text = Loc.L("背景色:", "Background color:"), Location = new Point(365, 72), AutoSize = true };
         _backgroundColorButton = CreateColorButton(new Point(440, 66));
 
         // 行 3：背景图 / 排版
-        var backgroundImageLabel = new Label { Text = "背景图:", Location = new Point(20, 108), AutoSize = true };
+        var backgroundImageLabel = new Label { Text = Loc.L("背景图:", "Background image:"), Location = new Point(20, 108), AutoSize = true };
         _backgroundImageLabel = new Label
         {
-            Text = "（无）",
+            Text = Loc.L("（无）", "(None)"),
             Location = new Point(110, 110),
             Size = new Size(180, 20),
             ForeColor = Color.Gray,
@@ -459,7 +459,7 @@ internal sealed class SettingsForm : Form
         };
         var chooseImageButton = new Button
         {
-            Text = "选择…",
+            Text = Loc.L("选择…", "Choose..."),
             Location = new Point(300, 104),
             Size = new Size(70, 26),
             BackColor = Color.White
@@ -467,7 +467,7 @@ internal sealed class SettingsForm : Form
         chooseImageButton.Click += ChooseBackgroundImage_Click;
         var clearImageButton = new Button
         {
-            Text = "清除",
+            Text = Loc.L("清除", "Clear"),
             Location = new Point(375, 104),
             Size = new Size(60, 26),
             BackColor = Color.White
@@ -475,22 +475,22 @@ internal sealed class SettingsForm : Form
         clearImageButton.Click += (_, _) =>
         {
             _backgroundImagePath = "";
-            _backgroundImageLabel.Text = "（无）";
+            _backgroundImageLabel.Text = Loc.L("（无）", "(None)");
             _backgroundImageLabel.ForeColor = Color.Gray;
         };
-        var layoutLabel = new Label { Text = "排版:", Location = new Point(465, 108), AutoSize = true };
+        var layoutLabel = new Label { Text = Loc.L("排版:", "Layout:"), Location = new Point(465, 108), AutoSize = true };
         _backgroundLayoutCombo = new ComboBox
         {
             Location = new Point(510, 104),
             Width = 110,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
-        _backgroundLayoutCombo.Items.AddRange(["拉伸", "适应", "平铺", "居中"]);
+        _backgroundLayoutCombo.Items.AddRange([Loc.L("拉伸", "Stretch"), Loc.L("适应", "Fit"), Loc.L("平铺", "Tile"), Loc.L("居中", "Center")]);
 
         // 行 4：恢复默认
         var resetButton = new Button
         {
-            Text = "恢复默认外观",
+            Text = Loc.L("恢复默认外观", "Reset appearance"),
             Location = new Point(20, 146),
             Size = new Size(130, 28),
             BackColor = Color.White
@@ -550,7 +550,7 @@ internal sealed class SettingsForm : Form
     {
         using var dialog = new OpenFileDialog
         {
-            Filter = "图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|所有文件|*.*"
+            Filter = Loc.L("图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|所有文件|*.*", "Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|All files|*.*")
         };
         if (dialog.ShowDialog() == DialogResult.OK)
         {
@@ -576,9 +576,9 @@ internal sealed class SettingsForm : Form
         _backgroundColorButton.BackColor = Color.WhiteSmoke;
         _appearanceFontFamily = "";
         _appearanceFontSize = 0;
-        _fontButton.Text = "微软雅黑 9pt";
+        _fontButton.Text = Loc.L("微软雅黑 9pt", "Microsoft YaHei 9pt");
         _backgroundImagePath = "";
-        _backgroundImageLabel.Text = "（无）";
+        _backgroundImageLabel.Text = Loc.L("（无）", "(None)");
         _backgroundImageLabel.ForeColor = Color.Gray;
         _backgroundLayoutCombo.SelectedIndex = 0;
         UpdateAppearanceEnabled();
@@ -587,14 +587,14 @@ internal sealed class SettingsForm : Form
     // ================= 程序页 =================
     private TabPage CreateAppsPage()
     {
-        var page = new TabPage("程序") { BackColor = Color.White };
+        var page = new TabPage(Loc.L("程序", "Apps")) { BackColor = Color.White };
 
         BuildRulesGrid();
         _rulesGrid.Location = new Point(10, 10);
 
         var addCurrentButton = new Button
         {
-            Text = "添加当前前台程序",
+            Text = Loc.L("添加当前前台程序", "Add current foreground app"),
             Location = new Point(10, 288),
             Size = new Size(150, 28),
             BackColor = Color.White
@@ -602,7 +602,7 @@ internal sealed class SettingsForm : Form
         addCurrentButton.Click += AddCurrentButton_Click;
         var removeButton = new Button
         {
-            Text = "删除选中",
+            Text = Loc.L("删除选中", "Remove selected"),
             Location = new Point(170, 288),
             Size = new Size(110, 28),
             BackColor = Color.White
@@ -616,18 +616,18 @@ internal sealed class SettingsForm : Form
     // ================= 诊断页 =================
     private TabPage CreateDiagnosticsPage()
     {
-        var page = new TabPage("诊断") { BackColor = Color.White };
+        var page = new TabPage(Loc.L("诊断", "Diagnostics")) { BackColor = Color.White };
 
-        var memoryGroup = CreateGroupBox("性能监控", 10, 10, 650, 180);
+        var memoryGroup = CreateGroupBox(Loc.L("性能监控", "Performance"), 10, 10, 650, 180);
         _memoryInfoLabel = new Label
         {
             Location = new Point(20, 30),
             Size = new Size(610, 100),
-            Text = "读取中…"
+            Text = Loc.L("读取中…", "Loading...")
         };
         var refreshButton = new Button
         {
-            Text = "刷新内存信息",
+            Text = Loc.L("刷新内存信息", "Refresh memory info"),
             Location = new Point(20, 132),
             Size = new Size(120, 28),
             BackColor = Color.White
@@ -635,10 +635,10 @@ internal sealed class SettingsForm : Form
         refreshButton.Click += (_, _) => RefreshMemoryInfo();
         memoryGroup.Controls.AddRange([_memoryInfoLabel, refreshButton]);
 
-        var toolGroup = CreateGroupBox("诊断工具", 10, 202, 650, 180);
+        var toolGroup = CreateGroupBox(Loc.L("诊断工具", "Diagnostic tools"), 10, 202, 650, 180);
         var openLogsButton = new Button
         {
-            Text = "打开日志文件夹",
+            Text = Loc.L("打开日志文件夹", "Open logs folder"),
             Location = new Point(20, 34),
             Size = new Size(140, 30),
             BackColor = Color.White
@@ -649,17 +649,17 @@ internal sealed class SettingsForm : Form
             AutoSize = true,
             Location = new Point(175, 41),
             ForeColor = Color.Gray,
-            Text = "遇到问题时，把这里最新日期的日志文件发给开发者"
+            Text = Loc.L("遇到问题时，把这里最新日期的日志文件发给开发者", "If you run into a problem, send the latest log file to the developer")
         };
         _versionLabel = new Label
         {
             AutoSize = true,
             Location = new Point(20, 90),
-            Text = "版本：-"
+            Text = Loc.L("版本：-", "Version: -")
         };
         var copyDiagButton = new Button
         {
-            Text = "复制诊断信息",
+            Text = Loc.L("复制诊断信息", "Copy diagnostics"),
             Location = new Point(20, 128),
             Size = new Size(140, 30),
             BackColor = Color.White
@@ -668,13 +668,13 @@ internal sealed class SettingsForm : Form
         copyDiagResetTimer.Tick += (_, _) =>
         {
             copyDiagResetTimer.Stop();
-            copyDiagButton.Text = "复制诊断信息";
+            copyDiagButton.Text = Loc.L("复制诊断信息", "Copy diagnostics");
         };
         copyDiagButton.Click += (_, _) =>
         {
             if (CopyDiagnosticsInfo())
             {
-                copyDiagButton.Text = "已复制 ✓";
+                copyDiagButton.Text = Loc.L("已复制 ✓", "Copied ✓");
                 copyDiagResetTimer.Stop();
                 copyDiagResetTimer.Start();
             }
@@ -685,7 +685,7 @@ internal sealed class SettingsForm : Form
             AutoSize = true,
             Location = new Point(175, 135),
             ForeColor = Color.Gray,
-            Text = "版本 / 内存 / 配置与日志路径（反馈问题时方便粘贴）"
+            Text = Loc.L("版本 / 内存 / 配置与日志路径（反馈问题时方便粘贴）", "Version / memory / config/log paths (handy to paste when reporting issues)")
         };
         toolGroup.Controls.AddRange([openLogsButton, logsHint, _versionLabel, copyDiagButton, copyDiagHint]);
 
@@ -852,19 +852,19 @@ internal sealed class SettingsForm : Form
             BackgroundColor = Color.White,
             ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing
         };
-        _rulesGrid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "启用", FillWeight = 8 });
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "程序", ReadOnly = true, FillWeight = 19 });
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "显示名", FillWeight = 22 });
-        var categoryColumn = new DataGridViewComboBoxColumn { HeaderText = "分类", FillWeight = 13, FlatStyle = FlatStyle.Flat };
-        categoryColumn.Items.AddRange("忽略", "游戏", "工作", "媒体", "社交", "其他");
+        _rulesGrid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = Loc.L("启用", "Enabled"), FillWeight = 8 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = Loc.L("程序", "App"), ReadOnly = true, FillWeight = 19 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = Loc.L("显示名", "Display name"), FillWeight = 22 });
+        var categoryColumn = new DataGridViewComboBoxColumn { HeaderText = Loc.L("分类", "Category"), FillWeight = 13, FlatStyle = FlatStyle.Flat };
+        categoryColumn.Items.AddRange(Loc.L("忽略", "Ignore"), Loc.L("游戏", "Game"), Loc.L("工作", "Work"), Loc.L("媒体", "Media"), Loc.L("社交", "Social"), Loc.L("其他", "Other"));
         _rulesGrid.Columns.Add(categoryColumn);
-        var modeColumn = new DataGridViewComboBoxColumn { HeaderText = "模式", FillWeight = 15, FlatStyle = FlatStyle.Flat };
-        modeColumn.Items.AddRange("前台时显示", "运行即显示");
+        var modeColumn = new DataGridViewComboBoxColumn { HeaderText = Loc.L("模式", "Mode"), FillWeight = 15, FlatStyle = FlatStyle.Flat };
+        modeColumn.Items.AddRange(Loc.L("前台时显示", "When in foreground"), Loc.L("运行即显示", "Always when running"));
         _rulesGrid.Columns.Add(modeColumn);
-        var overrideColumn = new DataGridViewComboBoxColumn { HeaderText = "策略", FillWeight = 14, FlatStyle = FlatStyle.Flat };
-        overrideColumn.Items.AddRange("跟随分类", "强制显示", "强制隐藏");
+        var overrideColumn = new DataGridViewComboBoxColumn { HeaderText = Loc.L("策略", "Policy"), FillWeight = 14, FlatStyle = FlatStyle.Flat };
+        overrideColumn.Items.AddRange(Loc.L("跟随分类", "Follow category"), Loc.L("强制显示", "Always show"), Loc.L("强制隐藏", "Always hide"));
         _rulesGrid.Columns.Add(overrideColumn);
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "状态", ReadOnly = true, FillWeight = 9 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = Loc.L("状态", "Status"), ReadOnly = true, FillWeight = 9 });
         _rulesGrid.CurrentCellDirtyStateChanged += (_, _) =>
         {
             if (_rulesGrid.IsCurrentCellDirty)
@@ -893,7 +893,7 @@ internal sealed class SettingsForm : Form
                 rule.Category = CategoryFromText(row.Cells[3].Value?.ToString());
                 break;
             case 4:
-                rule.Mode = row.Cells[4].Value?.ToString() == "运行即显示"
+                rule.Mode = row.Cells[4].Value?.ToString() == Loc.L("运行即显示", "Always when running")
                     ? AppSyncMode.Always
                     : AppSyncMode.Foreground;
                 break;
@@ -912,12 +912,12 @@ internal sealed class SettingsForm : Form
         var foreground = ForegroundWatcher.GetCurrent();
         if (foreground == null)
         {
-            MessageBox.Show("未检测到前台程序。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(Loc.L("未检测到前台程序。", "No foreground app detected."), Loc.L("提示", "Notice"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         if (_rules.Any(r => r.ExeName.Equals(foreground.ExeName, StringComparison.OrdinalIgnoreCase)))
         {
-            MessageBox.Show($"{foreground.ExeName} 已在列表中。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(Loc.L($"{foreground.ExeName} 已在列表中。", $"{foreground.ExeName} is already in the list."), Loc.L("提示", "Notice"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         var (category, suggestedName, _) = AppClassifier.Suggest(
@@ -952,9 +952,9 @@ internal sealed class SettingsForm : Form
                 rule.ExeName,
                 rule.DisplayName,
                 CategoryToText(rule.Category),
-                rule.Mode == AppSyncMode.Always ? "运行即显示" : "前台时显示",
+                rule.Mode == AppSyncMode.Always ? Loc.L("运行即显示", "Always when running") : Loc.L("前台时显示", "When in foreground"),
                 OverrideToText(rule.Override),
-                rule.IsUserConfirmed ? "已确认" : "AI 建议");
+                rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("AI 建议", "AI suggestion"));
             _rulesGrid.Rows[index].Tag = rule;
             ApplyRowStyle(_rulesGrid.Rows[index], rule);
         }
@@ -970,7 +970,7 @@ internal sealed class SettingsForm : Form
         {
             row.DefaultCellStyle.ForeColor = Color.Gray;
         }
-        row.Cells[6].Value = rule.IsUserConfirmed ? "已确认" : "AI 建议";
+        row.Cells[6].Value = rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("AI 建议", "AI suggestion");
     }
 
     // ================= 播放器优先级 =================
@@ -1055,9 +1055,9 @@ internal sealed class SettingsForm : Form
                 _combinedFormatBox.Text = "{app} {sep} {song}{artistPart}";
                 break;
             case 2:
-                _musicFormatBox.Text = "正在听：{song}{artistPart}";
-                _programFormatBox.Text = "正在玩：{app}";
-                _combinedFormatBox.Text = "正在玩：{app} {sep} 正在听：{song}{artistPart}";
+                _musicFormatBox.Text = Loc.L("正在听：{song}{artistPart}", "Listening to: {song}{artistPart}");
+                _programFormatBox.Text = Loc.L("正在玩：{app}", "Playing: {app}");
+                _combinedFormatBox.Text = Loc.L("正在玩：{app} {sep} 正在听：{song}{artistPart}", "Playing: {app} {sep} Listening to: {song}{artistPart}");
                 break;
             case 3:
                 _musicFormatBox.Text = "{song}";
@@ -1079,9 +1079,9 @@ internal sealed class SettingsForm : Form
         {
             index = 1;
         }
-        else if (_musicFormatBox.Text == "正在听：{song}{artistPart}" &&
-                 _programFormatBox.Text == "正在玩：{app}" &&
-                 _combinedFormatBox.Text == "正在玩：{app} {sep} 正在听：{song}{artistPart}")
+        else if (_musicFormatBox.Text == Loc.L("正在听：{song}{artistPart}", "Listening to: {song}{artistPart}") &&
+                 _programFormatBox.Text == Loc.L("正在玩：{app}", "Playing: {app}") &&
+                 _combinedFormatBox.Text == Loc.L("正在玩：{app} {sep} 正在听：{song}{artistPart}", "Playing: {app} {sep} Listening to: {song}{artistPart}"))
         {
             index = 2;
         }
@@ -1110,9 +1110,9 @@ internal sealed class SettingsForm : Form
             dummySong = new PlayerInfo
             {
                 Identity = "preview",
-                Title = "鳥の詩",
-                Artists = "Lia",
-                Album = "Air",
+                Title = Loc.L("鳥の詩", "Sunflower"),
+                Artists = Loc.L("Lia", "Post Malone"),
+                Album = Loc.L("Air", "Spider-Man: Into the Spider-Verse"),
                 Cover = "",
                 Schedule = 151,
                 Duration = 366,
@@ -1132,10 +1132,10 @@ internal sealed class SettingsForm : Form
             ProgressBarEmptyChar = barEmpty,
             ProgressBarLength = (int)_barLengthBox.Value
         };
-        var combined = SteamStatusManager.ComposeStatus(dummySong, "卡拉彼丘", previewConfig) ?? "(无)";
-        var musicOnly = SteamStatusManager.ComposeStatus(dummySong, null, previewConfig) ?? "(无)";
-        var source = isLive ? "（以下使用你当前正在播放的内容）" : "（示例内容）";
-        _previewLabel.Text = $"预览{source}{Environment.NewLine}程序+音乐：{combined}{Environment.NewLine}仅音乐：{musicOnly}";
+        var combined = SteamStatusManager.ComposeStatus(dummySong, Loc.L("卡拉彼丘", "Strinova"), previewConfig) ?? Loc.L("(无)", "(None)");
+        var musicOnly = SteamStatusManager.ComposeStatus(dummySong, null, previewConfig) ?? Loc.L("(无)", "(None)");
+        var source = isLive ? Loc.L("（以下使用你当前正在播放的内容）", "(using what you're playing right now)") : Loc.L("（示例内容）", "(sample content)");
+        _previewLabel.Text = Loc.L($"预览{source}{Environment.NewLine}程序+音乐：{combined}{Environment.NewLine}仅音乐：{musicOnly}", $"Preview{source}{Environment.NewLine}App + music: {combined}{Environment.NewLine}Music only: {musicOnly}");
     }
 
     // ================= 加载 / 保存 =================
@@ -1179,7 +1179,7 @@ internal sealed class SettingsForm : Form
         _appearanceFontFamily = settings.AppearanceFontFamily ?? "";
         _appearanceFontSize = settings.AppearanceFontSize;
         _fontButton.Text = string.IsNullOrWhiteSpace(_appearanceFontFamily)
-            ? (_appearanceFontSize > 0 ? $"（默认字体）{_appearanceFontSize:0.#}pt" : "微软雅黑 9pt")
+            ? (_appearanceFontSize > 0 ? Loc.L($"（默认字体）{_appearanceFontSize:0.#}pt", $"(Default font) {_appearanceFontSize:0.#}pt") : Loc.L("微软雅黑 9pt", "Microsoft YaHei 9pt"))
             : $"{_appearanceFontFamily} {(_appearanceFontSize > 0 ? _appearanceFontSize : 9f):0.#}pt";
         _backgroundImagePath = settings.AppearanceBackgroundImage ?? "";
         if (!string.IsNullOrWhiteSpace(_backgroundImagePath))
@@ -1214,7 +1214,7 @@ internal sealed class SettingsForm : Form
         UpdateAccountStatus();
         RefreshMemoryInfo();
         var versionText = $"v{UpdateChecker.GetCurrentVersionText()}";
-        _versionLabel.Text = $"MuSync {versionText} ｜ 配置文件：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync";
+        _versionLabel.Text = Loc.L($"MuSync {versionText} ｜ 配置文件：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync", $"MuSync {versionText} | Config file: {Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync");
         _aboutVersionLabel.Text = Loc.L($"版本：MuSync {versionText}", $"Version: MuSync {versionText}");
     }
 
@@ -1278,8 +1278,8 @@ internal sealed class SettingsForm : Form
             if (!success)
             {
                 MessageBox.Show(
-                    $"无法 {(isAutoStartChecked ? "设置" : "取消")} 开机自启。\n请尝试以管理员权限运行本程序一次。",
-                    "操作失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    Loc.L($"无法 {(isAutoStartChecked ? "设置" : "取消")} 开机自启。\n请尝试以管理员权限运行本程序一次。", $"Couldn't {(isAutoStartChecked ? "enable" : "disable")} start with Windows.\nTry running the app as administrator once."),
+                    Loc.L("操作失败", "Operation failed"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
     }
@@ -1291,12 +1291,12 @@ internal sealed class SettingsForm : Form
         var session = Program.GetSessionManager();
         if (session?.IsLoggedOn == true)
         {
-            _accountStatusLabel.Text = "已登录 Steam（音乐与程序状态同步中）";
+            _accountStatusLabel.Text = Loc.L("已登录 Steam（音乐与程序状态同步中）", "Signed in to Steam (syncing music & app status)");
             _accountStatusLabel.ForeColor = Color.Green;
         }
         else
         {
-            _accountStatusLabel.Text = "未登录 Steam";
+            _accountStatusLabel.Text = Loc.L("未登录 Steam", "Not signed in to Steam");
             _accountStatusLabel.ForeColor = Color.OrangeRed;
         }
     }
@@ -1304,8 +1304,8 @@ internal sealed class SettingsForm : Form
     private void LogoutButton_Click(object? sender, EventArgs e)
     {
         var result = MessageBox.Show(
-            "确定要退出登录吗？\n退出后需要重新打开程序并输入 Steam 账号密码。",
-            "退出登录", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            Loc.L("确定要退出登录吗？\n退出后需要重新打开程序并输入 Steam 账号密码。", "Sign out?\nYou'll need to reopen the app and enter your Steam account and password again."),
+            Loc.L("退出登录", "Sign out"), MessageBoxButtons.YesNo, MessageBoxIcon.Question);
         if (result != DialogResult.Yes) return;
         var settings = Configurations.Instance.Settings;
         settings.SteamUsername = "";
@@ -1327,7 +1327,7 @@ internal sealed class SettingsForm : Form
             UpdateAccountStatus();
             return;
         }
-        MessageBox.Show("Steam 登录成功，状态同步已恢复。", "提示",
+        MessageBox.Show(Loc.L("Steam 登录成功，状态同步已恢复。", "Signed in to Steam — status sync has resumed."), Loc.L("提示", "Notice"),
             MessageBoxButtons.OK, MessageBoxIcon.Information);
         Program.GetRpcManager()?.RequestStateRefresh();
         UpdateAccountStatus();
@@ -1341,17 +1341,24 @@ internal sealed class SettingsForm : Form
         {
             var memoryInfo = PerformanceMonitor.GetMemoryInfo();
             var cacheStats = PerformanceMonitor.GetCacheStatistics();
-            _memoryInfoLabel.Text = $"""
-                                    工作集: {memoryInfo.GetFormattedWorkingSet()}, 私有: {memoryInfo.GetFormattedPrivateMemory()}, 虚拟: {memoryInfo.GetFormattedVirtualMemory()}
-                                    GC托管: {memoryInfo.GetFormattedGcMemory()}
-                                    图片缓存: {cacheStats.ImageCacheCount} 项 | 模块缓存: {cacheStats.ModuleCacheCount + cacheStats.ProcessModuleCacheCount} 项
-                                    更新于: {memoryInfo.Timestamp:HH:mm:ss}
-                                    """;
+            _memoryInfoLabel.Text = Loc.L(
+                $"""
+                工作集: {memoryInfo.GetFormattedWorkingSet()}, 私有: {memoryInfo.GetFormattedPrivateMemory()}, 虚拟: {memoryInfo.GetFormattedVirtualMemory()}
+                GC托管: {memoryInfo.GetFormattedGcMemory()}
+                图片缓存: {cacheStats.ImageCacheCount} 项 | 模块缓存: {cacheStats.ModuleCacheCount + cacheStats.ProcessModuleCacheCount} 项
+                更新于: {memoryInfo.Timestamp:HH:mm:ss}
+                """,
+                $"""
+                Working set: {memoryInfo.GetFormattedWorkingSet()}, Private: {memoryInfo.GetFormattedPrivateMemory()}, Virtual: {memoryInfo.GetFormattedVirtualMemory()}
+                GC heap: {memoryInfo.GetFormattedGcMemory()}
+                Image cache: {cacheStats.ImageCacheCount} | Module cache: {cacheStats.ModuleCacheCount + cacheStats.ProcessModuleCacheCount}
+                Updated: {memoryInfo.Timestamp:HH:mm:ss}
+                """);
             _memoryInfoLabel.ForeColor = Color.Black;
         }
         catch (Exception ex)
         {
-            _memoryInfoLabel.Text = $"获取内存信息失败: {ex.Message}";
+            _memoryInfoLabel.Text = Loc.L($"获取内存信息失败: {ex.Message}", $"Failed to get memory info: {ex.Message}");
             _memoryInfoLabel.ForeColor = Color.Red;
         }
     }
@@ -1366,7 +1373,7 @@ internal sealed class SettingsForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"复制失败：{ex.Message}", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(Loc.L($"复制失败：{ex.Message}", $"Copy failed: {ex.Message}"), Loc.L("提示", "Notice"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return false;
         }
     }
@@ -1383,7 +1390,7 @@ internal sealed class SettingsForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"打开日志文件夹失败：{ex.Message}", "提示",
+            MessageBox.Show(Loc.L($"打开日志文件夹失败：{ex.Message}", $"Failed to open the logs folder: {ex.Message}"), Loc.L("提示", "Notice"),
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
@@ -1396,37 +1403,37 @@ internal sealed class SettingsForm : Form
 
     private static string CategoryToText(AppCategory category) => category switch
     {
-        AppCategory.Ignore => "忽略",
-        AppCategory.Game => "游戏",
-        AppCategory.Work => "工作",
-        AppCategory.Media => "媒体",
-        AppCategory.Social => "社交",
-        _ => "其他"
+        AppCategory.Ignore => Loc.L("忽略", "Ignore"),
+        AppCategory.Game => Loc.L("游戏", "Game"),
+        AppCategory.Work => Loc.L("工作", "Work"),
+        AppCategory.Media => Loc.L("媒体", "Media"),
+        AppCategory.Social => Loc.L("社交", "Social"),
+        _ => Loc.L("其他", "Other")
     };
 
-    private static AppCategory CategoryFromText(string? text) => text switch
+    private static AppCategory CategoryFromText(string? text)
     {
-        "忽略" => AppCategory.Ignore,
-        "游戏" => AppCategory.Game,
-        "工作" => AppCategory.Work,
-        "媒体" => AppCategory.Media,
-        "社交" => AppCategory.Social,
-        _ => AppCategory.Other
-    };
+        if (text == Loc.L("忽略", "Ignore")) return AppCategory.Ignore;
+        if (text == Loc.L("游戏", "Game")) return AppCategory.Game;
+        if (text == Loc.L("工作", "Work")) return AppCategory.Work;
+        if (text == Loc.L("媒体", "Media")) return AppCategory.Media;
+        if (text == Loc.L("社交", "Social")) return AppCategory.Social;
+        return AppCategory.Other;
+    }
 
     private static string OverrideToText(AppSyncOverride value) => value switch
     {
-        AppSyncOverride.ForceOn => "强制显示",
-        AppSyncOverride.ForceOff => "强制隐藏",
-        _ => "跟随分类"
+        AppSyncOverride.ForceOn => Loc.L("强制显示", "Always show"),
+        AppSyncOverride.ForceOff => Loc.L("强制隐藏", "Always hide"),
+        _ => Loc.L("跟随分类", "Follow category")
     };
 
-    private static AppSyncOverride OverrideFromText(string? text) => text switch
+    private static AppSyncOverride OverrideFromText(string? text)
     {
-        "强制显示" => AppSyncOverride.ForceOn,
-        "强制隐藏" => AppSyncOverride.ForceOff,
-        _ => AppSyncOverride.FollowCategory
-    };
+        if (text == Loc.L("强制显示", "Always show")) return AppSyncOverride.ForceOn;
+        if (text == Loc.L("强制隐藏", "Always hide")) return AppSyncOverride.ForceOff;
+        return AppSyncOverride.FollowCategory;
+    }
 
     private static AppRule CloneRule(AppRule source) => new()
     {
