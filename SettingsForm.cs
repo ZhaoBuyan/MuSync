@@ -179,7 +179,7 @@ internal sealed class SettingsForm : Form
         var languageLabel = new Label
         {
             AutoSize = true,
-            Location = new Point(340, 34),
+            Location = new Point(315, 34),
             Text = Loc.L("语言:", "Language:")
         };
         _languageCombo = new ComboBox
@@ -323,7 +323,7 @@ internal sealed class SettingsForm : Form
         _templatePresetCombo.SelectedIndexChanged += (_, _) => ApplyTemplatePreset(_templatePresetCombo.SelectedIndex);
 
         var musicFormatLabel = new Label { Text = Loc.L("音乐格式:", "Music format:"), Location = new Point(20, 70), AutoSize = true };
-        _musicFormatBox = new TextBox { Location = new Point(95, 66), Width = 440 };
+        _musicFormatBox = new TextBox { Location = new Point(118, 66), Width = 417 };
         var musicBlocksButton = new Button
         {
             Text = Loc.L("积木", "Blocks"),
@@ -334,7 +334,7 @@ internal sealed class SettingsForm : Form
         musicBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Music, _musicFormatBox);
 
         var programFormatLabel = new Label { Text = Loc.L("程序格式:", "App format:"), Location = new Point(20, 102), AutoSize = true };
-        _programFormatBox = new TextBox { Location = new Point(95, 98), Width = 440 };
+        _programFormatBox = new TextBox { Location = new Point(118, 98), Width = 417 };
         var programBlocksButton = new Button
         {
             Text = Loc.L("积木", "Blocks"),
@@ -345,7 +345,7 @@ internal sealed class SettingsForm : Form
         programBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Program, _programFormatBox);
 
         var combinedFormatLabel = new Label { Text = Loc.L("组合格式:", "Combined format:"), Location = new Point(20, 134), AutoSize = true };
-        _combinedFormatBox = new TextBox { Location = new Point(95, 130), Width = 440 };
+        _combinedFormatBox = new TextBox { Location = new Point(118, 130), Width = 417 };
         var combinedBlocksButton = new Button
         {
             Text = Loc.L("积木", "Blocks"),
@@ -430,9 +430,9 @@ internal sealed class SettingsForm : Form
         var titleColorLabel = new Label { Text = Loc.L("标题颜色:", "Title color:"), Location = new Point(20, 36), AutoSize = true };
         _titleFollowCheck = CreateCheckBox(Loc.L("跟随播放器", "Follow player"), 110, 32);
         _titleColorButton = CreateColorButton(new Point(230, 30));
-        var songColorLabel = new Label { Text = Loc.L("歌名颜色:", "Song title color:"), Location = new Point(365, 36), AutoSize = true };
-        _songFollowCheck = CreateCheckBox(Loc.L("跟随标题", "Follow title"), 455, 32);
-        _songColorButton = CreateColorButton(new Point(565, 30));
+        var songColorLabel = new Label { Text = Loc.L("歌名颜色:", "Song title color:"), Location = new Point(310, 36), AutoSize = true };
+        _songFollowCheck = CreateCheckBox(Loc.L("跟随标题", "Follow title"), 425, 32);
+        _songColorButton = CreateColorButton(new Point(535, 30));
 
         // 行 2：字体 / 背景色
         var fontLabel = new Label { Text = Loc.L("字体:", "Font:"), Location = new Point(20, 72), AutoSize = true };
@@ -444,16 +444,16 @@ internal sealed class SettingsForm : Form
             BackColor = Color.White
         };
         _fontButton.Click += FontButton_Click;
-        var backgroundColorLabel = new Label { Text = Loc.L("背景色:", "Background color:"), Location = new Point(365, 72), AutoSize = true };
-        _backgroundColorButton = CreateColorButton(new Point(440, 66));
+        var backgroundColorLabel = new Label { Text = Loc.L("背景色:", "Background color:"), Location = new Point(350, 72), AutoSize = true };
+        _backgroundColorButton = CreateColorButton(new Point(475, 66));
 
         // 行 3：背景图 / 排版
         var backgroundImageLabel = new Label { Text = Loc.L("背景图:", "Background image:"), Location = new Point(20, 108), AutoSize = true };
         _backgroundImageLabel = new Label
         {
             Text = Loc.L("（无）", "(None)"),
-            Location = new Point(110, 110),
-            Size = new Size(180, 20),
+            Location = new Point(150, 110),
+            Size = new Size(145, 20),
             ForeColor = Color.Gray,
             AutoEllipsis = true
         };
