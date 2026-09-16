@@ -25,6 +25,9 @@
 
         <Product>MuSync</Product>
         <Title>MuSync</Title>
+        <Company>ZhaoBuyan</Company>
+        <Copyright>Copyright (c) 2026 ZhaoBuyan</Copyright>
+        <Authors>ZhaoBuyan</Authors>
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

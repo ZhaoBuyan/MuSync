@@ -732,7 +732,7 @@ internal sealed class SettingsForm : Form
             Size = new Size(620, 130),
             ForeColor = Color.Gray,
             Font = new Font("Microsoft YaHei", 8.5f),
-            Text = "本项目以 MIT 协议开源发布。\n基于开源谱系「半新写」构建，感谢所有铺路者（详见仓库 THIRD-PARTY-NOTICES）。\n\n洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，\n并允许来自局域网的访问。"
+            Text = "作者：ZhaoBuyan ｜ 本项目以 MIT 协议开源发布。\n基于开源谱系「半新写」构建，感谢所有铺路者（详见仓库 THIRD-PARTY-NOTICES）。\n\n洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，\n并允许来自局域网的访问。"
         };
 
         page.Controls.AddRange([title, subtitle, _aboutVersionLabel, repoButton, releaseButton, checkUpdateButton, _updateNoticeLabel, licenseLabel]);

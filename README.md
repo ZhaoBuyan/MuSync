@@ -1,5 +1,7 @@
 # MuSync
 
+作者：[ZhaoBuyan](https://github.com/ZhaoBuyan)
+
 MuSync 是一个 Windows 桌面工具：把你正在使用的音乐播放器和任意程序的运行状态，同步到 Steam 的个人状态中。好友在你的 Steam 好友列表里就能看到你正在听什么、用什么程序。
 
 好友视角的实际效果：
