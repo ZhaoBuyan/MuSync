@@ -151,10 +151,10 @@ internal static class UpdateChecker
         }
     }
 
-    /// <summary>发行形态展示名（诊断信息用）：完整版 / lite 版 / 安装器版。</summary>
+    /// <summary>发行形态展示名（诊断信息用）：完整版 / 精简版 / 安装器版。</summary>
     public static string GetCurrentEditionText() => NormalizeEdition(GetCurrentEdition()) switch
     {
-        "lite" => "lite 版",
+        "lite" => "精简版",
         "setup" => "安装器版",
         _ => "完整版"
     };
