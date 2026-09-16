@@ -130,7 +130,7 @@ internal static class UpdateDownloader
                 return new DownloadResult
                 {
                     Status = DownloadStatus.Failed,
-                    ErrorMessage = "下载文件不完整，请重试"
+                    ErrorMessage = Loc.L("下载文件不完整，请重试", "The downloaded file is incomplete — please try again")
                 };
             }
 
@@ -142,7 +142,7 @@ internal static class UpdateDownloader
                 return new DownloadResult
                 {
                     Status = DownloadStatus.Failed,
-                    ErrorMessage = "文件校验不通过，请重试"
+                    ErrorMessage = Loc.L("文件校验不通过，请重试", "File verification failed — please try again")
                 };
             }
 

@@ -154,9 +154,9 @@ internal static class UpdateChecker
     /// <summary>发行形态展示名（诊断信息用）：完整版 / lite 版 / 安装器版。</summary>
     public static string GetCurrentEditionText() => NormalizeEdition(GetCurrentEdition()) switch
     {
-        "lite" => "lite 版",
-        "setup" => "安装器版",
-        _ => "完整版"
+        "lite" => Loc.L("lite 版", "Lite"),
+        "setup" => Loc.L("安装器版", "Installer"),
+        _ => Loc.L("完整版", "Full")
     };
 
     /// <summary>把任意形态文本规整为 full / lite / setup 之一（未识别按完整版）。</summary>
