@@ -10,11 +10,11 @@
         <RootNamespace>MuSync</RootNamespace>
 
 
-        <Version>0.4.1</Version>
+        <Version>0.4.2</Version>
         <!-- 发行形态：full=自包含完整版；lite=框架依赖版（发布时 SelfContained=false 自动标记，也可 -p:MuSyncEdition= 显式指定） -->
         <MuSyncEdition Condition="'$(MuSyncEdition)' == '' and '$(SelfContained)' == 'false'">lite</MuSyncEdition>
         <MuSyncEdition Condition="'$(MuSyncEdition)' == ''">full</MuSyncEdition>
-        <Description>MuSync - 把网易云音乐 / QQ 音乐 / LX Music 的播放状态同步到 Steam</Description>
+        <Description>MuSync - 把音乐与程序状态同步到 Steam</Description>
 
 
 
@@ -56,6 +56,10 @@
         <EmbeddedResource Include="Resources\icon.ico">
             <LogicalName>MuSync.Resources.icon.ico</LogicalName>
         </EmbeddedResource>
+        <!-- 许可文本内嵌（单文件 exe 也随得走）：内容就是仓库根目录的这几份，构建时同步 -->
+        <EmbeddedResource Include="LICENSE" LogicalName="MuSync.Licenses.LICENSE" />
+        <EmbeddedResource Include="THIRD-PARTY-NOTICES.md" LogicalName="MuSync.Licenses.THIRD-PARTY-NOTICES" />
+        <EmbeddedResource Include="licenses\LGPL-2.1.txt" LogicalName="MuSync.Licenses.LGPL-2.1" />
     </ItemGroup>
 
     <!-- reference-yySync 仅为对照参考，不参与编译 -->

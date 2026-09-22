@@ -25,6 +25,8 @@ internal sealed class FadingBottomPanel : Panel
 
     protected override void OnPaint(PaintEventArgs e)
     {
+        // 退化尺寸（最小化 / 布局中途）下不绘制：0 宽高的矩形会让 LinearGradientBrush 抛异常
+        if (Width <= 0 || Height <= 0) return;
         var solid = Math.Clamp(_solidHeight, 0, Height);
         int topFade = Math.Min(20, Math.Max(0, Height - solid) / 2);
         if (topFade > 0)
@@ -221,6 +223,8 @@ internal sealed class GradientDivider : Control
 
     protected override void OnPaint(PaintEventArgs e)
     {
+        // 同 FadingBottomPanel：退化尺寸不画（0 宽高会让 LinearGradientBrush 抛异常）
+        if (Width <= 0 || Height <= 0) return;
         using var brush = new LinearGradientBrush(
             ClientRectangle,
             Color.FromArgb(110, 255, 255, 255),

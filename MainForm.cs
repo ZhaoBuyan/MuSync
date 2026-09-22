@@ -58,6 +58,8 @@ internal class MainForm : Form
         SetupForm();
         _updateTimer = new Timer { Interval = 1000 }; 
         _updateTimer.Tick += UpdateTimer_Tick;
+        // 最小化时也停表（恢复时自动补刷一次）；尺寸变化时重排控件（延后一拍，见 ScheduleRelayout）
+        Resize += (_, _) => { SyncUpdateTimerState(); ScheduleRelayout(); };
         KeyPreview = true;
         KeyDown += MainForm_KeyDown;
         // 启动时应用外观设置
@@ -333,7 +335,7 @@ internal class MainForm : Form
     }
     private void SetupForm()
     {
-        Text = Loc.L("MuSync - 音乐状态同步", "MuSync - Music status sync");
+        Text = Loc.L("MuSync - 状态同步", "MuSync - Music Sync");
         Size = new Size(620, 430);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -346,7 +348,7 @@ internal class MainForm : Form
         VisibleChanged += (_, _) =>
         {
             // 窗口隐藏（托盘驻留）时暂停 UI 刷新，节省无谓开销
-            _updateTimer.Enabled = Visible;
+            SyncUpdateTimerState();
         };
     }
     private void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
@@ -404,6 +406,18 @@ internal class MainForm : Form
         {
             _lastUpdateLabel.Text = Loc.L($"更新失败: {ex.Message}", $"Update failed: {ex.Message}");
         }
+    }
+
+    /// <summary>界面每秒刷新是否该跑：窗口隐藏（托盘驻留）或最小化时停，恢复时由调用方补刷一次。</summary>
+    internal static bool ShouldRunUiRefresh(bool visible, bool minimized) => visible && !minimized;
+
+    /// <summary>按 ShouldRunUiRefresh 的口径同步定时器状态；重新开跑时立刻补刷一次，避免看到旧数据。</summary>
+    private void SyncUpdateTimerState()
+    {
+        var shouldRun = ShouldRunUiRefresh(Visible, WindowState == FormWindowState.Minimized);
+        if (_updateTimer.Enabled == shouldRun) return;
+        _updateTimer.Enabled = shouldRun;
+        if (shouldRun) UpdateDisplay(forceRefresh: true);
     }
     private void UpdateSteamStateLabel()
     {
@@ -629,6 +643,132 @@ internal class MainForm : Form
         _ => Color.FromArgb(122, 120, 220)
     };
 
+    // ================= 背景图比例跟随 =================
+
+    /// <summary>当前背景图（含裁剪区）的宽高比；无图时用基准 620×430。</summary>
+    private float _backgroundAspect = BackgroundGeometry.BaseAspect;
+
+    /// <summary>从配置读取背景图比例（只读图片头，不加载像素数据）。</summary>
+    private static float GetConfiguredBackgroundAspect()
+    {
+        var settings = Configurations.Instance.Settings;
+        var path = settings.AppearanceBackgroundImage;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return BackgroundGeometry.BaseAspect;
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var probe = Image.FromStream(stream, false, false);
+            return BackgroundGeometry.Aspect(probe.Width, probe.Height, settings.BackgroundCropRect);
+        }
+        catch
+        {
+            return BackgroundGeometry.BaseAspect;
+        }
+    }
+
+    /// <summary>按归一化裁剪区裁出背景图（无裁剪 / 参数非法时返回整图副本）。</summary>
+    private static Bitmap ExtractCropped(Image source, double[]? crop)
+    {
+        var rect = BackgroundGeometry.ToPixelCrop(crop, source.Width, source.Height);
+        var bitmap = new Bitmap(rect.Width, rect.Height);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.DrawImage(source, new Rectangle(0, 0, rect.Width, rect.Height), rect, GraphicsUnit.Pixel);
+        return bitmap;
+    }
+
+    /// <summary>按背景图比例设置窗口客户区尺寸（变化时保持窗口中心，且不出屏幕）。</summary>
+    private void ApplyWindowSizing()
+    {
+        int maxHeight;
+        try
+        {
+            maxHeight = BackgroundGeometry.MaxClientHeight(Screen.FromControl(this).WorkingArea.Height);
+        }
+        catch
+        {
+            maxHeight = BackgroundGeometry.MaxClientHeight(1080);
+        }
+        var target = BackgroundGeometry.DesiredClientSize(_backgroundAspect, maxHeight);
+        if (ClientSize == target) return;
+        var center = new Point(Left + (Width / 2), Top + (Height / 2));
+        ClientSize = target;
+        if (!Visible) return;
+        Left = center.X - (Width / 2);
+        Top = center.Y - (Height / 2);
+        var area = Screen.FromControl(this).WorkingArea;
+        if (Left < area.Left) Left = area.Left;
+        if (Top < area.Top) Top = area.Top;
+        if (Right > area.Right) Left = area.Right - Width;
+        if (Bottom > area.Bottom) Top = area.Bottom - Height;
+    }
+
+    private bool _relayoutScheduled;
+
+    /// <summary>
+    /// 延后一拍再重排：Resize 事件触发时 ClientSize 可能还是旧值或退化值（0），
+    /// 当场用它会把 0 宽传给面板 —— 面板 0 宽时渐变画刷会抛异常（v0.4.2 实测崩溃点）。
+    /// </summary>
+    private void ScheduleRelayout()
+    {
+        if (!IsHandleCreated || IsDisposed)
+        {
+            RelayoutForSize();
+            return;
+        }
+        if (_relayoutScheduled) return;
+        _relayoutScheduled = true;
+
+        void Apply()
+        {
+            _relayoutScheduled = false;
+            if (IsDisposed) return;
+            RelayoutForSize();
+        }
+
+        BeginInvoke(Apply);
+    }
+
+    /// <summary>按当前客户区尺寸重排控件（面板左右铺满，底部栏贴底）。</summary>
+    private void RelayoutForSize()
+    {
+        // 最小化 / 布局中途 ClientSize 可能是退化值（0 甚至负）：夹到设计下限，别把 0 宽传给子面板
+        var w = Math.Max(BackgroundGeometry.MinClientWidth, ClientSize.Width);
+        var h = Math.Max(BackgroundGeometry.MinClientHeight, ClientSize.Height);
+
+        var musicPanel = _playerPanels[0];
+        if (musicPanel != null)
+        {
+            musicPanel.Location = new Point(0, 0);
+            musicPanel.Size = new Size(w, 155);
+        }
+
+        // 音乐面板右列（状态 / 进度 / 时间）贴着右边
+        var rightColumnX = w - 270;
+        _statusLabels[0].Location = new Point(rightColumnX, 15);
+        _progressBars[0].Location = new Point(rightColumnX, 44);
+        _progressLabels[0].Location = new Point(rightColumnX, 65);
+        var textMax = new Size(Math.Max(160, w - 380), 0);
+        _songTitleLabels[0].MaximumSize = textMax;
+        _artistLabels[0].MaximumSize = textMax;
+        _albumLabels[0].MaximumSize = textMax;
+
+        if (_appSyncDivider != null)
+        {
+            _appSyncDivider.Location = new Point(10, 155);
+            _appSyncDivider.Size = new Size(Math.Max(100, w - 40), 5);
+        }
+        _appSyncPanel.Location = new Point(0, 160);
+        _appSyncPanel.Size = new Size(w, 155);
+        var appTextMax = new Size(Math.Max(160, w - 160), 0);
+        _appNameLabel.MaximumSize = appTextMax;
+        _appStatusLabel.MaximumSize = appTextMax;
+
+        // 底部栏贴底
+        _lastUpdateLabel.Location = new Point(10, h - 85);
+        _settingsButton.Location = new Point(w - 104, h - 90);
+        _steamStateLabel.Location = new Point(170, h - 84);
+    }
+
     /// <summary>应用外观设置（背景色 / 背景图 / 字体）；启动与设置关闭后调用。</summary>
     internal void ApplyAppearance()
     {
@@ -652,7 +792,7 @@ internal class MainForm : Form
                     using var stream = File.OpenRead(settings.AppearanceBackgroundImage);
                     using var loaded = Image.FromStream(stream);
                     // 复制一份：Image.FromStream 要求源流保持打开，而 stream 会被释放
-                    BackgroundImage = new Bitmap(loaded);
+                    BackgroundImage = ExtractCropped(loaded, settings.BackgroundCropRect);
                     BackgroundImageLayout = settings.AppearanceBackgroundLayout switch
                     {
                         "Zoom" => ImageLayout.Zoom,
@@ -679,6 +819,11 @@ internal class MainForm : Form
                 var size = settings.AppearanceFontSize > 0 ? settings.AppearanceFontSize : (Font?.Size ?? 9f);
                 ApplyFontRecursive(this, new Font(family, size));
             }
+
+            // 比例跟随：窗口客户区随背景图（含裁剪区）比例调整，并重排控件
+            _backgroundAspect = GetConfiguredBackgroundAspect();
+            ApplyWindowSizing();
+            RelayoutForSize();
         }
         catch (Exception e)
         {
@@ -786,6 +931,8 @@ internal class MainForm : Form
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        // 显示后再按真实客户区重排一次（构造期的尺寸可能还没落定）
+        RelayoutForSize();
         _updateTimer.Start();
         UpdateDisplay(true);
     }

@@ -98,6 +98,8 @@ jobs:
         run: |
           mv dist-lite/MuSync.exe dist/MuSync-lite.exe
           mv dist-setup/MuSync-Setup.exe dist/MuSync-Setup.exe
+          # 许可证随包：Release 资产里也要有（只下 exe 的人也能在同一页拿到）
+          cp LICENSE THIRD-PARTY-NOTICES.md dist/
 
       - name: Verify tag matches csproj version
         run: |

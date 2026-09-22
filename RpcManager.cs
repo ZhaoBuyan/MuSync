@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using MuSync.Models;
 using MuSync.Players;
@@ -72,12 +73,44 @@ internal class RpcManager(SteamStatusManager steamManager)
     // 有播放器在跑时高频轮询；空闲时降低频率省电
     private static readonly TimeSpan ActivePollInterval = TimeSpan.FromMilliseconds(233);
     private static readonly TimeSpan IdlePollInterval = TimeSpan.FromMilliseconds(1200);
+    // 深度空闲（没音乐、也没程序来源，且已持续 ≥5 分钟）：进一步降到 3s 一轮省电
+    private static readonly TimeSpan DeepIdlePollInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan DeepIdleAfter = TimeSpan.FromMinutes(5);
+    private DateTime _idleSinceUtc = DateTime.MinValue;
     // 非活跃源的探测/轮询间隔（秒）：只有当前活跃源保持全速，节省内存读取与进程枚举
     private const double InactiveCheckIntervalSeconds = 1.0;
     private DateTime _lastProgressUpdateTime = DateTime.MinValue;
     private DateTime _lastTrayStatusUpdateTime = DateTime.MinValue;
 
-    public void RequestStateRefresh() => _stateRefreshRequested = true;
+    // ---- 稳定性兜底（2026-09-22）----
+    // 背景：2026-09-21 的转储显示主循环会卡在 `Task.Delay` 上（定时器回调整个丢失、循环再也不动）。
+    // 对策：节拍改成内核等待（不经过 .NET 定时器队列），另加心跳 + 独立看门狗线程，停摆即重启循环。
+    /// <summary>节拍器：内核等待，可被提前唤醒（设置变化 / 重连 / 看门狗复位）。</summary>
+    private readonly TickPacer _ticker = new();
+    /// <summary>最近一次心跳的单调时刻（Environment.TickCount64 毫秒，不受系统时间调整影响）。</summary>
+    private long _lastTickMs = Environment.TickCount64;
+    /// <summary>累计心跳次数（诊断与日志用）。</summary>
+    private long _tickCount;
+    /// <summary>看门狗已重启主循环的次数。</summary>
+    private int _loopRestartCount;
+    /// <summary>心跳日志的节流时刻。</summary>
+    private long _lastHeartbeatLogMs = Environment.TickCount64;
+    /// <summary>当前这一份主循环的取消源（看门狗重启时会换新的一份）。</summary>
+    private CancellationTokenSource? _loopCts;
+    private bool _loopStarted;
+
+    /// <summary>请求立即重推状态（设置变化 / 重连 / 系统唤醒），并唤醒节拍等待、不必等下一拍。</summary>
+    public void RequestStateRefresh()
+    {
+        _stateRefreshRequested = true;
+        _ticker.Wake();
+    }
+
+    /// <summary>
+    /// 系统从睡眠 / 休眠恢复：先复位心跳，避免睡眠期间的「心跳空档」被看门狗判成停摆
+    /// （Windows 的 TickCount64 是否合计睡眠时长并无保证，这里显式复位，两种口径都安全）。
+    /// </summary>
+    public void NotifySystemResumed() => MarkTick();
 
     public (PlayerInfo? PlayerInfo, string PlayerName) GetCurrentPlayerInfo()
     {
@@ -198,20 +231,61 @@ internal class RpcManager(SteamStatusManager steamManager)
         }
         else
         {
-            Logger.Info("[MuSync] 无活跃源，清除 Steam 状态");
-            steamManager.ClearStatus();
+            Logger.Info("[MuSync] 无活跃源，按常驻状态设置处理");
+            await steamManager.UpdateStatusAsync(null, name, null);
         }
     }
 
-    public async Task Start()
+    /// <summary>
+    /// 启动主循环与看门狗（立即返回，实际工作在后台）。
+    /// 主循环负责轮询与状态同步；看门狗是独立线程（只用 Thread.Sleep），
+    /// 发现循环停摆即写日志并重启循环（自愈）。
+    /// </summary>
+    public void Start(CancellationToken token = default)
     {
-        while (true)
+        _loopCts = new CancellationTokenSource();
+        if (token.CanBeCanceled)
+        {
+            var loopCts = _loopCts;
+            token.Register(() =>
+            {
+                try
+                {
+                    loopCts.Cancel();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // 退出竞态：忽略
+                }
+            });
+        }
+        _loopStarted = true;
+        MarkTick();
+        LaunchLoop(_loopCts.Token);
+        new Thread(WatchdogLoop)
+        {
+            IsBackground = true,
+            Name = "MuSync.Watchdog"
+        }.Start();
+        Logger.Info("[MuSync] 主循环已启动（节拍走内核等待，看门狗已就位）");
+    }
+
+    /// <summary>把主循环放到后台任务上跑（看门狗每次重启都会新起一份）。</summary>
+    private void LaunchLoop(CancellationToken token) => _ = Task.Run(() => RunLoopAsync(token), token);
+
+    /// <summary>主循环本体：轮询 → 合成 → 节拍等待。停摆由看门狗兜底，本方法只负责正常跑完一圈又一圈。</summary>
+    private async Task RunLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
         {
             var currentTime = DateTime.UtcNow;
             var anyPlayerActive = false;
             try
             {
                 // 本 tick 的活跃源（活跃源全速轮询；其余降频，节省内存读取与进程枚举）
+#if DEBUG
+                MaybeInjectTestStall();
+#endif
                 var activeSnapshot = ResolveActiveState().State;
 
                 if (ShouldCheckPlayer(_netEaseState, activeSnapshot, currentTime))
@@ -309,9 +383,146 @@ internal class RpcManager(SteamStatusManager steamManager)
             }
             finally
             {
-                await Task.Delay(anyPlayerActive ? ActivePollInterval : IdlePollInterval);
+                // 深度空闲判定：没音乐、没程序来源且连续空闲 ≥5 分钟 → 3s 一轮；任一项回来立刻回全速
+                var idleNow = !anyPlayerActive && _activeAppDisplay == null;
+                if (!idleNow)
+                {
+                    _idleSinceUtc = DateTime.MinValue;
+                }
+                else if (_idleSinceUtc == DateTime.MinValue)
+                {
+                    _idleSinceUtc = DateTime.UtcNow;
+                }
+                var idleFor = _idleSinceUtc == DateTime.MinValue ? TimeSpan.Zero : DateTime.UtcNow - _idleSinceUtc;
+                MarkTick();
+                WaitForNextTick(ComputePollDelay(anyPlayerActive, _activeAppDisplay != null, idleFor), token);
             }
         }
+        Logger.Info("[MuSync] 主循环已停止");
+    }
+
+    /// <summary>心跳：记录「本拍到此为止」的单调时刻，供看门狗判定停摆与写心跳日志。</summary>
+    private void MarkTick()
+    {
+        Interlocked.Exchange(ref _lastTickMs, Environment.TickCount64);
+        Interlocked.Increment(ref _tickCount);
+    }
+
+    /// <summary>距上一拍的时长（单调时钟，不受系统时间调整影响）。</summary>
+    private TimeSpan SinceLastTick() =>
+        TimeSpan.FromMilliseconds(Environment.TickCount64 - Interlocked.Read(ref _lastTickMs));
+
+    /// <summary>
+    /// 节拍等待：内核等待（TickPacer → WaitHandle），不依赖 .NET 定时器队列。
+    /// 2026-09-21 的转储里主循环正是卡在 `Task.Delay` 的定时器回调上，换成内核等待后不再走那条路；
+    /// 被唤醒（设置变化 / 重连 / 看门狗复位）时提前进入下一拍。
+    /// </summary>
+    private void WaitForNextTick(TimeSpan delay, CancellationToken token)
+    {
+        if (token.IsCancellationRequested) return;
+        try
+        {
+            _ticker.Wait(delay, token);
+        }
+        catch (OperationCanceledException)
+        {
+            // 程序退出或看门狗重启：结束本份循环
+        }
+    }
+
+    /// <summary>
+    /// 看门狗线程：只用 Thread.Sleep（内核等待），既不依赖 .NET 定时器，也不依赖线程池。
+    /// 距上一拍超过阈值 → 判定停摆，记日志并重启主循环；平时每 5 分钟写一条心跳日志。
+    /// </summary>
+    private void WatchdogLoop()
+    {
+        while (true)
+        {
+            try
+            {
+                Thread.Sleep(StabilityConfig.WatchdogPollInterval);
+                var loopCts = _loopCts;
+                if (!_loopStarted || loopCts == null || loopCts.IsCancellationRequested) return;
+                var sinceLastTick = SinceLastTick();
+                if (ShouldRestartLoop(_loopStarted, sinceLastTick, StabilityConfig.LoopStallThreshold))
+                {
+                    RestartLoop(sinceLastTick);
+                    continue;
+                }
+                LogHeartbeatIfDue(sinceLastTick);
+            }
+            catch (Exception ex)
+            {
+                // 看门狗自身绝不允许退出
+                Logger.Error($"[Watchdog] 看门狗异常: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>重启主循环（自愈）：复位心跳 → 取消旧循环 → 放掉它的节拍等待 → 新起一份。</summary>
+    private void RestartLoop(TimeSpan sinceLastTick)
+    {
+        var attempt = Interlocked.Increment(ref _loopRestartCount);
+        Logger.Error(
+            $"[Watchdog] 主循环停摆 {sinceLastTick.TotalSeconds:F0} 秒（阈值 {StabilityConfig.LoopStallThreshold.TotalSeconds:F0} 秒），正在重启（第 {attempt} 次）");
+        MarkTick();
+        var oldCts = _loopCts;
+        _loopCts = new CancellationTokenSource();
+        try
+        {
+            oldCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 忽略
+        }
+        _ticker.Wake();
+        LaunchLoop(_loopCts.Token);
+        Logger.Info("[Watchdog] 主循环已重启");
+    }
+
+    /// <summary>心跳日志（默认每 5 分钟一条）：日志里能直接看到「最后一拍」是什么时候。</summary>
+    private void LogHeartbeatIfDue(TimeSpan sinceLastTick)
+    {
+        var nowMs = Environment.TickCount64;
+        if (nowMs - Interlocked.Read(ref _lastHeartbeatLogMs) <
+            (long)StabilityConfig.HeartbeatLogInterval.TotalMilliseconds) return;
+        Interlocked.Exchange(ref _lastHeartbeatLogMs, nowMs);
+        Logger.Info(
+            $"[Watchdog] 心跳正常：最后一拍 {sinceLastTick.TotalSeconds:F0} 秒前 | 累计 {Interlocked.Read(ref _tickCount)} 拍 | 循环重启 {_loopRestartCount} 次");
+    }
+
+    /// <summary>停摆判定（纯函数，便于单测）：循环已启动且距上一拍超过阈值 → 需要重启自愈。</summary>
+    internal static bool ShouldRestartLoop(bool loopStarted, TimeSpan sinceLastTick, TimeSpan stallThreshold)
+        => loopStarted && sinceLastTick > stallThreshold;
+#if DEBUG
+    /// <summary>测试钩子是否已触发（仅 Debug 构建）。</summary>
+    private bool _stallInjected;
+
+    /// <summary>
+    /// 开发期验证看门狗专用：环境变量 MUSYNC_TEST_STALL_MS 设为正整数时，主循环会故意卡死一次。
+    /// 用法：MUSYNC_TEST_STALL_MS=60000 启动 Debug 构建，则约 30 秒后日志应出现看门狗重启记录。
+    /// Release 构建不包含本钩子。
+    /// </summary>
+    private void MaybeInjectTestStall()
+    {
+        if (_stallInjected) return;
+        if (!int.TryParse(Environment.GetEnvironmentVariable("MUSYNC_TEST_STALL_MS"), out var stallMs) || stallMs <= 0)
+        {
+            return;
+        }
+        _stallInjected = true;
+        Logger.Warn($"[MuSync] 测试钩子：主循环故意卡死 {stallMs} 毫秒（用于验证看门狗自愈）");
+        Thread.Sleep(stallMs);
+    }
+#endif
+
+    /// <summary>本 tick 结束后要等多久：有源全速；有程序来源或空闲不足 5 分钟按普通空闲；深度空闲 3s。</summary>
+    internal static TimeSpan ComputePollDelay(bool anyPlayerActive, bool hasAppSource, TimeSpan idleFor)
+    {
+        if (anyPlayerActive) return ActivePollInterval;
+        if (hasAppSource) return IdlePollInterval;
+        return idleFor >= DeepIdleAfter ? DeepIdlePollInterval : IdlePollInterval;
     }
 
     /// <summary>非活跃源降频：活跃源每 tick 检查；其余每 1 秒检查一次。</summary>
@@ -498,7 +709,8 @@ internal class RpcManager(SteamStatusManager steamManager)
             Debug.WriteLine($"[{playerName}] Player process detected. Creating instance.");
             state.Player = playerFactory(pid);
         }
-        var currentInfo = await state.Player.GetPlayerInfoAsync();
+        // 单次读取加超时：某个播放器卡住时本轮跳过、下一轮继续（LX Music 走 HTTP，其余为内存读取）
+        var currentInfo = await state.Player.GetPlayerInfoAsync().WaitAsync(StabilityConfig.PlayerPollTimeout);
         var isStateChanged = DetectStateChange(currentInfo, state.LastPolledInfo, currentTime, state.LastPollTime,
             JumpToleranceSeconds);
         if (isStateChanged)
@@ -589,7 +801,8 @@ internal class RpcManager(SteamStatusManager steamManager)
         _lastActiveState = null;
         _lastActiveInfoNull = true;
         _lastPushedAppDisplay = null;
-        steamManager.ClearStatus();
+        // 兜底：统一走状态合成（常驻状态开启时回到常驻文案，否则清除）
+        _ = steamManager.UpdateStatusAsync(null, "", null);
     }
 
     private static void RecordPollSuccess(PlayerState state)
@@ -630,14 +843,8 @@ internal class RpcManager(SteamStatusManager steamManager)
         var appDisplay = _activeAppDisplay;
         if (info is not { } playerInfo)
         {
-            if (appDisplay == null)
-            {
-                steamManager.ClearStatus();
-            }
-            else
-            {
-                await steamManager.UpdateStatusAsync(null, playerName, appDisplay);
-            }
+            // 无音乐：统一走状态合成（有程序显示程序，否则按常驻状态设置处理）
+            await steamManager.UpdateStatusAsync(null, playerName, appDisplay);
             return;
         }
         Debug.WriteLine(

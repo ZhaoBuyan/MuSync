@@ -14,6 +14,9 @@ internal static class ImageCacheManager
     private static readonly Dictionary<string, LinkedListNode<CacheItem>> Cache = new();
     private static readonly LinkedList<CacheItem> LruList = [];
     private static readonly Lock LockObject = new();
+    /// <summary>在途下载任务（键 → 任务）：同一张图的并发请求只下载一次，避免任务越堆越多。</summary>
+    private static readonly Dictionary<string, Task<Image?>> InFlight = new();
+    private static readonly Lock InFlightLock = new();
     private static readonly HashSet<string> ActiveKeys = [];
     internal static int CacheCount
     {
@@ -138,7 +141,54 @@ internal static class ImageCacheManager
                 return false;
         }
     }
-    public static async Task<Image?> LoadImageAsync(string cacheKey, string imageUrl)
+    public static Task<Image?> LoadImageAsync(string cacheKey, string imageUrl)
+    {
+        if (string.IsNullOrEmpty(imageUrl) || string.IsNullOrEmpty(cacheKey)) return Task.FromResult<Image?>(null);
+        lock (InFlightLock)
+        {
+            if (InFlight.TryGetValue(cacheKey, out var running)) return running;
+        }
+        var task = LoadImageWithTimeoutAsync(cacheKey, imageUrl);
+        lock (InFlightLock)
+        {
+            InFlight[cacheKey] = task;
+        }
+        // 成功 / 失败 / 超时都要清掉在途记录，否则同一张图的下一次请求会一直拿到旧结果
+        _ = task.ContinueWith(_ => ClearInFlight(cacheKey, task), CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return task;
+    }
+    /// <summary>下载总时长兜底：整张图（含重试等待）超过 ImageDownloadTimeout 就放弃本次，返回 null。</summary>
+    private static async Task<Image?> LoadImageWithTimeoutAsync(string cacheKey, string imageUrl)
+    {
+        try
+        {
+            return await LoadImageCoreAsync(cacheKey, imageUrl)
+                .WaitAsync(StabilityConfig.ImageDownloadTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            Logger.Warn($"[Image] 封面下载超时（{StabilityConfig.ImageDownloadTimeout.TotalSeconds:F0} 秒），已放弃: {cacheKey}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"[Image] 封面下载异常: {ex.Message}");
+            return null;
+        }
+    }
+    /// <summary>清掉在途下载记录（仅当仍是同一个任务，避免误删后来的请求）。</summary>
+    private static void ClearInFlight(string cacheKey, Task<Image?> task)
+    {
+        lock (InFlightLock)
+        {
+            if (InFlight.TryGetValue(cacheKey, out var current) && ReferenceEquals(current, task))
+            {
+                InFlight.Remove(cacheKey);
+            }
+        }
+    }
+    private static async Task<Image?> LoadImageCoreAsync(string cacheKey, string imageUrl)
     {
         if (string.IsNullOrEmpty(imageUrl) || string.IsNullOrEmpty(cacheKey))
         {

@@ -13,6 +13,8 @@ internal static class Program
     private static SteamSessionManager? _sessionManager;
     private static MainForm? _mainForm;
     private static NotifyIcon? TrayIcon { get; set; }
+    /// <summary>托盘图标守护（资源管理器重启后自动重新注册，见 TrayIconGuard）。</summary>
+    private static TrayIconGuard? _trayIconGuard;
     private static ToolStripMenuItem? TrayStatusItem { get; set; }
     private static ToolStripMenuItem? _trayUpdateItem;
     private static UpdateChecker.UpdateInfo? _pendingUpdate;
@@ -66,12 +68,14 @@ internal static class Program
 
         // 启动时清理旧日志（保留最近 14 天 / 50 MB 内）
         Logger.CleanupOldLogs();
+        Logger.Info($"[Program] MuSync 启动（版本 {Application.ProductVersion}，PID {Environment.ProcessId}，{Environment.OSVersion.VersionString}）");
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         using var mutex = new Mutex(true, "MuSyncMutex", out var isNewInstance);
         if (!isNewInstance)
         {
             // 已有实例在运行：请求它把主窗口唤起到前台，然后安静退出
+            Logger.Info("[Program] 已有实例在运行，本次启动直接退出");
             if (!TryActivateExistingInstance())
             {
                 MessageBox.Show(Loc.L("MuSync 已在运行。可从任务栏右下角的托盘图标打开主窗口。", "MuSync is already running. Open the main window from the tray icon in the notification area."),
@@ -93,7 +97,12 @@ internal static class Program
         {
             Microsoft.Win32.SystemEvents.PowerModeChanged += (_, e) =>
             {
-                if (e.Mode == Microsoft.Win32.PowerModes.Resume) RefreshStatusAfterRecovery();
+                if (e.Mode == Microsoft.Win32.PowerModes.Resume)
+                {
+                    // 睡眠期间主循环心跳不会跳：先复位心跳，免得唤醒后被看门狗误判成停摆
+                    GetRpcManager()?.NotifySystemResumed();
+                    RefreshStatusAfterRecovery();
+                }
             };
             Microsoft.Win32.SystemEvents.SessionSwitch += (_, e) =>
             {
@@ -107,12 +116,13 @@ internal static class Program
         // 无论登录与否，先让界面与轮询跑起来（未登录时状态同步自动跳过）
         _steamManager = new SteamStatusManager(_sessionManager);
         _rpcManager = new RpcManager(_steamManager);
-        Task.Run(_rpcManager.Start, token);
+        _rpcManager.Start(token);
         _mainForm = new MainForm();
         // 提前创建窗口句柄：托盘驻留（窗口从未显示过）时也能从后台线程安全唤醒
         _ = _mainForm.Handle;
         StartActivationListener(activationEvent);
         TrayIcon = CreateTrayIcon();
+        _trayIconGuard = TrayIconGuard.Attach(TrayIcon);
         TrayIcon.Visible = true;
         if (!Configurations.Instance.Settings.StartInTray)
             _mainForm.Show();
@@ -124,11 +134,14 @@ internal static class Program
         cts.Cancel();
         _steamManager.ClearStatus();
         _sessionManager.Dispose();
+        var uptime = DateTime.Now - StartedAt;
+        Logger.Info($"[Program] MuSync 正常退出（本次运行 {(int)uptime.TotalHours} 小时 {uptime.Minutes} 分）");
         // 清理托盘图标（防偶发残留）
         try
         {
             TrayIcon.Visible = false;
             TrayIcon.Dispose();
+            _trayIconGuard?.Dispose();
         }
         catch
         {
@@ -400,7 +413,8 @@ internal static class Program
     /// <summary>刷新托盘悬停提示与右键菜单状态行（由主轮询循环节流调用，约每 5 秒）。</summary>
     public static void UpdateTrayStatus()
     {
-        if (TrayIcon == null) return;
+        var icon = TrayIcon;
+        if (icon == null) return;
         try
         {
             string text;
@@ -436,10 +450,25 @@ internal static class Program
                 }
             }
             text = StringUtils.GetTruncatedStringByMaxByteLength(text, 60);
-            TrayIcon.Text = text;
-            if (TrayStatusItem != null && TrayStatusItem.Text != text)
+            // 托盘控件归 UI 线程：本方法由后台主循环每 5 秒调一次，直接写控件属于跨线程操作
+            // （WinForms 不支持），这里统一切回 UI 线程再写（写法与 SetPendingUpdate 一致）。
+            var statusItem = TrayStatusItem;
+            void Apply()
             {
-                TrayStatusItem.Text = text;
+                icon.Text = text;
+                if (statusItem != null && statusItem.Text != text)
+                {
+                    statusItem.Text = text;
+                }
+            }
+            var form = _mainForm;
+            if (form is { IsHandleCreated: true } && form.InvokeRequired)
+            {
+                form.BeginInvoke(Apply);
+            }
+            else
+            {
+                Apply();
             }
         }
         catch (Exception ex)

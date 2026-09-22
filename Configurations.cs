@@ -58,6 +58,9 @@ internal class ConfigData
 
     /// <summary>外观：背景图排版（Stretch / Zoom / Tile / Center）。</summary>
     public string AppearanceBackgroundLayout { get; set; } = "Stretch";
+
+    /// <summary>背景图裁剪区域（归一化 0~1 的 [x,y,w,h]；null = 使用整图）。</summary>
+    public double[]? BackgroundCropRect { get; set; }
     /// <summary>旧配置兼容字段：显示内容由模板引擎控制，代码不再读取此值。</summary>
     public bool ShowArtistName { get; set; } = true;
     /// <summary>旧配置兼容字段：显示内容由模板引擎控制，代码不再读取此值。</summary>
@@ -89,6 +92,12 @@ internal class ConfigData
     public bool SyncNonGameApps { get; set; }
     /// <summary>程序与音乐组合显示时的分隔符。</summary>
     public string CombinedSeparator { get; set; } = "‖";
+
+    // —— 常驻状态（无音乐 / 程序来源时推送的自定义文案）——
+    /// <summary>启用常驻状态：无活跃来源时推送 PersistentStatusText，而不是清除状态。</summary>
+    public bool PersistentStatusEnabled { get; set; }
+    /// <summary>常驻状态文案（空 = 未启用；超过状态长度上限时按 UTF-8 截断）。</summary>
+    public string PersistentStatusText { get; set; } = "";
 
     // —— 显示格式模板（变量：{app} {song} {artist} {artistPart} {progress} {sep}）——
     public string MusicFormat { get; set; } = "{song}{artistPart}{progress}";
@@ -154,7 +163,8 @@ internal class Configurations
         }
         catch (Exception e)
         {
-            Logger.Error($"保存配置失败: {e.Message}");
+            // 记完整异常（类型 + 消息 + 堆栈）：历史上出过「Value cannot be null.」这类不带参数名的信息，只记 Message 无法定性
+            Logger.Error($"保存配置失败: {e}");
         }
     }
 

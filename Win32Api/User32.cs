@@ -15,6 +15,10 @@ internal static partial class User32
     }
     [LibraryImport("user32.dll")]
     internal static partial IntPtr GetForegroundWindow();
+    /// <summary>注册自定义窗口消息，返回消息号（未注册过则新分配）；用于接收系统广播的 TaskbarCreated。</summary>
+    [LibraryImport("user32.dll", EntryPoint = "RegisterWindowMessageW", SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial uint RegisterWindowMessage(string lpString);
     [LibraryImport("user32.dll")]
     private static partial IntPtr GetDesktopWindow();
     [LibraryImport("user32.dll")]

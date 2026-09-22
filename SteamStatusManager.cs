@@ -52,9 +52,15 @@ internal class SteamStatusManager
         if (newName == _lastSetName) return;
         try
         {
-            await _session.SetGameNameAsync(newName).ConfigureAwait(false);
+            // 推送加超时兜底：Steam 侧异常时不允许把主循环拖住（主循环每个 await 都必须能回来）
+            await _session.SetGameNameAsync(newName).WaitAsync(StabilityConfig.StatusPushTimeout)
+                .ConfigureAwait(false);
             _lastSetName = newName;
             Debug.WriteLine($"[SteamStatus] 状态已更新: {newName}");
+        }
+        catch (TimeoutException)
+        {
+            Logger.Warn($"[SteamStatus] 状态推送超时（{StabilityConfig.StatusPushTimeout.TotalSeconds:F0} 秒），本轮跳过: {newName}");
         }
         catch (Exception ex)
         {
@@ -79,7 +85,12 @@ internal class SteamStatusManager
     {
         var appText = string.IsNullOrWhiteSpace(appDisplay) ? null : appDisplay.Trim();
         var musicText = BuildMusicText(music, config, includeProgress: true);
-        if (appText == null && musicText == null) return null;
+        if (appText == null && musicText == null)
+        {
+            // 无音乐也无程序：常驻状态开启且文案非空时推送常驻文案，否则返回 null（调用方清除状态）
+            var persistent = config.PersistentStatusEnabled ? (config.PersistentStatusText ?? "").Trim() : "";
+            return persistent.Length == 0 ? null : TruncateToUtf8ByteLength(persistent, MaxStatusBytes);
+        }
         if (appText == null) return TruncateToUtf8ByteLength(musicText!, MaxStatusBytes);
         if (musicText == null)
         {

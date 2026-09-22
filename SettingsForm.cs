@@ -50,6 +50,10 @@ internal sealed class SettingsForm : Form
     private ComboBox _templatePresetCombo = null!;
     private Label _previewLabel = null!;
 
+    // 常驻状态控件（显示页）
+    private CheckBox _persistentStatusCheck = null!;
+    private TextBox _persistentStatusBox = null!;
+
     // 外观设置控件
     private CheckBox _titleFollowCheck = null!;
     private Button _titleColorButton = null!;
@@ -59,6 +63,7 @@ internal sealed class SettingsForm : Form
     private Button _backgroundColorButton = null!;
     private Label _backgroundImageLabel = null!;
     private ComboBox _backgroundLayoutCombo = null!;
+    private double[]? _backgroundCropRect;
     private string _backgroundImagePath = "";
     private string _appearanceFontFamily = "";
     private float _appearanceFontSize;
@@ -415,16 +420,43 @@ internal sealed class SettingsForm : Form
             variablesHint, _previewLabel
         ]);
 
+        var persistentGroup = CreatePersistentStatusGroup();
         var appearanceGroup = CreateAppearanceGroup();
         page.AutoScroll = true;
-        page.Controls.AddRange([templateGroup, appearanceGroup]);
+        page.Controls.AddRange([templateGroup, persistentGroup, appearanceGroup]);
         return page;
+    }
+
+    /// <summary>「常驻状态」分组：无音乐 / 程序来源时推送的自定义文案（显示页内）。</summary>
+    private GroupBox CreatePersistentStatusGroup()
+    {
+        var group = CreateGroupBox(Loc.L("常驻状态", "Persistent status"), 10, 350, 650, 112);
+
+        _persistentStatusCheck = CreateCheckBox(
+            Loc.L("没有音乐 / 程序时显示下面这句（原本会清除状态）", "Show the line below when no music or app is active (instead of clearing)"),
+            20, 30);
+
+        var textLabel = new Label { Text = Loc.L("文案:", "Text:"), Location = new Point(20, 66), AutoSize = true };
+        _persistentStatusBox = new TextBox { Location = new Point(70, 62), Width = 560, MaxLength = 128 };
+        var hint = new Label
+        {
+            Location = new Point(20, 90),
+            AutoSize = true,
+            ForeColor = Color.Gray,
+            Font = new Font("Microsoft YaHei", 8),
+            Text = Loc.L("支持 emoji；超过 128 字节按 UTF-8 截断（约 42 个汉字）", "Emoji supported; longer text is truncated to 128 bytes")
+        };
+
+        _persistentStatusCheck.CheckedChanged += (_, _) => _persistentStatusBox.Enabled = _persistentStatusCheck.Checked;
+
+        group.Controls.AddRange([_persistentStatusCheck, textLabel, _persistentStatusBox, hint]);
+        return group;
     }
 
     /// <summary>「外观」分组：自定义主界面的颜色 / 字体 / 背景（显示页内，可滚动查看）。</summary>
     private GroupBox CreateAppearanceGroup()
     {
-        var group = CreateGroupBox(Loc.L("外观", "Appearance"), 10, 350, 650, 196);
+        var group = CreateGroupBox(Loc.L("外观", "Appearance"), 10, 472, 650, 196);
 
         // 行 1：标题颜色 / 歌名颜色
         var titleColorLabel = new Label { Text = Loc.L("标题颜色:", "Title color:"), Location = new Point(20, 36), AutoSize = true };
@@ -475,8 +507,8 @@ internal sealed class SettingsForm : Form
         clearImageButton.Click += (_, _) =>
         {
             _backgroundImagePath = "";
-            _backgroundImageLabel.Text = Loc.L("（无）", "(None)");
-            _backgroundImageLabel.ForeColor = Color.Gray;
+            _backgroundCropRect = null;
+            UpdateBackgroundImageLabel();
         };
         var layoutLabel = new Label { Text = Loc.L("排版:", "Layout:"), Location = new Point(465, 108), AutoSize = true };
         _backgroundLayoutCombo = new ComboBox
@@ -550,14 +582,41 @@ internal sealed class SettingsForm : Form
     {
         using var dialog = new OpenFileDialog
         {
-            Filter = Loc.L("图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|所有文件|*.*", "Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|All files|*.*")
+            Filter = Loc.L("图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif|所有文件|*.*", "Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif|All files|*.*")
         };
-        if (dialog.ShowDialog() == DialogResult.OK)
+        if (dialog.ShowDialog() != DialogResult.OK) return;
+        // 选好图后进裁剪窗口：拖框＝用框内区域，不拖＝用整张图
+        // 打不开的图（格式不支持 / 文件损坏）当场拦下：不进裁剪窗口，也不改当前设置
+        try
         {
+            using var cropForm = new BackgroundCropForm(dialog.FileName, null);
+            if (cropForm.ShowDialog(this) != DialogResult.OK) return;
             _backgroundImagePath = dialog.FileName;
-            _backgroundImageLabel.Text = Path.GetFileName(dialog.FileName);
-            _backgroundImageLabel.ForeColor = Color.Black;
+            _backgroundCropRect = cropForm.ResultCrop;
         }
+        catch (Exception ex)
+        {
+            Logger.Error($"[Settings] 打开背景图失败: {ex.Message}");
+            MessageBox.Show(this,
+                Loc.L("这张图片打不开，请换一张（支持 PNG / JPG / BMP / GIF）。", "This image can't be opened — please pick another one (PNG / JPG / BMP / GIF)."),
+                Loc.L("背景图", "Background image"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        UpdateBackgroundImageLabel();
+    }
+
+    /// <summary>刷新背景图标签：文件名 + 是否已裁剪。</summary>
+    private void UpdateBackgroundImageLabel()
+    {
+        if (string.IsNullOrWhiteSpace(_backgroundImagePath))
+        {
+            _backgroundImageLabel.Text = Loc.L("（无）", "(None)");
+            _backgroundImageLabel.ForeColor = Color.Gray;
+            return;
+        }
+        _backgroundImageLabel.Text = Path.GetFileName(_backgroundImagePath) +
+            (_backgroundCropRect is { Length: 4 } ? Loc.L("（已裁剪）", " (cropped)") : "");
+        _backgroundImageLabel.ForeColor = Color.Black;
     }
 
     private void UpdateAppearanceEnabled()
@@ -578,8 +637,8 @@ internal sealed class SettingsForm : Form
         _appearanceFontSize = 0;
         _fontButton.Text = Loc.L("微软雅黑 9pt", "Microsoft YaHei 9pt");
         _backgroundImagePath = "";
-        _backgroundImageLabel.Text = Loc.L("（无）", "(None)");
-        _backgroundImageLabel.ForeColor = Color.Gray;
+        _backgroundCropRect = null;
+        UpdateBackgroundImageLabel();
         _backgroundLayoutCombo.SelectedIndex = 0;
         UpdateAppearanceEnabled();
     }
@@ -742,6 +801,18 @@ internal sealed class SettingsForm : Form
             BackColor = Color.White
         };
         checkUpdateButton.Click += async (_, _) => await CheckUpdateFromAboutAsync();
+        var licenseButton = new Button
+        {
+            Text = Loc.L("开源许可", "Licenses"),
+            Location = new Point(20, 172),
+            Size = new Size(150, 30),
+            BackColor = Color.White
+        };
+        licenseButton.Click += (_, _) =>
+        {
+            using var form = new LicenseForm();
+            form.ShowDialog(this);
+        };
         _updateNoticeLabel = new Label
         {
             AutoSize = true,
@@ -758,7 +829,7 @@ internal sealed class SettingsForm : Form
             Text = Loc.L("作者：ZhaoBuyan ｜ 本项目以 MIT 协议开源发布。\n基于开源谱系「半新写」构建，感谢所有铺路者（详见仓库 THIRD-PARTY-NOTICES）。\n\n洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，\n并允许来自局域网的访问。", "By ZhaoBuyan | Open source under the MIT license.\nBuilt on an open-source lineage, roughly half rewritten — thanks to everyone who paved the way (see THIRD-PARTY-NOTICES in the repo).\n\nLX Music users: enable \"Open API service\" in LX Music → Settings → Open API, and allow LAN access.")
         };
 
-        page.Controls.AddRange([title, subtitle, _aboutVersionLabel, repoButton, releaseButton, checkUpdateButton, _updateNoticeLabel, licenseLabel]);
+        page.Controls.AddRange([title, subtitle, _aboutVersionLabel, repoButton, releaseButton, checkUpdateButton, licenseButton, _updateNoticeLabel, licenseLabel]);
         RefreshUpdateNotice();
         return page;
     }
@@ -1182,11 +1253,8 @@ internal sealed class SettingsForm : Form
             ? (_appearanceFontSize > 0 ? Loc.L($"（默认字体）{_appearanceFontSize:0.#}pt", $"(Default font) {_appearanceFontSize:0.#}pt") : Loc.L("微软雅黑 9pt", "Microsoft YaHei 9pt"))
             : $"{_appearanceFontFamily} {(_appearanceFontSize > 0 ? _appearanceFontSize : 9f):0.#}pt";
         _backgroundImagePath = settings.AppearanceBackgroundImage ?? "";
-        if (!string.IsNullOrWhiteSpace(_backgroundImagePath))
-        {
-            _backgroundImageLabel.Text = Path.GetFileName(_backgroundImagePath);
-            _backgroundImageLabel.ForeColor = Color.Black;
-        }
+        _backgroundCropRect = settings.BackgroundCropRect;
+        UpdateBackgroundImageLabel();
         _backgroundLayoutCombo.SelectedIndex = settings.AppearanceBackgroundLayout switch
         {
             "Zoom" => 1,
@@ -1195,6 +1263,9 @@ internal sealed class SettingsForm : Form
             _ => 0
         };
         UpdateAppearanceEnabled();
+        _persistentStatusCheck.Checked = settings.PersistentStatusEnabled;
+        _persistentStatusBox.Text = settings.PersistentStatusText ?? "";
+        _persistentStatusBox.Enabled = _persistentStatusCheck.Checked;
         _barLengthBox.Value = settings.ProgressBarLength is >= 1 and <= 50 ? settings.ProgressBarLength : 10;
         _syncSpeedCombo.SelectedIndex = settings.SyncSpeed switch
         {
@@ -1253,6 +1324,7 @@ internal sealed class SettingsForm : Form
         settings.AppearanceFontFamily = _appearanceFontFamily;
         settings.AppearanceFontSize = _appearanceFontSize;
         settings.AppearanceBackgroundImage = _backgroundImagePath;
+        settings.BackgroundCropRect = _backgroundCropRect;
         settings.AppearanceBackgroundLayout = _backgroundLayoutCombo.SelectedIndex switch
         {
             1 => "Zoom",
@@ -1260,6 +1332,10 @@ internal sealed class SettingsForm : Form
             3 => "Center",
             _ => "Stretch"
         };
+
+        // 常驻状态
+        settings.PersistentStatusEnabled = _persistentStatusCheck.Checked;
+        settings.PersistentStatusText = _persistentStatusBox.Text.Trim();
         settings.SyncSpeed = _syncSpeedCombo.SelectedIndex switch
         {
             0 => SyncSpeedLevel.Fast,

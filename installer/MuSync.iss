@@ -53,6 +53,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\setup-payload\*"; DestDir: "{app}"; Flags: ignoreversion
+; 许可证随安装：MIT / LGPL-2.1 均要求分发时随附版权声明与许可证文本
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\licenses\LGPL-2.1.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\MuSync"; Filename: "{app}\MuSync.exe"
