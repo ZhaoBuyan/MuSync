@@ -64,11 +64,24 @@ MuSync 的代码与设计大量借鉴/沿用了以下开源项目，特此致谢
 | protobuf-net.Core | 3.2.56 | Apache-2.0 | Marc Gravell |
 | System.IO.Hashing | 10.0.1 | MIT | © Microsoft Corporation |
 | ZstdSharp.Port | 0.8.7 | MIT | Copyright Oleg Stepanischev |
-| Microsoft.Win32.Registry | 5.0.0 | MIT | © Microsoft Corporation |
-| System.Security.AccessControl | 6.0.1 | MIT | © Microsoft Corporation |
-| System.Security.Cryptography.ProtectedData | 9.0.0 | MIT | © Microsoft Corporation |
-| System.Security.Principal.Windows | 5.0.0 | MIT | © Microsoft Corporation |
 
+## .NET 10 运行时自带组件（随自包含发布物一起分发）
+
+下列组件自 **.NET 10**（`net10.0-windows`）起由目标框架自带，已不再作为 NuGet 包引用
+（显式引用会触发 NU1510「此包自动可用，无需显式引用」）。完整版 / 安装器版为自包含发布，
+这些程序集会被打进产物，因此仍需保留版权声明；lite 版为框架依赖发布，由用户已安装的
+.NET 10 桌面运行时提供。
+
+版本列为 **.NET 10 运行时版本**（随 .NET 10 服务更新变化）：
+
+| 组件 | 版本 | 许可证 | 版权 / 作者 | 提供方 |
+| --- | --- | --- | --- | --- |
+| Microsoft.Win32.Registry | 10.0.12 | MIT | © Microsoft Corporation | Microsoft.NETCore.App |
+| System.Security.AccessControl | 10.0.12 | MIT | © Microsoft Corporation | Microsoft.NETCore.App |
+| System.Security.Principal.Windows | 10.0.12 | MIT | © Microsoft Corporation | Microsoft.NETCore.App |
+| System.Security.Cryptography.ProtectedData | 10.0.12 | MIT | © Microsoft Corporation | Microsoft.WindowsDesktop.App |
+
+> .NET 10 运行时的自包含发布以 MIT 协议分发（版权 © .NET Foundation and Contributors）。
 > Apache-2.0 全文：https://www.apache.org/licenses/LICENSE-2.0
 > 微软组件 MIT 全文：https://github.com/dotnet/runtime/blob/main/LICENSE.TXT
 

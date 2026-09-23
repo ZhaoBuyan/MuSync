@@ -75,7 +75,9 @@ internal sealed class UpdateForm : Form
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
             BackColor = Color.FromArgb(248, 248, 248),
-            Text = string.IsNullOrWhiteSpace(info.Body) ? Loc.L("(本次更新暂无说明)", "(No release notes for this version)") : info.Body
+            Text = string.IsNullOrWhiteSpace(info.Body)
+                ? Loc.L("(本次更新暂无说明)", "(No release notes for this version)")
+                : ReleaseNotes.ToPlainText(info.Body)
         };
         _progressBar = new ProgressBar
         {

@@ -283,7 +283,7 @@ internal class RpcManager(SteamStatusManager steamManager)
             try
             {
                 // 本 tick 的活跃源（活跃源全速轮询；其余降频，节省内存读取与进程枚举）
-#if DEBUG
+#if DEBUG || MUSYNC_STALL_TEST
                 MaybeInjectTestStall();
 #endif
                 var activeSnapshot = ResolveActiveState().State;
@@ -495,14 +495,15 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// <summary>停摆判定（纯函数，便于单测）：循环已启动且距上一拍超过阈值 → 需要重启自愈。</summary>
     internal static bool ShouldRestartLoop(bool loopStarted, TimeSpan sinceLastTick, TimeSpan stallThreshold)
         => loopStarted && sinceLastTick > stallThreshold;
-#if DEBUG
-    /// <summary>测试钩子是否已触发（仅 Debug 构建）。</summary>
+#if DEBUG || MUSYNC_STALL_TEST
+    /// <summary>测试钩子是否已触发（Debug 构建，或显式 -p:MuSyncStallTest=true 的验证构建）。</summary>
     private bool _stallInjected;
 
     /// <summary>
-    /// 开发期验证看门狗专用：环境变量 MUSYNC_TEST_STALL_MS 设为正整数时，主循环会故意卡死一次。
+    /// 看门狗自愈验证专用：环境变量 MUSYNC_TEST_STALL_MS 设为正整数时，主循环会故意卡死一次。
     /// 用法：MUSYNC_TEST_STALL_MS=60000 启动 Debug 构建，则约 30 秒后日志应出现看门狗重启记录。
-    /// Release 构建不包含本钩子。
+    /// 常规构建（含全部发布产物）不编入本钩子；仅当显式传 -p:MuSyncStallTest=true 时才编入，
+    /// 用于在 Release 配置下验证「检测停摆 → 重启循环 → 新循环恢复推送」这条完整路径。
     /// </summary>
     private void MaybeInjectTestStall()
     {

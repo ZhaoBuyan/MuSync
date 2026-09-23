@@ -51,7 +51,9 @@
 - 模板预设：一键切换「简洁 / 带前缀（正在玩·正在听）/ 只要名字」
 - 进度条样式：预设样式 + 任意字符，格数 1~50 可调；emoji 直接粘贴即可使用，例如 `[❤️❤️❤️❤️❤️❤️💕💕💕💕] 1:59/3:32`
 - 界面外观：标题 / 歌名颜色、字体、背景色、背景图（拉伸 / 适应 / 平铺 / 居中）均可自定义，一键恢复默认
+- 背景图可拖框裁剪（选图后进入裁剪窗：拖框 = 用框内区域，不画框 = 用整张图）；主窗口尺寸随背景图比例自适应，保持窗口中心、不出屏幕
 - 组合显示与分隔符均可自定义；文本超过 Steam 上限时按 128 字节智能截断
+- 常驻状态：没有音乐、也没有程序在同步时不再清空状态，改为显示你自定义的一句话（支持 emoji），可在 设置 → 显示 中开关
 - 显示的文本示例（模板引擎 + 积木编辑器，完全由你定义）：
 
 ```
@@ -81,7 +83,7 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 
 ## 版本选择与升级
 
-> **版本选择**：推荐 **MuSync.exe**（完整版）——免安装单文件，双击即用；**MuSync-Setup.exe**（安装器版）适合想省事的用户——装好后新版本可一键自动更新，无需手动替换文件；**MuSync-lite.exe** 体积更小，但需要已安装 [.NET 9 桌面运行时](https://dotnet.microsoft.com/download/dotnet/9.0)。三种版本功能一致，配置与登录通用。
+> **版本选择**：推荐 **MuSync.exe**（完整版）——免安装单文件，双击即用；**MuSync-Setup.exe**（安装器版）适合想省事的用户——装好后新版本可一键自动更新，无需手动替换文件；**MuSync-lite.exe** 体积更小，但需要已安装 [.NET 10 桌面运行时](https://dotnet.microsoft.com/download/dotnet/10.0)。三种版本功能一致，配置与登录通用。
 
 升级：程序会自动检查更新——完整版 / lite 版下载后点「退出并打开文件夹」拖拽替换；安装器版点「立即更新」自动完成。
 
@@ -139,7 +141,7 @@ dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:Publ
 powershell -ExecutionPolicy Bypass -File installer\build.ps1
 ```
 
-CI（`main` push / `v*` tag）自动构建三个产物：`MuSync.exe`（免安装）、`MuSync-lite.exe`（轻量版，需 .NET 9 运行时）、`MuSync-Setup.exe`（安装器版）。
+CI（`main` push / `v*` tag）自动构建三个产物：`MuSync.exe`（免安装）、`MuSync-lite.exe`（轻量版，需 .NET 10 运行时）、`MuSync-Setup.exe`（安装器版）。
 
 ## 项目结构
 

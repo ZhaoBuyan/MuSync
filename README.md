@@ -51,7 +51,9 @@ Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music — download,
 - Template presets: one click to switch between "Simple / With prefix (Playing·Listening) / Name only"
 - Progress bar style: presets plus any characters you like, length 1–50; emoji work out of the box, e.g. `[❤️❤️❤️❤️❤️❤️💕💕💕💕] 1:59/3:32`
 - Appearance: title / song colors, font, background color, background image (stretch / fit / tile / center) — all customizable with one-click reset
+- Crop the background image by dragging a frame after picking it (no frame = use the whole image); the main window scales to the image's aspect ratio, keeping its center and staying on screen
 - Combined display and separator are configurable; text over Steam's limit is truncated intelligently at 128 bytes
+- Persistent status: when nothing is playing and no app is being synced, show a custom line instead of clearing your status (emoji supported) — toggle it in Settings → Display
 - Example output (templates + block editor — fully yours to define):
 
 ```
@@ -81,7 +83,7 @@ Strinova                                                         ← playing a n
 
 ## Editions & Upgrading
 
-> **Which edition?** We recommend **MuSync.exe** (full edition) — a portable single file, just double-click; **MuSync-Setup.exe** (installer edition) suits people who want zero maintenance — new versions auto-update with one click and no manual file replacement; **MuSync-lite.exe** is smaller but requires the [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0). All three editions are functionally identical and share the same config & login.
+> **Which edition?** We recommend **MuSync.exe** (full edition) — a portable single file, just double-click; **MuSync-Setup.exe** (installer edition) suits people who want zero maintenance — new versions auto-update with one click and no manual file replacement; **MuSync-lite.exe** is smaller but requires the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0). All three editions are functionally identical and share the same config & login.
 
 Upgrading: the app checks for updates automatically — for the full/lite editions, download then click "Exit & open folder" and drag to replace; for the installer edition, click "Update now" and it's done.
 
@@ -139,7 +141,7 @@ dotnet publish MuSync.csproj -c Release -r win-x64 --self-contained true -p:Publ
 powershell -ExecutionPolicy Bypass -File installer\build.ps1
 ```
 
-CI (on `main` push / `v*` tag) builds three artifacts: `MuSync.exe` (portable, full edition), `MuSync-lite.exe` (lightweight, requires .NET 9 runtime), and `MuSync-Setup.exe` (installer edition).
+CI (on `main` push / `v*` tag) builds three artifacts: `MuSync.exe` (portable, full edition), `MuSync-lite.exe` (lightweight, requires .NET 10 runtime), and `MuSync-Setup.exe` (installer edition).
 
 ## Project layout
 
