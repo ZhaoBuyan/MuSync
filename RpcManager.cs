@@ -267,6 +267,9 @@ internal class RpcManager(SteamStatusManager steamManager)
             IsBackground = true,
             Name = "MuSync.Watchdog"
         }.Start();
+#if MUSYNC_NO_WATCHDOG_RESTART
+        Logger.Warn("[Watchdog] 【诊断构建】自愈已禁用：停摆时只记录、不重启，仅供卡死取证，请勿日常使用");
+#endif
         Logger.Info("[MuSync] 主循环已启动（节拍走内核等待，看门狗已就位）");
     }
 
@@ -433,6 +436,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// <summary>
     /// 看门狗线程：只用 Thread.Sleep（内核等待），既不依赖 .NET 定时器，也不依赖线程池。
     /// 距上一拍超过阈值 → 判定停摆，记日志并重启主循环；平时每 5 分钟写一条心跳日志。
+    /// 诊断构建（-p:MuSyncNoWatchdog=true）下改为「只记录、不重启」，保留卡死现场供取证。
     /// </summary>
     private void WatchdogLoop()
     {
@@ -446,7 +450,11 @@ internal class RpcManager(SteamStatusManager steamManager)
                 var sinceLastTick = SinceLastTick();
                 if (ShouldRestartLoop(_loopStarted, sinceLastTick, StabilityConfig.LoopStallThreshold))
                 {
+#if MUSYNC_NO_WATCHDOG_RESTART
+                    LogStallWithoutRestart(sinceLastTick);
+#else
                     RestartLoop(sinceLastTick);
+#endif
                     continue;
                 }
                 LogHeartbeatIfDue(sinceLastTick);
@@ -480,6 +488,27 @@ internal class RpcManager(SteamStatusManager steamManager)
         LaunchLoop(_loopCts.Token);
         Logger.Info("[Watchdog] 主循环已重启");
     }
+
+#if MUSYNC_NO_WATCHDOG_RESTART
+    /// <summary>诊断构建专用：是否已经报告过停摆（避免每 5 秒重复刷同一条日志）。</summary>
+    private bool _stallReported;
+
+    /// <summary>
+    /// 诊断构建（-p:MuSyncNoWatchdog=true）专用：检测到停摆时**只记录、不重启**，
+    /// 把「卡住的现场」原样保留下来，便于从容取证。
+    /// 取证步骤：任务管理器 → 详细信息 → MuSync.exe → 右键「创建转储文件」→ 再结束进程；
+    /// 随后把 .DMP 交给 dotnet-dump analyze（dumpasync / clrthreads / threadpool）定位卡点。
+    /// 常规构建不编入本方法，走 RestartLoop 自愈。
+    /// </summary>
+    private void LogStallWithoutRestart(TimeSpan sinceLastTick)
+    {
+        if (_stallReported) return;
+        _stallReported = true;
+        Logger.Error(
+            $"[Watchdog] 主循环停摆 {sinceLastTick.TotalSeconds:F0} 秒（阈值 {StabilityConfig.LoopStallThreshold.TotalSeconds:F0} 秒）" +
+            "——【诊断构建】不重启、保留现场；请现在用任务管理器对 MuSync.exe 执行「创建转储文件」，再结束进程");
+    }
+#endif
 
     /// <summary>心跳日志（默认每 5 分钟一条）：日志里能直接看到「最后一拍」是什么时候。</summary>
     private void LogHeartbeatIfDue(TimeSpan sinceLastTick)

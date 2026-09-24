@@ -13,6 +13,12 @@
              因此产物内不含卡死注入钩子（行为零变化）。用途：在 Release 配置下验证自愈路径。 -->
         <DefineConstants Condition="'$(MuSyncStallTest)' == 'true'">$(DefineConstants);MUSYNC_STALL_TEST</DefineConstants>
 
+        <!-- 看门狗诊断构建开关：仅显式传 -p:MuSyncNoWatchdog=true 时定义；常规构建与所有发布产物都不定义。
+             用途：卡死取证——停摆时看门狗仍然检测并记录，但**不重启主循环**，把「卡住的现场」保留下来，
+             便于用任务管理器「创建转储文件」取证，再交给 dotnet-dump analyze 定位。
+             仅供排查使用，不可作为日常版本分发（失去自愈能力）。 -->
+        <DefineConstants Condition="'$(MuSyncNoWatchdog)' == 'true'">$(DefineConstants);MUSYNC_NO_WATCHDOG_RESTART</DefineConstants>
+
 
         <Version>0.4.3</Version>
         <!-- 发行形态：full=自包含完整版；lite=框架依赖版（发布时 SelfContained=false 自动标记，也可 -p:MuSyncEdition= 显式指定） -->
