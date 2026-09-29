@@ -19,6 +19,8 @@ Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music — download,
 3. Open your music player — that's it, your friends can now see what you're listening to
 4. (Optional) Want friends to see which app you're using? Settings → Sync → enable "Sync non-game apps"
 
+> **First launch on Windows**: MuSync isn't code-signed yet, so Windows may show a "Windows protected your PC" / unknown-publisher warning. Click **More info** → **Run anyway** — that's the standard prompt for unsigned software, not a sign that anything is wrong.
+
 > **LX Music users**: enable "Open API service" under LX Music → Settings → Open API, and allow LAN access.
 
 > **Co-existing with the Steam client**: signing in to Steam on the same account from both MuSync and the Steam client won't log either out (both are SteamKit sessions). You'll see a device session named MuSync in Steam's account management — that's expected.
