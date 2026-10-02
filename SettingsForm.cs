@@ -393,7 +393,9 @@ internal sealed class SettingsForm : Form
             Location = new Point(20, 200),
             ForeColor = Color.Gray,
             Font = new Font("Microsoft YaHei", 8),
-            Text = "变量：{app} 程序名｜{song} 歌名｜{artist} 歌手｜{artistPart} 自动连接符的歌手｜{progress} 进度｜{sep} 分隔符"
+            Text = Loc.L(
+                "变量：{app} 程序名｜{song} 歌名｜{artist} 歌手｜{artistPart} 自动连接符的歌手｜{progress} 进度｜{sep} 分隔符",
+                "Variables: {app} app name | {song} song | {artist} artist | {artistPart} artist with auto separators | {progress} progress | {sep} separator")
         };
 
         _previewLabel = new Label
@@ -667,8 +669,24 @@ internal sealed class SettingsForm : Form
             BackColor = Color.White
         };
         removeButton.Click += RemoveButton_Click;
+        var exportButton = new Button
+        {
+            Text = Loc.L("导出规则…", "Export rules…"),
+            Location = new Point(290, 288),
+            Size = new Size(110, 28),
+            BackColor = Color.White
+        };
+        exportButton.Click += ExportRulesButton_Click;
+        var importButton = new Button
+        {
+            Text = Loc.L("导入规则…", "Import rules…"),
+            Location = new Point(410, 288),
+            Size = new Size(110, 28),
+            BackColor = Color.White
+        };
+        importButton.Click += ImportRulesButton_Click;
 
-        page.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton]);
+        page.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton, exportButton, importButton]);
         return page;
     }
 
@@ -1042,6 +1060,81 @@ internal sealed class SettingsForm : Form
             row.DefaultCellStyle.ForeColor = Color.Gray;
         }
         row.Cells[6].Value = rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("AI 建议", "AI suggestion");
+    }
+
+    // ================= 规则导入 / 导出 =================
+    /// <summary>导出全部规则（含忽略类与未启用条目——导回去才是完整现场）。</summary>
+    private void ExportRulesButton_Click(object? sender, EventArgs e)
+    {
+        if (_rules.Count == 0)
+        {
+            MessageBox.Show(this, Loc.L("当前没有任何规则可导出。", "There are no rules to export."),
+                Loc.L("导出规则", "Export rules"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        using var dialog = new SaveFileDialog
+        {
+            Filter = Loc.L("MuSync 规则文件|*.json|所有文件|*.*", "MuSync rule file|*.json|All files|*.*"),
+            FileName = $"musync-app-rules-{DateTime.Now:yyyyMMdd}.json",
+            DefaultExt = "json",
+            AddExtension = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            AppRuleExchange.Export(dialog.FileName, _rules, DateTime.Now);
+            Logger.Info($"[AppSync] 已导出 {_rules.Count} 条规则 -> {dialog.FileName}");
+            MessageBox.Show(this,
+                Loc.L($"已导出 {_rules.Count} 条规则。", $"Exported {_rules.Count} rule(s)."),
+                Loc.L("导出规则", "Export rules"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"[AppSync] 导出规则失败: {ex}");
+            MessageBox.Show(this,
+                Loc.L($"导出失败：{ex.Message}", $"Export failed: {ex.Message}"),
+                Loc.L("导出规则", "Export rules"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    /// <summary>导入规则：只补新、不动已有；确认前不写盘。</summary>
+    private void ImportRulesButton_Click(object? sender, EventArgs e)
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Filter = Loc.L("MuSync 规则文件|*.json|所有文件|*.*", "MuSync rule file|*.json|All files|*.*")
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var result = AppRuleExchange.Import(dialog.FileName, _rules);
+        if (!result.Ok)
+        {
+            MessageBox.Show(this, result.Error, Loc.L("导入规则", "Import rules"),
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        foreach (var reason in result.IgnoredReasons)
+        {
+            Logger.Info($"[AppSync] 导入忽略：{reason}");
+        }
+
+        var summary = Loc.L(
+            $"新增 {result.Added} 条，跳过已有 {result.Skipped} 条，忽略无效 {result.Ignored} 条。\n\n" +
+            "跳过＝本机已有同程序，保留本机设置；忽略＝条目缺失必要信息。",
+            $"Added {result.Added}, skipped {result.Skipped} existing, ignored {result.Ignored} invalid.\n\n" +
+            "Skipped = the app already exists locally (local settings kept); ignored = the entry lacks required info.");
+        if (MessageBox.Show(this, summary, Loc.L("导入规则", "Import rules"),
+                MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+        {
+            return;   // 用户取消：不改内存、不写盘
+        }
+
+        // 走与「确定」相同的提交路径：更新内存 + 刷新表格；落盘由 Configurations 统一负责
+        _rules.Clear();
+        _rules.AddRange(result.Merged);
+        RefreshRulesGrid();
+        Configurations.Instance.Save();
+        Logger.Info($"[AppSync] 已导入规则：新增 {result.Added} / 跳过 {result.Skipped} / 忽略 {result.Ignored}");
     }
 
     // ================= 播放器优先级 =================

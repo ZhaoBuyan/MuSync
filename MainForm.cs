@@ -28,6 +28,7 @@ internal class MainForm : Form
     private Label _appNameLabel = null!;
     private Label _appCategoryLabel = null!;
     private Label _appStatusLabel = null!;
+    private Label _appStatusDot = null!;
     private PictureBox _appIconBox = null!;
     private string _appIconPath = "";
     private FadingButton _settingsButton = null!;
@@ -147,6 +148,21 @@ internal class MainForm : Form
             Location = new Point(100, 80),
             Text = Loc.L("前台出现新程序会自动加入设置列表", "New foreground apps are added to the list automatically")
         };
+        // 状态点：6px 自绘圆点，颜色 = 状态语义色（黄＝暂停 / 蓝＝待确认 / 绿＝已显示 / 灰＝待机）
+        // 位置贴着状态文字的左边；文字不随状态换行，所以固定坐标即可
+        _appStatusDot = new Label
+        {
+            AutoSize = false,
+            Size = new Size(7, 7),
+            Location = new Point(86, 85),
+            BackColor = Color.Transparent
+        };
+        _appStatusDot.Paint += (_, e) =>
+        {
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using var brush = new SolidBrush(_appStatusDot.ForeColor);
+            e.Graphics.FillEllipse(brush, 0, 0, 6, 6);
+        };
         _appIconBox = new PictureBox
         {
             Location = new Point(12, 45),
@@ -162,7 +178,7 @@ internal class MainForm : Form
             Location = new Point(10, 130),
             Text = Loc.L("在 设置 → 程序同步设置 中管理分类与显示名", "Manage categories and display names in Settings → Apps")
         };
-        panel.Controls.AddRange(titleLabel, _appNameLabel, _appCategoryLabel, _appStatusLabel, _appIconBox, hintLabel);
+        panel.Controls.AddRange([titleLabel, _appNameLabel, _appCategoryLabel, _appStatusDot, _appStatusLabel, _appIconBox, hintLabel]);
         _appSyncPanel = panel;
         Controls.Add(panel);
     }
@@ -206,27 +222,60 @@ internal class MainForm : Form
             _appNameLabel.Text = Loc.L("程序同步未启用", "App sync is disabled");
             _appCategoryLabel.Text = "";
             _appStatusLabel.Text = "";
-            _appStatusLabel.ForeColor = Color.Gray;
+            _appStatusDot.Visible = false;
             return;
         }
         // 启用后恢复显示
         _appSyncPanel.Visible = true;
         if (_appSyncDivider != null) _appSyncDivider.Visible = true;
+        _appStatusDot.Visible = true;
+
         var display = rpc.GetActiveAppDisplay();
-        if (display == null)
+        var activeRule = rpc.GetActiveAppRule();
+        var pendingRule = rpc.GetPendingAppRule();
+        var status = AppSyncStatus.Evaluate(
+            syncEnabled: true,
+            gameRunning: Program.GetSteamManager()?.IsRealGameActive == true,
+            pauseWhenPlayingGame: config.PauseWhenPlayingGame,
+            manualPause: Program.GetSteamManager()?.ManualPause == true,
+            activeAppDisplay: display,
+            hasActiveAppRule: (activeRule ?? pendingRule) != null,
+            activeAppRuleConfirmed: (activeRule ?? pendingRule)?.IsUserConfirmed == true);
+
+        var state = status.State;
+        if (state == AppSyncPanelState.NotDetected)
         {
             _appNameLabel.Text = Loc.L("未检测到程序", "No app detected");
             _appCategoryLabel.Text = "";
-            _appStatusLabel.Text = Loc.L("切到已启用的程序后将在 Steam 中显示", "Will show on Steam when you switch to an enabled app");
-            _appStatusLabel.ForeColor = Color.Gray;
+        }
+        else if (state == AppSyncPanelState.PendingConfirmation)
+        {
+            // 命中规则但还没确认分类：显示程序名，并明确告知「不会推送到 Steam」
+            if (pendingRule == null)
+            {
+                _appNameLabel.Text = Loc.L("未检测到程序", "No app detected");
+                _appCategoryLabel.Text = "";
+            }
+            else
+            {
+                var categoryText = AppSyncStatus.CategoryTextOf(pendingRule.Category);
+                _appNameLabel.Text = AppRuleManager.DisplayNameOf(pendingRule);
+                _appCategoryLabel.Text = Loc.L($"分类：{categoryText}（未确认）", $"Category: {categoryText} (unconfirmed)");
+            }
         }
         else
         {
-            _appNameLabel.Text = display;
-            _appCategoryLabel.Text = Loc.L($"分类：{rpc.GetActiveAppCategoryText()}", $"Category: {rpc.GetActiveAppCategoryText()}");
-            _appStatusLabel.Text = Loc.L("已作为当前 Steam 状态显示", "Shown as your current Steam status");
-            _appStatusLabel.ForeColor = Color.Green;
+            // 已显示 / 两类暂停：暂停时生效程序本来就可能为空，此时程序名留空——
+            // 状态行已经说明「为什么没显示」，再写一句「未检测到程序」只是噪音
+            _appNameLabel.Text = display ?? "";
+            _appCategoryLabel.Text = display == null
+                ? ""
+                : Loc.L($"分类：{rpc.GetActiveAppCategoryText()}", $"Category: {rpc.GetActiveAppCategoryText()}");
         }
+        _appStatusLabel.Text = status.Text;
+        _appStatusLabel.ForeColor = status.Color;
+        _appStatusDot.ForeColor = status.Color;
+        _appStatusDot.Invalidate();   // 圆点用 ForeColor 自绘，颜色变了要重画
     }
     private void CreatePlayerPanel(int index)
     {

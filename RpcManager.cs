@@ -55,6 +55,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     private bool _lastActiveInfoNull = true;
     private string? _lastPushedAppDisplay;
     private AppRule? _activeAppRule;
+    private AppRule? _pendingAppRule;
     private string? _activeAppDisplay;
     private string? _activeAppIconPath;
     private DateTime _lastAppCheckTime = DateTime.MinValue;
@@ -120,6 +121,15 @@ internal class RpcManager(SteamStatusManager steamManager)
 
     /// <summary>当前生效的程序同步显示名（无则 null）。</summary>
     public string? GetActiveAppDisplay() => _activeAppDisplay;
+
+    /// <summary>当前生效程序对应的规则（无则 null；供主界面判定状态点颜色）。</summary>
+    public AppRule? GetActiveAppRule() => _activeAppRule;
+
+    /// <summary>
+    /// 前台命中、但按规则不允许显示的程序（例如新发现待用户确认的程序）。
+    /// 只作状态展示用：它不参与推送，<see cref="_activeAppDisplay"/> 仍为 null。
+    /// </summary>
+    public AppRule? GetPendingAppRule() => _pendingAppRule;
 
     /// <summary>当前生效程序的可执行文件路径（用于显示图标，可能为空）。</summary>
     public string? GetActiveAppIconPath() => _activeAppIconPath;
@@ -773,12 +783,14 @@ internal class RpcManager(SteamStatusManager steamManager)
         if (!config.AppSyncEnabled)
         {
             _activeAppRule = null;
+            _pendingAppRule = null;
             _activeAppDisplay = null;
             _activeAppIconPath = null;
         }
         else
         {
             var applied = false;
+            ForegroundAppInfo? pendingForeground = null;
             var foreground = ForegroundWatcher.GetCurrent();
             if (foreground != null)
             {
@@ -795,6 +807,12 @@ internal class RpcManager(SteamStatusManager steamManager)
                     // 忽略类程序在前台：保持现状不动（不清除、不切换）
                     applied = true;
                 }
+                else if (rule != null)
+                {
+                    // 命中规则但不允许显示（典型：新发现、等用户在设置里确认分类）
+                    // → 记下来供主界面显示「待确认」状态点；不参与推送
+                    pendingForeground = foreground;
+                }
             }
             if (!applied)
             {
@@ -805,6 +823,11 @@ internal class RpcManager(SteamStatusManager steamManager)
                     ? null
                     : AppRuleManager.GetRunningProcessPath(alwaysRule.ExeName);
             }
+            // 待确认程序（命中规则但不参与推送）：仅当当前没有生效程序时才作状态展示用
+            _pendingAppRule = !applied && pendingForeground != null && _activeAppDisplay == null
+                ? config.Apps.FirstOrDefault(r =>
+                    r.ExeName.Equals(pendingForeground.ExeName, StringComparison.OrdinalIgnoreCase))
+                : null;
         }
         if (previous == _activeAppDisplay) return false;
         Logger.Info($"[MuSync] 程序同步: {previous ?? "(无)"} -> {_activeAppDisplay ?? "(无)"}");

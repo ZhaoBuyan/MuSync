@@ -44,6 +44,8 @@ Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music — download,
 - Sync the running state of any app to Steam: games, work software (like VS Code), anything
 - A built-in dictionary recognizes ~50 common apps, plus fullscreen detection, to auto-classify them (game / work / media / social — adjustable)
 - New apps land in the list for confirmation; you can also add the current foreground app from Settings
+- The main-window panel shows the current state: green = pushed to Steam / yellow = paused (manually or a game was detected) / blue = recognized but **category not confirmed yet** / grey = idle
+- Rules can be **exported / imported** (Settings → Apps): export to a JSON file for moving to another machine, backing up, or sharing your tuned category list; import only adds what's missing and never overwrites your local settings, and nothing is written until you confirm
 - Two display modes: `When in foreground` (hidden when you switch away) / `Always when running` (shown even while idling)
 - System processes and music players are excluded by default; apps categorized as "Ignore" never affect your status
 
