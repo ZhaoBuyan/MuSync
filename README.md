@@ -12,6 +12,14 @@ Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music — download,
 
 ![MuSync main window](docs/ui-preview-en.png)
 
+## UI redesign proposals welcome
+
+The interface works, but it is not good looking yet, and its **visual hierarchy** needs the most work. If you have ideas, we would love to hear them. A mockup, a layout suggestion, or a pull request are all welcome.
+
+The direction we want: **use native Windows window chrome and controls**. No hand drawn borders, rounded corners or shadows. Instead, make the information readable through a left navigation pane, grouping, spacing and a clear type scale.
+
+Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or send a PR.
+
 ## Quick Start
 
 1. Download **MuSync.exe** (full edition, recommended — a portable single file, just double-click) from [Releases](https://github.com/ZhaoBuyan/MuSync/releases)
