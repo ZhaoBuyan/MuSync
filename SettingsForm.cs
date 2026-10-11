@@ -36,9 +36,8 @@ internal sealed class SettingsForm : Form
     private CheckBox _syncNonGameCheckBox = null!;
     private CheckBox _pauseWhenPlayingGameCheckBox = null!;
     private ComboBox _syncSpeedCombo = null!;
-    private readonly List<ComboBox> _playerPriorityCombos = [];
-    private bool _updatingPriorityCombos;
-    private List<int> _lastPrioritySelection = [0, 1, 2];
+    private ListBox _playerPriorityList = null!;
+    private readonly List<Button> _playerPriorityMoveButtons = [];
 
     // —— 显示页 ——
     private TextBox _musicFormatBox = null!;
@@ -90,7 +89,7 @@ internal sealed class SettingsForm : Form
     private readonly Timer _perfTimer = new() { Interval = 2000 };
     private readonly Timer _previewTimer = new() { Interval = 2000 };
 
-    private static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou"];
+    private static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
 
     public SettingsForm()
     {
@@ -256,29 +255,50 @@ internal sealed class SettingsForm : Form
             _enableAppSyncCheckBox, _syncNonGameCheckBox, _pauseWhenPlayingGameCheckBox
         ]);
 
-        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 182, 650, 100);
+        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 182, 650, 182);
         var priorityLabel = new Label
         {
             AutoSize = true,
             Location = new Point(20, 32),
-            Text = Loc.L("优先级从左到右（正在播放的始终优先）：", "Priority goes left to right (now-playing always wins):")
+            Text = Loc.L("从上到下依次优先（正在播放的始终优先）：", "Top to bottom, highest first (now-playing always wins):")
         };
-        priorityGroup.Controls.Add(priorityLabel);
-        for (var i = 0; i < 4; i++)
+        var priorityHint = new Label
         {
-            var combo = new ComboBox
-            {
-                Location = new Point(20 + i * 155, 58),
-                Width = 145,
-                DropDownStyle = ComboBoxStyle.DropDownList
-            };
-            combo.Items.AddRange([Loc.PlayerName("网易云音乐"), Loc.PlayerName("QQ音乐"), Loc.PlayerName("洛雪音乐"), Loc.PlayerName("酷狗音乐")]);
-            combo.SelectedIndexChanged += (_, _) => ApplyPriorityFromCombos();
-            _playerPriorityCombos.Add(combo);
-            priorityGroup.Controls.Add(combo);
-        }
+            AutoSize = true,
+            Location = new Point(228, 60),
+            ForeColor = Color.Gray,
+            Font = new Font("Microsoft YaHei", 8),
+            Text = Loc.L("选中一项，用右侧按钮上下调整", "Select an item, then use the buttons on the right to move it")
+        };
+        _playerPriorityList = new ListBox
+        {
+            Location = new Point(20, 58),
+            // 高度留足：5 项 × 约 17px 逻辑高度，再叠上 DPI 缩放余量，保证不出现内部滚动条
+            // （实测 94 在 125% 缩放下只渲染出 72px，装不下 5 项）
+            Size = new Size(196, 120),
+            BackColor = Color.White
+        };
+        _playerPriorityList.SelectedIndexChanged += (_, _) => UpdatePriorityMoveButtons();
+        var moveUpButton = new Button
+        {
+            Text = Loc.L("上移", "Move up"),
+            Location = new Point(228, 80),
+            Size = new Size(78, 26),
+            BackColor = Color.White
+        };
+        moveUpButton.Click += (_, _) => MovePriorityItem(-1);
+        var moveDownButton = new Button
+        {
+            Text = Loc.L("下移", "Move down"),
+            Location = new Point(314, 80),
+            Size = new Size(78, 26),
+            BackColor = Color.White
+        };
+        moveDownButton.Click += (_, _) => MovePriorityItem(1);
+        _playerPriorityMoveButtons.AddRange([moveUpButton, moveDownButton]);
+        priorityGroup.Controls.AddRange([priorityLabel, priorityHint, _playerPriorityList, moveUpButton, moveDownButton]);
 
-        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 294, 650, 90);
+        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 376, 650, 90);
         var speedLabel = new Label { Text = Loc.L("进度刷新档位:", "Update rate:"), Location = new Point(20, 32), AutoSize = true };
         _syncSpeedCombo = new ComboBox
         {
@@ -1137,58 +1157,67 @@ internal sealed class SettingsForm : Form
         Logger.Info($"[AppSync] 已导入规则：新增 {result.Added} / 跳过 {result.Skipped} / 忽略 {result.Ignored}");
     }
 
-    // ================= 播放器优先级 =================
-    private void LoadPriorityCombos()
+    // ================= 播放器优先级（列表 + 上移/下移，不再限定个数） =================
+    /// <summary>优先级列表项：存 key，显示名按当前语言取（沿用 Loc.PlayerName 的「中文做 key」口径）。</summary>
+    private sealed record PriorityItem(string Key, string DisplayName)
     {
-        _updatingPriorityCombos = true;
-        var order = (Configurations.Instance.Settings.PlayerPriority ?? []).Concat(PlayerOrderKeys).Distinct().Take(4).ToList();
-        for (var i = 0; i < _playerPriorityCombos.Count; i++)
-        {
-            var index = Array.IndexOf(PlayerOrderKeys, order[i]);
-            _playerPriorityCombos[i].SelectedIndex = index >= 0 ? index : i;
-        }
-        _lastPrioritySelection = _playerPriorityCombos.Select(c => c.SelectedIndex).ToList();
-        _updatingPriorityCombos = false;
+        public override string ToString() => DisplayName;
     }
 
-    private void ApplyPriorityFromCombos()
+    private void LoadPriorityOrder()
     {
-        if (_updatingPriorityCombos || _playerPriorityCombos.Count == 0) return;
-        _updatingPriorityCombos = true;
-        for (var i = 0; i < _playerPriorityCombos.Count; i++)
+        var saved = Configurations.Instance.Settings.PlayerPriority ?? [];
+        // 存过的顺序在前，没提到的按内置默认补在后面；新增播放器（如千千静听）无需迁移配置就能出现
+        var order = saved.Concat(PlayerOrderKeys).Distinct()
+            .Where(k => PlayerOrderKeys.Contains(k)).ToList();
+        _playerPriorityList.BeginUpdate();
+        _playerPriorityList.Items.Clear();
+        foreach (var key in order)
         {
-            var current = _playerPriorityCombos[i].SelectedIndex;
-            if (current < 0) continue;
-            for (var j = 0; j < i; j++)
-            {
-                if (_playerPriorityCombos[j].SelectedIndex == current)
-                {
-                    _playerPriorityCombos[j].SelectedIndex = _lastPrioritySelection[i];
-                    break;
-                }
-            }
+            _playerPriorityList.Items.Add(new PriorityItem(key, Loc.PlayerName(PlayerNameOf(key))));
         }
-        _lastPrioritySelection = _playerPriorityCombos.Select(c => c.SelectedIndex).ToList();
-        _updatingPriorityCombos = false;
+        _playerPriorityList.EndUpdate();
+        if (_playerPriorityList.Items.Count > 0) _playerPriorityList.SelectedIndex = 0;
+        UpdatePriorityMoveButtons();
     }
 
-    private List<string> CurrentPriorityOrder()
+    /// <summary>把优先级项上移（offset = -1）或下移（offset = +1），移动后保持选中。</summary>
+    private void MovePriorityItem(int offset)
     {
-        var order = new List<string>();
-        foreach (var combo in _playerPriorityCombos)
-        {
-            var index = combo.SelectedIndex;
-            if (index >= 0 && index < PlayerOrderKeys.Length && !order.Contains(PlayerOrderKeys[index]))
-            {
-                order.Add(PlayerOrderKeys[index]);
-            }
-        }
-        foreach (var key in PlayerOrderKeys)
-        {
-            if (!order.Contains(key)) order.Add(key);
-        }
-        return order;
+        var index = _playerPriorityList.SelectedIndex;
+        var target = index + offset;
+        if (index < 0 || target < 0 || target >= _playerPriorityList.Items.Count) return;
+        var item = _playerPriorityList.Items[index];
+        _playerPriorityList.Items.RemoveAt(index);
+        _playerPriorityList.Items.Insert(target, item);
+        _playerPriorityList.SelectedIndex = target;
+        UpdatePriorityMoveButtons();
     }
+
+    /// <summary>首末项的按钮置灰（再往上/下没有位置了）。</summary>
+    private void UpdatePriorityMoveButtons()
+    {
+        if (_playerPriorityMoveButtons.Count < 2) return;
+        var index = _playerPriorityList.SelectedIndex;
+        var count = _playerPriorityList.Items.Count;
+        _playerPriorityMoveButtons[0].Enabled = index > 0;
+        _playerPriorityMoveButtons[1].Enabled = index >= 0 && index < count - 1;
+    }
+
+    /// <summary>当前列表顺序（写配置用）。</summary>
+    private List<string> CurrentPriorityOrder() =>
+        _playerPriorityList.Items.Cast<PriorityItem>().Select(i => i.Key).ToList();
+
+    /// <summary>key → 数据层中文名（Loc.PlayerName 以中文名为 key，与诊断/日志口径一致）。</summary>
+    private static string PlayerNameOf(string key) => key switch
+    {
+        "NetEase" => "网易云音乐",
+        "Tencent" => "QQ音乐",
+        "LxMusic" => "洛雪音乐",
+        "KuGou" => "酷狗音乐",
+        "TTPlayer" => "千千静听",
+        _ => key
+    };
 
     // ================= 模板预设 / 积木 =================
     private void OpenBlockEditor(TemplateKind kind, TextBox formatBox)
@@ -1374,7 +1403,7 @@ internal sealed class SettingsForm : Form
         RefreshRulesGrid();
         UpdatePreview();
         SyncPresetFromFormats();
-        LoadPriorityCombos();
+        LoadPriorityOrder();
         UpdateAccountStatus();
         RefreshMemoryInfo();
         var versionText = $"v{UpdateChecker.GetCurrentVersionText()}";

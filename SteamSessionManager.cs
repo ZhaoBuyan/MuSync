@@ -61,10 +61,12 @@ internal class SteamSessionManager : IDisposable
     public event Action? OnLoginSucceeded;
 
     /// <summary>
-    /// 断线后重连成功（TCP 已连上、令牌重登**即将**开始）。
-    /// 启动流程用它把「弹出登录窗口」的窗口期打开：连接一恢复就让自愈重连先跑，不必让用户手填。
+    /// 令牌登录互斥：同一时刻只允许一个登录流程在跑。
+    /// 登录有多个调用方（启动流程、断线重连后的自动重登、登录窗口的自动登录），
+    /// 并发发起会让同一账号的多个 LogOn 互相顶替（服务器回 <c>LogonSessionReplaced</c>），
+    /// 表现为「刚登录成功又立刻断开」。
     /// </summary>
-    public event Action? OnReconnected;
+    private readonly SemaphoreSlim _loginGate = new(1, 1);
 
     /// <summary>
     /// 最近一次令牌登录是否**被服务器明确拒绝**（令牌失效这类，重试没有意义，必须让用户重新登录）。
@@ -140,19 +142,6 @@ internal class SteamSessionManager : IDisposable
         Debug.WriteLine("[SteamSession] 已连接到 Steam");
         Logger.Info("[SteamSession] 已连接到 Steam");
         _connectedEvent.Set();
-        // 连接恢复 → 通知启动流程「自愈重连已经接手」，它就不必再弹登录窗
-        var reconnected = _reconnectPending || _reconnectLoopRunning;
-        if (reconnected)
-        {
-            try
-            {
-                OnReconnected?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[SteamSession] 重连通知异常: {ex.Message}");
-            }
-        }
         // 仅自动重连场景需要在此补登录；首次启动由启动流程负责登录
         if (!_reconnectPending || IsLoggedOn) return;
         _reconnectPending = false;
@@ -447,7 +436,37 @@ internal class SteamSessionManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// 用保存的令牌登录。
+    /// <para>
+    /// 本方法**可被多个调用方并发调用**（启动流程 / 断线重连后的自动重登 / 登录窗口的自动登录），
+    /// 内部已做互斥与短路：
+    /// ① 已登录且连接正常 → 直接返回 true，不再发 LogOn（重复登录会把已有会话顶掉）；
+    /// ② 已有登录流程在跑 → 不再重复发起，记一行日志说明。
+    /// </para>
+    /// </summary>
     public async Task<bool> LoginWithTokenAsync(string username, string refreshToken)
+    {
+        // ① 已经是登录态：没必要再登一次（再登一次服务器会回 LogonSessionReplaced，把现有会话顶掉）
+        if (IsLoggedOn && IsConnected) return true;
+
+        // ② 同刻只允许一个登录流程；拿不到锁就直接返回，由持有者决定结果
+        if (!await _loginGate.WaitAsync(0).ConfigureAwait(false))
+        {
+            Logger.Info("[SteamSession] 已有登录流程在处理，本次令牌登录跳过（避免重复登录顶掉会话）");
+            return false;
+        }
+        try
+        {
+            return await LoginWithTokenCoreAsync(username, refreshToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _loginGate.Release();
+        }
+    }
+
+    private async Task<bool> LoginWithTokenCoreAsync(string username, string refreshToken)
     {
         if (_steamClient == null)
         {
@@ -685,5 +704,6 @@ internal class SteamSessionManager : IDisposable
         _callbackTask?.Wait(3000);
         _cts.Dispose();
         _connectedEvent.Dispose();
+        _loginGate.Dispose();
     }
 }

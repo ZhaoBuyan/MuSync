@@ -250,11 +250,7 @@ internal static class Program
 
     /// <summary>
     /// 等会话真正进入「已登录」状态（50ms 粒度轮询 + 登录成功事件即时唤醒）。
-    /// <para>
-    /// 语义说明（别写回旧版）：<see cref="SteamSessionManager.OnReconnected"/> 只表示
-    /// 「连接已恢复、自愈重登马上开始」，**不等于登录成功**，所以判定只认
-    /// <see cref="SteamSessionManager.IsLoggedOn"/>，不看重连事件。
-    /// </para>
+    /// 判定只认 <see cref="SteamSessionManager.IsLoggedOn"/>：连接恢复不等于登录成功。
     /// </summary>
     private static async Task<bool> WaitForSessionLoginAsync(TimeSpan timeout)
     {

@@ -513,14 +513,7 @@ internal class MainForm : Form
         {
             _lastMusicSourceName = playerName;
             _playerNameLabels[0].Text = Loc.PlayerName(playerName);
-            _playerNameLabels[0].ForeColor = playerName switch
-            {
-                "网易云音乐" => _playerColors[0],
-                "QQ音乐" => _playerColors[1],
-                "LX Music" => _playerColors[2],
-                "酷狗音乐" => _playerColors[3],
-                _ => Color.FromArgb(122, 120, 220)
-            };
+            _playerNameLabels[0].ForeColor = GetPlayerAccentColor(playerName);
         }
         UpdatePlayerDisplay(0, playerInfo, playerName, playerInfo != null, forceRefresh, RpcManager.ErrorCode.None);
     }
@@ -689,6 +682,9 @@ internal class MainForm : Form
         "QQ音乐" => _playerColors[1],
         "LX Music" => _playerColors[2],
         "酷狗音乐" => _playerColors[3],
+        // 千千静听（TTPlayer 重制版）：自有品牌蓝。它没有独立面板（主界面只放四个播放器），
+        // 但当它成为活跃源时，标题/歌名会用到这个强调色
+        "千千静听" => Color.FromArgb(38, 132, 214),
         _ => Color.FromArgb(122, 120, 220)
     };
 

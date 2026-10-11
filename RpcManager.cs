@@ -27,6 +27,15 @@ internal class RpcManager(SteamStatusManager steamManager)
         public DateTime LastCheckTime { get; set; } = DateTime.MinValue;
         public PlayerInfo? PendingUpdateInfo { get; set; }
         public DateTime LastChangeDetectedTime { get; set; } = DateTime.MinValue;
+        /// <summary>
+        /// 「<see cref="LastPolledInfo"/> 里那个播放位置」的采样时刻（仅当位置读数真的变了才更新）。
+        /// <para>
+        /// 为什么不能用 <see cref="LastPollTime"/>：那个每次轮询都会被刷新，而轮询每 233ms 一次，
+        /// 于是「距上次轮询过了多久」永远是 0 → 进度推算等于没推算，只能等源自己上报新位置才跳一下
+        /// （2026-10-11 实测：SMTC 类源表现为约 5 秒跳一次）。
+        /// </para>
+        /// </summary>
+        public DateTime PositionSampleTime { get; set; } = DateTime.MinValue;
         public ErrorCode LastError { get; set; } = ErrorCode.None;
         /// <summary>DLL 未就绪（播放器启动竞态）的起始时间，宽限期内不报错。</summary>
         public DateTime DllNotFoundSinceUtc { get; set; } = DateTime.MinValue;
@@ -48,6 +57,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     private readonly PlayerState _tencentState = new();
     private readonly PlayerState _lxMusicState = new();
     private readonly PlayerState _kuGouState = new();
+    /// <summary>千千静听（TTPlayer 社区重制版）：走 SMTC，不读进程内存。</summary>
+    private readonly PlayerState _ttPlayerState = new();
     private DateTime _lastMemoryLogTime = DateTime.MinValue;
     private volatile bool _stateRefreshRequested;
     private bool _realGameActivePreviously;
@@ -61,7 +72,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     private DateTime _lastAppCheckTime = DateTime.MinValue;
     private List<string>? _cachedPlayerOrder;
     private string _cachedPlayerOrderSignature = "";
-    private static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou"];
+    private static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
     // 进度条推送间隔：跟随用户档位（快速 0.25s / 标准 0.5s / 省流 1s）
@@ -80,6 +91,9 @@ internal class RpcManager(SteamStatusManager steamManager)
     private DateTime _idleSinceUtc = DateTime.MinValue;
     // 非活跃源的探测/轮询间隔（秒）：只有当前活跃源保持全速，节省内存读取与进程枚举
     private const double InactiveCheckIntervalSeconds = 1.0;
+    // 进度推算判定"同一首歌内位置跳变"所需的最小间隔（秒）：间隔太短时位置样本噪声大
+    // （SMTC 的位置是 5 秒级离散值），容易把正常播放误判成跳变
+    private const double MinElapsedForProgressCheckSeconds = 3.0;
     private DateTime _lastProgressUpdateTime = DateTime.MinValue;
     private DateTime _lastTrayStatusUpdateTime = DateTime.MinValue;
 
@@ -113,10 +127,23 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// </summary>
     public void NotifySystemResumed() => MarkTick();
 
+    /// <summary>
+    /// 取某播放器「已按时间对表」的当前位置。**所有对外展示与推送都必须走这里**，
+    /// 不要直接用 <see cref="PlayerState.LastPolledInfo"/> —— 那是源的原始读数，
+    /// 可能 5 秒才更新一次（SMTC 类源），直接用会表现成一跳一跳。
+    /// </summary>
+    private static PlayerInfo? InterpolatedInfoOf(PlayerState state)
+    {
+        var info = state.LastPolledInfo;
+        return info.HasValue
+            ? InterpolatePosition(info.Value, state.PositionSampleTime, DateTime.UtcNow)
+            : null;
+    }
+
     public (PlayerInfo? PlayerInfo, string PlayerName) GetCurrentPlayerInfo()
     {
         var (state, name) = ResolveActiveState();
-        return (state?.LastPolledInfo, name);
+        return (state == null ? null : InterpolatedInfoOf(state), name);
     }
 
     /// <summary>当前生效的程序同步显示名（无则 null）。</summary>
@@ -155,7 +182,8 @@ internal class RpcManager(SteamStatusManager steamManager)
             SnapshotOf(_netEaseState, "网易云音乐", active),
             SnapshotOf(_tencentState, "QQ音乐", active),
             SnapshotOf(_lxMusicState, "LX Music", active),
-            SnapshotOf(_kuGouState, "酷狗音乐", active)
+            SnapshotOf(_kuGouState, "酷狗音乐", active),
+            SnapshotOf(_ttPlayerState, "千千静听", active)
         ];
 
         static PlayerStatus SnapshotOf(PlayerState state, string name, PlayerState? activeState)
@@ -216,6 +244,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         "Tencent" => (_tencentState, "QQ音乐"),
         "LxMusic" => (_lxMusicState, "LX Music"),
         "KuGou" => (_kuGouState, "酷狗音乐"),
+        "TTPlayer" => (_ttPlayerState, "千千静听"),
         _ => null
     };
 
@@ -233,7 +262,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         _lastActiveState = state;
         _lastActiveInfoNull = infoNull;
         _lastPushedAppDisplay = appDisplay;
-        var song = state?.LastPolledInfo;
+        var song = state == null ? null : InterpolatedInfoOf(state);
         if (song != null || appDisplay != null)
         {
             Logger.Info($"[MuSync] 状态合成: 程序={appDisplay ?? "(无)"} 音乐={song?.Title ?? "(无)"}");
@@ -323,6 +352,12 @@ internal class RpcManager(SteamStatusManager steamManager)
                 {
                     _kuGouState.LastCheckTime = currentTime;
                     anyPlayerActive |= await PollKuGouAsync(currentTime);
+                }
+
+                if (ShouldCheckPlayer(_ttPlayerState, activeSnapshot, currentTime))
+                {
+                    _ttPlayerState.LastCheckTime = currentTime;
+                    anyPlayerActive |= await PollTTPlayerAsync(currentTime);
                 }
 
                 // 内存快照：每 10 分钟记一次（用于排查内存增长趋势）
@@ -740,6 +775,47 @@ internal class RpcManager(SteamStatusManager steamManager)
         return false;
     }
 
+    /// <summary>
+    /// 千千静听（TTPlayer 重制版）：探测进程 + 读 SMTC 会话。
+    /// 与其它播放器的区别：不读进程内存、不需要 PID、不需要管理员权限，
+    /// 因此没有 PermissionDenied / DllNotFound 这两类错误（SMTC 拿不到就是"没在播放"）。
+    /// </summary>
+    private async Task<bool> PollTTPlayerAsync(DateTime currentTime)
+    {
+        if (!IsTTPlayerRunning())
+        {
+            CleanupPlayerState(_ttPlayerState, "TTPlayer");
+            RecordPollSuccess(_ttPlayerState);
+            return false;
+        }
+        try
+        {
+            // SMTC 与进程无关，PID 传 0 占位（PollAndUpdatePlayer 只把它转给工厂）
+            await PollAndUpdatePlayer(_ttPlayerState, "TTPlayer", 0,
+                _ => new TTPlayerSmtc(), currentTime);
+            RecordPollSuccess(_ttPlayerState);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[TTPlayer] Error: {ex.Message}");
+            _ttPlayerState.LastError = ErrorCode.None;
+        }
+        return true;
+    }
+
+    /// <summary>千千静听（重制版）主进程是否在运行。</summary>
+    private static bool IsTTPlayerRunning()
+    {
+        try
+        {
+            return System.Diagnostics.Process.GetProcessesByName("TTPlayerRebuild").Length > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private async Task PollAndUpdatePlayer(PlayerState state, string playerName,
         int pid,
         Func<int, IMusicPlayer> playerFactory, DateTime currentTime)
@@ -770,6 +846,14 @@ internal class RpcManager(SteamStatusManager steamManager)
                 await UpdateOrClearSteamStatusAsync(state.PendingUpdateInfo, playerName);
             }
             state.PendingUpdateInfo = null;
+        }
+        // 只有位置读数"真的变了"才更新采样时刻：源的读数在两次上报之间是冻住的，
+        // 这个时刻就是该位置的有效起点，进度推算以它为基准
+        if (state.LastPolledInfo is not { } previousInfo ||
+            !currentInfo.HasValue ||
+            !previousInfo.Schedule.Equals(currentInfo.Value.Schedule))
+        {
+            state.PositionSampleTime = currentTime;
         }
         state.LastPolledInfo = currentInfo;
         state.LastPollTime = currentTime;
@@ -851,6 +935,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         CleanupPlayerState(_tencentState, "Tencent QQMusic");
         CleanupPlayerState(_lxMusicState, "LX Music");
         CleanupPlayerState(_kuGouState, "KuGou");
+        CleanupPlayerState(_ttPlayerState, "TTPlayer");
         _lastActiveState = null;
         _lastActiveInfoNull = true;
         _lastPushedAppDisplay = null;
@@ -879,19 +964,37 @@ internal class RpcManager(SteamStatusManager steamManager)
         state.LastError = newError;
     }
 
-    private static bool DetectStateChange(PlayerInfo? current, PlayerInfo? last, DateTime currentTime,
+    /// <summary>
+    /// 判断本轮读取相对上一轮是否发生变化（换歌 / 暂停态变化 / 同一首歌内进度跳变）。
+    /// internal 便于单测（见 RpcManagerChangeDetectionTests）。
+    /// </summary>
+    internal static bool DetectStateChange(PlayerInfo? current, PlayerInfo? last, DateTime currentTime,
         DateTime lastTime, double tolerance)
     {
         if ((current is null && last is not null) || (current is not null && last is null)) return true;
         if (current is not { } c || last is not { } l) return false;
         if (c.Identity != l.Identity || c.Pause != l.Pause) return true;
+        // 换歌判定：直接比较曲目信息。
+        // ⚠️ 不能只靠下面的"进度推算"（2026-10-11 修）：SMTC 这类源的位置每 ~5 秒才更新一次，
+        // 推算出的偏差常常小于容差，换歌会被误判成"没变化" → 状态迟迟不更新。
+        if (IsDifferentTrack(c, l)) return true;
         if (c.Pause) return false;
+        // 进度推算只用于"同一首歌内位置是否跳变"（拖动进度条等）；
+        // 轮询间隔太短时样本噪声大（SMTC 位置是 5 秒级的离散值），跳过以免误判
         var elapsed = (currentTime - lastTime).TotalSeconds;
+        if (elapsed < MinElapsedForProgressCheckSeconds) return false;
         var progressDelta = c.Schedule - l.Schedule;
         return Math.Abs(progressDelta - elapsed) > tolerance;
     }
 
-    private async Task UpdateOrClearSteamStatusAsync(PlayerInfo? info, string playerName)
+    /// <summary>曲目信息是否不同（换歌 / 切集 / 同曲换版本）。</summary>
+    private static bool IsDifferentTrack(PlayerInfo current, PlayerInfo last) =>
+        !string.Equals(current.Title, last.Title, StringComparison.Ordinal) ||
+        !string.Equals(current.Artists, last.Artists, StringComparison.Ordinal) ||
+        !string.Equals(current.Album, last.Album, StringComparison.Ordinal);
+
+    private async Task UpdateOrClearSteamStatusAsync(PlayerInfo? info, string playerName,
+        PlayerState? state = null, bool onlyIfChanged = true)
     {
         var appDisplay = _activeAppDisplay;
         if (info is not { } playerInfo)
@@ -900,11 +1003,44 @@ internal class RpcManager(SteamStatusManager steamManager)
             await steamManager.UpdateStatusAsync(null, playerName, appDisplay);
             return;
         }
+        // 有状态时把播放位置对表到此刻：源的位置读数可能已经放了好一会儿（约 5 秒一报的源），
+        // 直接用旧读数会看着卡住；这里按「读数采样时刻 → 现在」补上流逝的时间。
+        var toPush = info.Value;
+        if (state != null)
+        {
+            toPush = InterpolatePosition(playerInfo, state.PositionSampleTime, DateTime.UtcNow);
+            // onlyIfChanged：仅用于"内容没变就不发"的省流场景（拖拽防抖）。
+            // 进度刷新必须传 false —— 时间在走、内容一直在变，用省流判断会把推送整个挡掉。
+            if (onlyIfChanged)
+            {
+                var pauseChanged = state.LastPolledInfo is { } last && last.Pause != playerInfo.Pause;
+                if (!pauseChanged) return;
+            }
+        }
         Debug.WriteLine(
-            $"pause: {playerInfo.Pause}, progress: {playerInfo.Schedule}, duration: {playerInfo.Duration}");
+            $"pause: {toPush.Pause}, progress: {toPush.Schedule}, duration: {toPush.Duration}");
         Debug.WriteLine(
-            $"id: {playerInfo.Identity}, name: {playerInfo.Title}, singer: {playerInfo.Artists}, album: {playerInfo.Album}");
-        await steamManager.UpdateStatusAsync(info, playerName, appDisplay);
+            $"id: {toPush.Identity}, name: {toPush.Title}, singer: {toPush.Artists}, album: {toPush.Album}");
+        await steamManager.UpdateStatusAsync(toPush, playerName, appDisplay);
+        // 高频诊断：只写调试输出，不进日志文件（需要时可临时改成 Logger.Info 观察）
+        System.Diagnostics.Debug.WriteLine(
+            $"[推送] 位置 {toPush.Schedule:F1}s / 总 {toPush.Duration:F1}s（{playerName}）" +
+            $"｜Steam 端最近记录：{steamManager.LastPushedStatus}");
+    }
+
+    /// <summary>
+    /// 把播放位置推算到 <paramref name="now"/>：读数位置 + （now − 该读数的采样时刻），并按总时长封顶。
+    /// 纯函数，便于单测（见 RpcManagerProgressInterpolationTests）。
+    /// </summary>
+    internal static PlayerInfo InterpolatePosition(PlayerInfo info, DateTime sampleTime, DateTime now)
+    {
+        if (info.Pause) return info;                      // 暂停时不推进
+        if (sampleTime == DateTime.MinValue) return info; // 没有采样时刻（例如刚开始采集）时原样返回
+        if (info.Duration <= 0) return info;              // 时长未知，无法判断边界
+        var elapsed = (now - sampleTime).TotalSeconds;
+        if (elapsed <= 0) return info;
+        var schedule = Math.Min(info.Schedule + elapsed, info.Duration);
+        return info with { Schedule = schedule };
     }
 
     private async Task UpdateProgressForActivePlayers(DateTime currentTime)
@@ -912,11 +1048,13 @@ internal class RpcManager(SteamStatusManager steamManager)
         var (state, name) = ResolveActiveState();
         if (state?.LastPolledInfo is { Pause: false } info)
         {
-            var elapsedSincePoll = (currentTime - state.LastPollTime).TotalSeconds;
-            var interpolatedSchedule = info.Schedule + elapsedSincePoll;
-            var clampedSchedule = Math.Min(interpolatedSchedule, info.Duration);
-            var updatedInfo = info with { Schedule = clampedSchedule };
-            await steamManager.UpdateStatusAsync(updatedInfo, name, _activeAppDisplay);
+            // 走统一的「对表 + 推送」路径；进度推进必须绕过"内容没变就不发"的省流守卫
+            // （位置每 0.5 秒都在变，绕过守卫才能持续推）
+            await UpdateOrClearSteamStatusAsync(info, name, state, onlyIfChanged: false);
+            // 高频诊断：只写调试输出，不进日志文件
+            System.Diagnostics.Debug.WriteLine(
+                $"[进度] 读数 {info.Schedule:F1}s（采样于 {(currentTime - state.PositionSampleTime).TotalSeconds:F1}s 前）" +
+                $"→ 推算 {InterpolatePosition(info, state.PositionSampleTime, currentTime).Schedule:F1}s / 总 {info.Duration:F1}s（{name}）");
         }
     }
 }

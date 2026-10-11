@@ -18,6 +18,9 @@ internal class SteamStatusManager
     private string _lastSetName = string.Empty;
     private bool _manualPause;
 
+    /// <summary>最近一次成功推送到 Steam 的状态文本（诊断用：核对"实际发出去了什么"）。</summary>
+    public string LastPushedStatus => _lastSetName;
+
     public SteamStatusManager(SteamSessionManager session)
     {
         _session = session;
