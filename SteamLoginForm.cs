@@ -23,6 +23,13 @@ internal sealed class SteamLoginForm : Form
     {
         _session = session;
         InitializeComponent();
+        // 已经登录上就根本不需要登录窗口（例如后台自愈重连先成功了）。
+        // 窗口一显示就自动关掉，避免出现「已经登录、甚至开始同步了，还杵着一个登录窗」。
+        // 2026-10-11 用户实测：这一窗还会诱导用户再登一次，把已有会话顶掉（LogonSessionReplaced）→ 反复掉线。
+        Shown += (s, e) =>
+        {
+            if (_session.IsLoggedOn) CompleteWithSuccess();
+        };
         Load += async (s, e) => await AttemptAutoLogin();
         FormClosed += (s, e) =>
         {
@@ -33,6 +40,15 @@ internal sealed class SteamLoginForm : Form
                 _guardHandler = null;
             }
         };
+    }
+
+    /// <summary>以「登录成功」收尾：记结果、按 OK 关闭窗口（已销毁 / 未建句柄时安全跳过）。</summary>
+    private void CompleteWithSuccess()
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        LoginSucceeded = true;
+        DialogResult = DialogResult.OK;
+        Close();
     }
 
     private void InitializeComponent()
@@ -108,13 +124,26 @@ internal sealed class SteamLoginForm : Form
         UpdateUiState();
         _lblStatus.ForeColor = Color.Blue;
         _lblStatus.Text = Loc.L("正在自动登录...", "Signing in automatically...");
-        var success = await Task.Run(() => _session.LoginWithTokenAsync(savedUser, savedToken));
-        if (IsDisposed || !IsHandleCreated) return;
-        if (success)
+        // 带重试：断线时 LoginWithTokenAsync 会立刻返回失败（NetworkLost），
+        // 而自带的重连循环几秒后就会连上并重登成功 —— 这里多试几轮就不必让用户手填。
+        var success = false;
+        for (var attempt = 0; attempt < 3 && !success; attempt++)
         {
-            LoginSucceeded = true;
-            DialogResult = DialogResult.OK;
-            Close();
+            success = await Task.Run(() => _session.LoginWithTokenAsync(
+                Configurations.Instance.Settings.SteamUsername,
+                Configurations.Instance.Settings.SteamRefreshToken));
+            if (success || IsDisposed || !IsHandleCreated) break;
+            // 令牌已被服务器拒绝：重试没有意义，直接进入手动登录
+            if (_session.TokenLoginRejected) break;
+            ShowStatus(Loc.L("网络未就绪，正在重试...", "Network not ready — retrying..."), Color.Blue);
+            await Task.Delay(1500);
+            if (IsDisposed || !IsHandleCreated) break;
+        }
+        if (IsDisposed || !IsHandleCreated) return;
+        if (success || _session.IsLoggedOn)
+        {
+            // 兜底：窗口存续期间后台（自愈重连）可能已经登录成功
+            CompleteWithSuccess();
         }
         else
         {
@@ -149,9 +178,7 @@ internal sealed class SteamLoginForm : Form
         if (IsDisposed || !IsHandleCreated) return;
         if (success)
         {
-            LoginSucceeded = true;
-            DialogResult = DialogResult.OK;
-            Close();
+            CompleteWithSuccess();
         }
         else
         {

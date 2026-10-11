@@ -59,6 +59,23 @@ internal class SteamSessionManager : IDisposable
 
     /// <summary>登录成功（含断线重连后的令牌重登）。用于触发状态重推。</summary>
     public event Action? OnLoginSucceeded;
+
+    /// <summary>
+    /// 断线后重连成功（TCP 已连上、令牌重登**即将**开始）。
+    /// 启动流程用它把「弹出登录窗口」的窗口期打开：连接一恢复就让自愈重连先跑，不必让用户手填。
+    /// </summary>
+    public event Action? OnReconnected;
+
+    /// <summary>
+    /// 最近一次令牌登录是否**被服务器明确拒绝**（令牌失效这类，重试没有意义，必须让用户重新登录）。
+    /// <para>
+    /// ⚠️ 这是「要不要弹登录窗」的判据，不能只看 <see cref="LoginWithTokenAsync"/> 的返回值：
+    /// 断网 / 超时（NetworkLost、Timeout）它也返回 false，但那属于程序内可自愈的失败，
+    /// 自带的重连循环几秒后就会自己登录成功 —— 此时弹窗会「抢跑」。
+    /// （2026-10-11 用户实测：弹窗弹出后 2 秒，后台就自己登录成功了，窗口却还杵在屏幕上）
+    /// </para>
+    /// </summary>
+    public bool TokenLoginRejected { get; private set; }
     private TaskCompletionSource<string>? _guardCodeTcs;
 
     public void Start()
@@ -123,6 +140,19 @@ internal class SteamSessionManager : IDisposable
         Debug.WriteLine("[SteamSession] 已连接到 Steam");
         Logger.Info("[SteamSession] 已连接到 Steam");
         _connectedEvent.Set();
+        // 连接恢复 → 通知启动流程「自愈重连已经接手」，它就不必再弹登录窗
+        var reconnected = _reconnectPending || _reconnectLoopRunning;
+        if (reconnected)
+        {
+            try
+            {
+                OnReconnected?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SteamSession] 重连通知异常: {ex.Message}");
+            }
+        }
         // 仅自动重连场景需要在此补登录；首次启动由启动流程负责登录
         if (!_reconnectPending || IsLoggedOn) return;
         _reconnectPending = false;
@@ -443,6 +473,7 @@ internal class SteamSessionManager : IDisposable
         };
         _cmRetryCount = 0;
         LoginError = null;
+        TokenLoginRejected = false;   // 每次令牌尝试都重新判定，避免上一轮的结论影响本轮
         _lastLogOnDetails = logOnDetails;
         _steamUser!.LogOn(logOnDetails);
         var waitResult = await WaitForLogOnResultAsync(logOnDetails, 360);
@@ -460,6 +491,7 @@ internal class SteamSessionManager : IDisposable
             return false;
         }
         // 仅当服务器明确拒绝（如令牌已失效）时才清除
+        TokenLoginRejected = true;   // 交给调用方判定「必须让用户重新登录」（网络类失败不算）
         Debug.WriteLine("[SteamSession] Token 登录失败，清除已保存令牌");
         Logger.Warn("[SteamSession] Token 登录失败，已清除保存的令牌，需要重新登录");
         Configurations.Instance.Settings.SteamRefreshToken = "";

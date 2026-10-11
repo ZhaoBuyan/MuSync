@@ -156,7 +156,13 @@ internal static class Program
         _ = CheckUpdatesInBackgroundAsync();
     }
 
-    /// <summary>后台尝试令牌自动登录；失败则在 UI 线程弹出登录窗口。</summary>
+    /// <summary>
+    /// 启动阶段令牌登录两次尝试之间的间隔：连接刚启动时可能还没稳住（首连抖动），
+    /// 间隔一下再试，多数情况第二次就能登上，不必弹登录窗口。
+    /// </summary>
+    private const int ReconnectRetryDelaySeconds = 3;
+
+    /// <summary>后台尝试令牌自动登录；只有「确定需要人工登录」时才弹登录窗口。</summary>
     private static async Task StartupSteamLoginAsync()
     {
         try
@@ -168,16 +174,60 @@ internal static class Program
             if (hasSavedToken)
             {
                 var username = config.SteamUsername;
-                var refreshToken = config.SteamRefreshToken;
-                var ok = await Task.Run(() => _sessionManager.LoginWithTokenAsync(username, refreshToken));
-                if (ok)
+                // 启动阶段允许「多次尝试」而不是一次定生死：刚启动时连接可能还没稳住
+                //（首连抖动 → 令牌调用立刻以 NetworkLost 失败），多试两轮就能自己登上，不必惊动用户。
+                // 可用环境变量 MUSYNC_TOKEN_ATTEMPT_LIMIT 把次数上限压到 1（取值 1~5），
+                // 用于在真实环境里复现「启动时令牌先失败、随后自愈重连成功」这条路径。
+                var maxAttempts = 3;
+                if (int.TryParse(Environment.GetEnvironmentVariable("MUSYNC_TOKEN_ATTEMPT_LIMIT"), out var limit) &&
+                    limit is >= 1 and <= 5)
+                {
+                    maxAttempts = limit;
+                }
+                var ok = false;
+                for (var attempt = 1; attempt <= maxAttempts && !ok; attempt++)
+                {
+                    // 每轮重新取令牌：被服务器拒绝时会被清空，那就没有可试的了
+                    var token = Configurations.Instance.Settings.SteamRefreshToken;
+                    if (string.IsNullOrEmpty(token)) break;
+                    ok = await Task.Run(() => _sessionManager.LoginWithTokenAsync(username, token));
+                    if (ok) break;
+                    if (_sessionManager.IsLoggedOn) break;
+                    if (_sessionManager.TokenLoginRejected)
+                    {
+                        // 服务器明确拒绝（令牌失效）：再试也没用，直接走人工登录
+                        Logger.Warn("[Program] 令牌已被服务器拒绝，不再重试");
+                        break;
+                    }
+                    if (attempt < maxAttempts)
+                    {
+                        Logger.Info($"[Program] 令牌自动登录未完成，{ReconnectRetryDelaySeconds} 秒后重试（第 {attempt + 1}/{maxAttempts} 次）");
+                        await Task.Delay(TimeSpan.FromSeconds(ReconnectRetryDelaySeconds));
+                    }
+                }
+                if (ok || _sessionManager.IsLoggedOn)
                 {
                     Logger.Info("[Program] Token 自动登录成功");
                     return;
                 }
-                Logger.Warn("[Program] Token 自动登录失败，弹出登录窗口");
+                // 失败 != 需要人工登录：断网 / 超时属于可自愈失败，自带的重连循环几秒后就会自己登录成功。
+                // 先等一会儿（重连成功会立刻唤醒），登录上了就不弹窗 —— 否则会出现
+                // 「已经登录上、甚至都开始同步了，却还弹着一个登录窗」，用户再点一次登录还会把会话顶掉
+                // （LogonSessionReplaced → 反复掉线重连）。2026-10-11 用户实测。
+                if (await WaitForSessionLoginAsync(TimeSpan.FromSeconds(30)))
+                {
+                    Logger.Info("[Program] 令牌自动重连登录成功，无需手动登录");
+                    return;
+                }
+                if (!_sessionManager.TokenLoginRejected)
+                {
+                    // 不是「令牌被服务器拒绝」，而是网络一直没恢复：留给后台重连继续自愈，不打扰用户
+                    Logger.Warn("[Program] 令牌登录未完成且网络未恢复，交给后台自动重连，暂不弹登录窗口");
+                    return;
+                }
+                Logger.Warn("[Program] 令牌已被服务器拒绝，需要在登录窗口重新登录");
             }
-            // 走到这里说明需要手动登录；Idle 回调运行在 UI 线程，await 后仍回 UI 线程，弹模态窗安全
+            // 走到这里说明确实需要手动登录；Idle 回调运行在 UI 线程，await 后仍回 UI 线程，弹模态窗安全
             using var loginForm = new SteamLoginForm(_sessionManager);
             loginForm.ShowDialog();
             if (loginForm.LoginSucceeded)
@@ -195,6 +245,39 @@ internal static class Program
         catch (Exception ex)
         {
             Logger.Error($"[Program] 启动登录流程异常: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// 等会话真正进入「已登录」状态（50ms 粒度轮询 + 登录成功事件即时唤醒）。
+    /// <para>
+    /// 语义说明（别写回旧版）：<see cref="SteamSessionManager.OnReconnected"/> 只表示
+    /// 「连接已恢复、自愈重登马上开始」，**不等于登录成功**，所以判定只认
+    /// <see cref="SteamSessionManager.IsLoggedOn"/>，不看重连事件。
+    /// </para>
+    /// </summary>
+    private static async Task<bool> WaitForSessionLoginAsync(TimeSpan timeout)
+    {
+        if (_sessionManager == null) return false;
+        if (_sessionManager.IsLoggedOn) return true;
+
+        var manager = _sessionManager;
+        var signal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnLoggedOn() => signal.TrySetResult(true);
+        manager.OnLoginSucceeded += OnLoggedOn;
+        try
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                if (manager.IsLoggedOn) return true;
+                await Task.WhenAny(signal.Task, Task.Delay(50));
+            }
+            return manager.IsLoggedOn;
+        }
+        finally
+        {
+            manager.OnLoginSucceeded -= OnLoggedOn;
         }
     }
 
