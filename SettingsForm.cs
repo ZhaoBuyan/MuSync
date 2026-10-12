@@ -707,7 +707,32 @@ internal sealed class SettingsForm : Form
         };
         importButton.Click += ImportRulesButton_Click;
 
-        page.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton, exportButton, importButton]);
+        // 两行说明放在按钮下方：
+        // ① 讲清分类建议的来源与读取范围（本地库、不联网），消除"是不是要联网/AI"的疑虑；
+        // ② 顺带把库规模写出来（内置多少个程序），让"为什么它能认出这个程序"变得可解释。
+        var sourceHint = new Label
+        {
+            AutoSize = true,
+            Location = new Point(10, 324),
+            ForeColor = Color.Gray,
+            Font = new Font("Microsoft YaHei", 8),
+            Text = Loc.L(
+                "分类建议来自本机内置程序名库（不联网，只读进程名与窗口标题）",
+                "Suggestions come from the built-in local app library (offline; only process names and window titles are read)")
+        };
+        var librarySizeHint = new Label
+        {
+            AutoSize = true,
+            Location = new Point(10, 344),
+            ForeColor = Color.Gray,
+            Font = new Font("Microsoft YaHei", 8),
+            Text = Loc.L(
+                $"内置 {AppClassifier.LibrarySize} 个程序（含忽略名单）",
+                $"{AppClassifier.LibrarySize} apps built in (including the ignore list)")
+        };
+
+        page.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton, exportButton, importButton,
+            sourceHint, librarySizeHint]);
         return page;
     }
 
@@ -1031,7 +1056,7 @@ internal sealed class SettingsForm : Form
             return;
         }
         var (category, suggestedName, _) = AppClassifier.Suggest(
-            foreground.ExeName, foreground.WindowTitle, foreground.IsFullscreen);
+            foreground.ExeName, foreground.WindowTitle, foreground.IsFullscreen, foreground.ExePath);
         _rules.Add(new AppRule
         {
             ExeName = foreground.ExeName,

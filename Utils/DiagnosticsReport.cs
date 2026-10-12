@@ -107,14 +107,22 @@ internal static class DiagnosticsReport
     private static void AppendAppSyncInfo(StringBuilder sb)
     {
         var config = Configurations.Instance.Settings;
-        if (!config.AppSyncEnabled)
+        var scope = config.SyncNonGameApps ? Loc.L("含非游戏程序", "Includes non-game apps") : Loc.L("仅游戏", "Games only");
+        // 程序名库规模与「程序同步是否开启」无关，单独一行、永远输出：
+        // 这个数字随版本变化，反馈问题时据此就能看出用户用的是哪一版库。
+        var librarySize = Loc.L($"程序名库：{AppClassifier.LibrarySize} 条", $"App library: {AppClassifier.LibrarySize} entries");
+        if (config.AppSyncEnabled)
+        {
+            var current = Program.GetRpcManager()?.GetActiveAppDisplay();
+            sb.AppendLine(Loc.L(
+                $"程序同步：开启（{scope}）｜ 当前：{current ?? "（无）"}",
+                $"App sync: on ({scope}) | current: {current ?? "(None)"}"));
+        }
+        else
         {
             sb.AppendLine(Loc.L("程序同步：关闭", "App sync: off"));
-            return;
         }
-        var scope = config.SyncNonGameApps ? Loc.L("含非游戏程序", "Includes non-game apps") : Loc.L("仅游戏", "Games only");
-        var current = Program.GetRpcManager()?.GetActiveAppDisplay();
-        sb.AppendLine(Loc.L($"程序同步：开启（{scope}）｜ 当前：{current ?? "（无）"}", $"App sync: on ({scope}) | current: {current ?? "(None)"}"));
+        sb.AppendLine(librarySize);
     }
 
     /// <summary>关键设置摘要。</summary>

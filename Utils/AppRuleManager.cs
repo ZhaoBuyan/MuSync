@@ -31,8 +31,9 @@ internal static class AppRuleManager
             return rule.Enabled ? (rule, false) : (null, false);
         }
         // 自动发现：本地分类器给初步分类与显示名
+        // 带上 exe 路径：未收录的程序优先用文件版本信息里的产品名当建议名，比 "xxx.exe" 好认
         var (category, suggestedName, fromDictionary) = AppClassifier.Suggest(
-            app.ExeName, app.WindowTitle, app.IsFullscreen);
+            app.ExeName, app.WindowTitle, app.IsFullscreen, app.ExePath);
         var newRule = new AppRule
         {
             ExeName = app.ExeName,

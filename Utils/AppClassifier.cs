@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using MuSync.Models;
 namespace MuSync.Utils;
@@ -282,50 +283,133 @@ internal static class AppClassifier
     public static bool IsBuiltInIgnored(string exeName) => BuiltInIgnored.Contains(exeName);
 
     /// <summary>
+    /// 程序名库规模（内置字典 + 内置忽略名单）：设置页「程序」页展示用，
+    /// 让用户一眼看出分类建议来自本机库、不需要联网。
+    /// </summary>
+    public static int LibrarySize => KnownPrograms.Count + BuiltInIgnored.Count;
+
+    /// <summary>
     /// 给新发现的程序一个分类与显示名建议。
     /// FromDictionary=true 表示命中了内置字典（置信度较高）。
+    /// <para>
+    /// <paramref name="exePath"/> 可选：给了就优先从可执行文件的版本信息取产品名，
+    /// 免得程序列表里出现一堆 "xxx.exe" 这种没人看得懂的名字。
+    /// </para>
     /// </summary>
     public static (AppCategory Category, string SuggestedName, bool FromDictionary) Suggest(
-        string exeName, string windowTitle, bool isFullscreen)
+        string exeName, string windowTitle, bool isFullscreen, string? exePath = null)
     {
         if (KnownPrograms.TryGetValue(exeName, out var known))
         {
             return (known.Category, known.Name, true);
         }
+        var suggestedName = SuggestedNameOf(exeName, windowTitle, exePath);
         var lower = exeName.ToLowerInvariant();
         if (lower.Contains("game") || lower.Contains("launcher") || lower.Contains("unity") ||
             lower.Contains("unreal") || lower.Contains("play"))
         {
-            return (AppCategory.Game, DefaultName(exeName, windowTitle), false);
+            return (AppCategory.Game, suggestedName, false);
         }
         if (isFullscreen)
         {
-            return (AppCategory.Game, DefaultName(exeName, windowTitle), false);
+            return (AppCategory.Game, suggestedName, false);
         }
         if (lower.Contains("code") || lower.Contains("studio") || lower.Contains("edit") ||
             lower.Contains("term"))
         {
-            return (AppCategory.Work, DefaultName(exeName, windowTitle), false);
+            return (AppCategory.Work, suggestedName, false);
         }
         if (lower.Contains("player") || lower.Contains("music") || lower.Contains("video"))
         {
-            return (AppCategory.Media, DefaultName(exeName, windowTitle), false);
+            return (AppCategory.Media, suggestedName, false);
         }
-        return (AppCategory.Other, DefaultName(exeName, windowTitle), false);
+        return (AppCategory.Other, suggestedName, false);
     }
 
-    private static string DefaultName(string exeName, string windowTitle)
+    /// <summary>
+    /// 未收录程序的显示名：优先取可执行文件版本信息里的产品名，其次窗口标题，
+    /// 都没有才退回文件名（去掉 .exe）。
+    /// <para>
+    /// 为什么标题放在第二档：标题常带当前文档名（"文档 - 程序"），不如产品名稳定；
+    /// 但版本信息并不总有（自解压包、部分国产绿色软件），所以仍要留作兜底。
+    /// </para>
+    /// </summary>
+    public static string SuggestedNameOf(string exeName, string windowTitle, string? exePath = null)
     {
-        if (!string.IsNullOrWhiteSpace(windowTitle))
-        {
-            var title = windowTitle.Trim();
-            // 窗口标题常形如 "文档 - 程序"，过长时截取（用户可在设置里改）
-            if (title.Length > 40)
-            {
-                title = title[..40];
-            }
-            return title;
-        }
+        var productName = ReadProductName(exePath);
+        if (productName.Length > 0) return productName;
+        if (!string.IsNullOrWhiteSpace(windowTitle)) return Truncate(windowTitle.Trim());
         return Path.GetFileNameWithoutExtension(exeName);
     }
+
+    /// <summary>
+    /// 从可执行文件的版本信息里取程序名（ProductName 优于 FileDescription）。
+    /// 任何失败（路径为空、文件被删、权限不足、没有版本资源）都返回空串，由调用方退回下一档。
+    /// 只读取文件的版本资源，不执行、不联网。
+    /// </summary>
+    public static string ReadProductName(string? exePath)
+    {
+        if (string.IsNullOrWhiteSpace(exePath)) return "";
+        try
+        {
+            var info = FileVersionInfo.GetVersionInfo(exePath);
+            var name = PickUsefulName(info.ProductName, info.FileDescription);
+            return name.Length > 0 ? Truncate(name) : "";
+        }
+        catch (Exception ex)
+        {
+            // 读不到版本信息是常态（绿色软件、自解压包），只记调试输出，不进日志文件
+            Debug.WriteLine($"[AppClassifier] 读取版本信息失败({exePath}): {ex.Message}");
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// 在候选名里挑一个能用的：跳过空串、资源占位符（形如 "@%1"、"%1"）与
+    /// 微软系程序常见的泛化产品名（"Microsoft® Windows® Operating System" 之类，
+    /// 拿来当"正在玩"的名字毫无信息量，不如退回窗口标题）。
+    /// </summary>
+    internal static string PickUsefulName(params string?[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            var name = candidate?.Trim() ?? "";
+            if (name.Length == 0) continue;
+            if (name.Contains('%') || name.StartsWith('@')) continue;
+            if (IsGenericName(name)) continue;
+            return name;
+        }
+        return "";
+    }
+
+    /// <summary>泛化到没有信息量的产品名：这类名字下退回窗口标题或文件名反而更好认。</summary>
+    private static bool IsGenericName(string name)
+    {
+        // 去掉 ® ™ 与空白后比较，免得 "Microsoft® Windows®" 这类因符号漏网
+        var normalized = name.Replace("®", "").Replace("™", "").Replace(" ", "").Trim();
+        foreach (var generic in GenericProductNames)
+        {
+            if (normalized.Equals(generic, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    private static readonly string[] GenericProductNames =
+    [
+        "MicrosoftWindowsOperatingSystem",
+        "WindowsOperatingSystem",
+        "MicrosoftWindows",
+        "Windows",
+        "MicrosoftCorporation",
+        "Microsoft",
+        "Application",
+        "App",
+        "Setup",
+        "Installer",
+        "Java(TM)PlatformSEbinary",
+        "JavaPlatformSEbinary"
+    ];
+
+    /// <summary>过长时截取（用户可在设置里改）。</summary>
+    private static string Truncate(string value) => value.Length > 40 ? value[..40] : value;
 }
