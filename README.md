@@ -6,7 +6,7 @@ By [ZhaoBuyan](https://github.com/ZhaoBuyan)
 
 **Sync what you're listening to — and what you're running — to your Steam status, in real time.**
 
-Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music — download, sign in, done. Free forever. Runs on 64-bit Windows 10 / 11.
+Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer — download, sign in, done. Free forever. Runs on 64-bit Windows 10 / 11.
 
 ![Steam friends list](docs/steam-preview.png)
 
@@ -43,7 +43,7 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or s
 
 ### Music sync
 
-- Supports NetEase Cloud Music / QQ Music / LX Music / KuGou Music
+- Supports NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer (community rebuild)
 - Multiple players running at once are arbitrated automatically: whatever is playing wins; player priority is adjustable in Settings and takes effect immediately
 - Music and app sync have independent switches; with "Hide music status when paused" enabled, a paused player never shows up in your friends list
 
@@ -110,6 +110,9 @@ Upgrading: the app checks for updates automatically — for the full/lite editio
 - **LX Music is not detected**
   Please enable "Open API service" under LX Music → Settings → Open API, and allow LAN access.
 
+- **TTPlayer is not detected / which build do I need**
+  You need the **community rebuild** ([Sonic853/TTPlayer](https://github.com/Sonic853/TTPlayer)). MuSync reads it through the Windows **System Media Transport Controls (SMTC)**, and the original 2011 TTPlayer 5.7.9 does not implement that interface, so it cannot be read or detected. Detection is based on the app identity (`Sonic853.TTPlayerRebuild`), so changing the build or renaming the executable does not affect it.
+
 - **Will my settings and login survive an upgrade?**
   Yes. Config and login token live in `%LocalAppData%\MuSync\config.json`, separate from the program files, and are picked up automatically after replacing the program (the token is DPAPI-encrypted, so the same PC and user won't need to sign in again).
 
@@ -164,7 +167,7 @@ MainForm / SettingsForm        # main window / settings dialog (single window, t
 FormatBlockEditorForm          # block editor
 UpdateForm                     # update dialog (download / open release page)
 SteamLoginForm                 # Steam sign-in window
-Players/                       # player readers (NetEase / QQ / LX Music / KuGou)
+Players/                       # player readers (NetEase / QQ / LX Music / KuGou / TTPlayer)
 Utils/                         # foreground watcher / classifier / template codec / updates / logging / DPAPI etc.
 Models/                        # data models
 Win32Api/                      # Win32 / process memory access

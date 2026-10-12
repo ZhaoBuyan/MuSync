@@ -6,7 +6,7 @@
 
 **把你在听的音乐，实时同步到 Steam 状态。**
 
-支持网易云音乐 / QQ 音乐 / LX Music（洛雪）/ 酷狗音乐——下载、登录、即用，永久免费。适用于 64 位 Windows 10 / 11。
+支持网易云音乐 / QQ 音乐 / LX Music（洛雪）/ 酷狗音乐 / 千千静听——下载、登录、即用，永久免费。适用于 64 位 Windows 10 / 11。
 
 ![Steam 好友列表效果](docs/steam-preview.png)
 
@@ -43,7 +43,7 @@
 
 ### 音乐同步
 
-- 支持网易云音乐 / QQ 音乐 / LX Music（洛雪）/ 酷狗音乐
+- 支持网易云音乐 / QQ 音乐 / LX Music（洛雪）/ 酷狗音乐 / 千千静听（社区重制版）
 - 多播放器同时运行时自动仲裁：正在播放的优先；播放器优先级可在设置中调整，立即生效
 - 音乐与程序同步有各自独立的开关；开启「暂停时隐藏」后，挂着暂停的播放器不会出现在好友列表里
 
@@ -110,6 +110,9 @@ VS Code ‖ 正在听：稻香 - 周杰伦                    ← 一边写代�
 - **洛雪音乐不识别**
   请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，并允许来自局域网的访问。
 
+- **千千静听不识别 / 需要装哪个版本**
+  需要**社区重制版**（[Sonic853/TTPlayer](https://github.com/Sonic853/TTPlayer)）。MuSync 是通过 Windows **系统媒体控件（SMTC）** 读取它的，而 2011 年的原版千千静听 5.7.9 没有实现这个接口，读不到，也不会被识别。识别依据是应用标识（`Sonic853.TTPlayerRebuild`），所以换版本、改文件名都不影响识别。
+
 - **升级后设置和登录会丢吗**
   不会。配置与登录令牌存放在 `%LocalAppData%\MuSync\config.json`，与程序文件分离，替换程序后自动沿用（令牌经 DPAPI 加密，同一台电脑同一用户无需重新登录）。
 
@@ -164,7 +167,7 @@ MainForm / SettingsForm        # 主界面 / 设置窗口（单窗多页）
 FormatBlockEditorForm          # 积木编辑器
 UpdateForm                     # 更新窗口（下载 / 跳转发布页）
 SteamLoginForm                 # Steam 登录窗口
-Players/                       # 播放器读取（网易云 / QQ / LX Music / 酷狗）
+Players/                       # 播放器读取（网易云 / QQ / LX Music / 酷狗 / 千千静听）
 Utils/                         # 前台检测 / 分类器 / 模板编解码 / 更新 / 日志 / DPAPI 等
 Models/                        # 数据模型
 Win32Api/                      # Win32 / 进程内存访问
