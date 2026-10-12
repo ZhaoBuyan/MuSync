@@ -86,8 +86,20 @@ internal class RpcManager(SteamStatusManager steamManager)
         SyncSpeedLevel.Economic => 1.0,
         _ => 0.5
     };
-    // 有播放器在跑时高频轮询；空闲时降低频率省电
+    // 有播放器在「播放」时高频轮询；空闲时降低频率省电
     private static readonly TimeSpan ActivePollInterval = TimeSpan.FromMilliseconds(233);
+    /// <summary>
+    /// 只检测到播放器进程、但它是暂停态的轮询间隔。
+    /// <para>
+    /// 暂停时播放位置不会变，没必要按 233ms 去读内存（既费 CPU，也平白多读播放器内存）。
+    /// 降到 1 秒：恢复播放最多晚 ~1 秒被察觉（那之后立刻回全速）。
+    /// </para>
+    /// <para>
+    /// ⚠️ 判定必须用「本轮有没有读到正在播放的源」，不能用「有没有检测到播放器进程」：
+    /// 后者在暂停时同样为真，等于没降频（2026-10-12 加这一段时确认过这一点）。
+    /// </para>
+    /// </summary>
+    private static readonly TimeSpan PausedPollInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan IdlePollInterval = TimeSpan.FromMilliseconds(1200);
     // 深度空闲（没音乐、也没程序来源，且已持续 ≥5 分钟）：进一步降到 3s 一轮省电
     private static readonly TimeSpan DeepIdlePollInterval = TimeSpan.FromSeconds(3);
@@ -325,7 +337,10 @@ internal class RpcManager(SteamStatusManager steamManager)
         while (!token.IsCancellationRequested)
         {
             var currentTime = DateTime.UtcNow;
+            // anyPlayerActive：本轮检测到播放器进程（决定"是否算空闲"）
+            // anyPlayerPlaying：本轮读到**正在播放**的源（决定节拍快慢 —— 暂停时降到 1 秒）
             var anyPlayerActive = false;
+            var anyPlayerPlaying = false;
             try
             {
                 // 本 tick 的活跃源（活跃源全速轮询；其余降频，节省内存读取与进程枚举）
@@ -337,31 +352,41 @@ internal class RpcManager(SteamStatusManager steamManager)
                 if (ShouldCheckPlayer(_netEaseState, activeSnapshot, currentTime))
                 {
                     _netEaseState.LastCheckTime = currentTime;
-                    anyPlayerActive |= await PollNetEaseAsync(currentTime);
+                    var detected = await PollNetEaseAsync(currentTime);
+                    anyPlayerActive |= detected;
+                    anyPlayerPlaying |= detected && IsPlaying(_netEaseState);
                 }
 
                 if (ShouldCheckPlayer(_tencentState, activeSnapshot, currentTime))
                 {
                     _tencentState.LastCheckTime = currentTime;
-                    anyPlayerActive |= await PollTencentAsync(currentTime);
+                    var detected = await PollTencentAsync(currentTime);
+                    anyPlayerActive |= detected;
+                    anyPlayerPlaying |= detected && IsPlaying(_tencentState);
                 }
 
                 if (ShouldCheckPlayer(_lxMusicState, activeSnapshot, currentTime))
                 {
                     _lxMusicState.LastCheckTime = currentTime;
-                    anyPlayerActive |= await PollLxMusicAsync(currentTime);
+                    var detected = await PollLxMusicAsync(currentTime);
+                    anyPlayerActive |= detected;
+                    anyPlayerPlaying |= detected && IsPlaying(_lxMusicState);
                 }
 
                 if (ShouldCheckPlayer(_kuGouState, activeSnapshot, currentTime))
                 {
                     _kuGouState.LastCheckTime = currentTime;
-                    anyPlayerActive |= await PollKuGouAsync(currentTime);
+                    var detected = await PollKuGouAsync(currentTime);
+                    anyPlayerActive |= detected;
+                    anyPlayerPlaying |= detected && IsPlaying(_kuGouState);
                 }
 
                 if (ShouldCheckPlayer(_ttPlayerState, activeSnapshot, currentTime))
                 {
                     _ttPlayerState.LastCheckTime = currentTime;
-                    anyPlayerActive |= await PollTTPlayerAsync(currentTime);
+                    var detected = await PollTTPlayerAsync(currentTime);
+                    anyPlayerActive |= detected;
+                    anyPlayerPlaying |= detected && IsPlaying(_ttPlayerState);
                 }
 
                 // 内存快照：每 10 分钟记一次（用于排查内存增长趋势）
@@ -447,7 +472,18 @@ internal class RpcManager(SteamStatusManager steamManager)
                 }
                 var idleFor = _idleSinceUtc == DateTime.MinValue ? TimeSpan.Zero : DateTime.UtcNow - _idleSinceUtc;
                 MarkTick();
-                WaitForNextTick(ComputePollDelay(anyPlayerActive, _activeAppDisplay != null, idleFor), token);
+                var pausedOnly = anyPlayerActive && !anyPlayerPlaying;
+                LogPollTier(anyPlayerPlaying ? 0
+                    : pausedOnly ? 1
+                    : _activeAppDisplay != null ? 2
+                    : idleFor >= DeepIdleAfter ? 3 : 2);
+                WaitForNextTick(
+                    ComputePollDelay(
+                        anyPlayerPlaying,
+                        pausedOnly,
+                        hasAppSource: _activeAppDisplay != null,
+                        idleFor),
+                    token);
             }
         }
         Logger.Info("[MuSync] 主循环已停止");
@@ -596,17 +632,51 @@ internal class RpcManager(SteamStatusManager steamManager)
     }
 #endif
 
-    /// <summary>本 tick 结束后要等多久：有源全速；有程序来源或空闲不足 5 分钟按普通空闲；深度空闲 3s。</summary>
-    internal static TimeSpan ComputePollDelay(bool anyPlayerActive, bool hasAppSource, TimeSpan idleFor)
+    /// <summary>
+    /// 本 tick 结束后要等多久。
+    /// <para>有源**正在播放** → 全速；只检测到播放器进程但为暂停态 → 暂停档（1s）；</para>
+    /// <para>有程序来源或空闲不足 5 分钟 → 普通空闲；深度空闲 → 3s。</para>
+    /// <para>
+    /// <paramref name="pausedOnly"/> 表示"有播放器进程、但本轮没读到正在播放的源"。
+    /// 它与 <paramref name="anyPlayerPlaying"/> 同时为真是不可能的，调用方按实际状态传即可。
+    /// </para>
+    /// </summary>
+    internal static TimeSpan ComputePollDelay(bool anyPlayerPlaying, bool pausedOnly, bool hasAppSource, TimeSpan idleFor)
     {
-        if (anyPlayerActive) return ActivePollInterval;
+        if (anyPlayerPlaying) return ActivePollInterval;
+        if (pausedOnly) return PausedPollInterval;
         if (hasAppSource) return IdlePollInterval;
         return idleFor >= DeepIdleAfter ? DeepIdlePollInterval : IdlePollInterval;
     }
 
-    /// <summary>非活跃源降频：活跃源每 tick 检查；其余每 1 秒检查一次。</summary>
-    private static bool ShouldCheckPlayer(PlayerState state, PlayerState? activeState, DateTime currentTime)
+    /// <summary>
+    /// 该播放器是否**正在播放**（有信息且未暂停）。
+    /// 暂停与"没读到信息"都算否 —— 节拍放慢的前提是位置不会变。
+    /// </summary>
+    private static bool IsPlaying(PlayerState state) => state.LastPolledInfo is { Pause: false };
+
+    /// <summary>
+    /// 节拍档位变了就写一条日志（只记变化，正常听歌下一小时也就几条）。
+    /// 用途：暂停降频这类"看不见的行为"必须能从日志核对，否则只能靠猜
+    /// （2026-10-12 排查轮询相关问题时反复吃过这个亏）。
+    /// </summary>
+    private void LogPollTier(int tier)
     {
+        if (tier == _lastLoggedPollTier) return;
+        _lastLoggedPollTier = tier;
+        var text = tier switch
+        {
+            0 => "全速 233ms（有源正在播放）",
+            1 => "暂停档 1s（播放器在，但已暂停）",
+            2 => "空闲 1.2s",
+            _ => $"深空闲 {DeepIdlePollInterval.TotalSeconds:F0}s"
+        };
+        Logger.Info($"[MuSync] 节拍切换: {text}");
+    }
+    private int _lastLoggedPollTier = -1;
+
+    /// <summary>非活跃源降频：活跃源每 tick 检查；其余每 1 秒检查一次。</summary>
+    private static bool ShouldCheckPlayer(PlayerState state, PlayerState? activeState, DateTime currentTime)    {
         if (state == activeState) return true;
         return (currentTime - state.LastCheckTime).TotalSeconds >= InactiveCheckIntervalSeconds;
     }
