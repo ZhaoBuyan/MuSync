@@ -29,7 +29,20 @@ internal class ConfigData
     public bool CloseToTray { get; set; } = true;
     public bool StartInTray { get; set; }
 
-    /// <summary>配置结构版本（用于未来迁移；当前为 1）。</summary>
+    /// <summary>
+    /// 配置结构版本。
+    /// <para>
+    /// 当前为 1，且**没有迁移代码**：新增字段一律靠"缺失即取默认值"兼容（配合宽容枚举解析），
+    /// 因此这个数字目前只作记录，不参与任何判定。
+    /// </para>
+    /// <para>
+    /// ⚠️ 两点务必注意（2026-10-12 复核）：
+    /// ① 用户机器上的实际值可能**高于**本常量（已实测到 `SchemaVersion: 3`，来自早已放弃的 v0.5.0 预览版）。
+    ///    读进来是什么就存回什么，不要"纠正"成 1 —— 那是无意义的改动，还会盖掉磁盘上的真实来源信息。
+    /// ② 真正的迁移分支（`MigrateSettings`）从未进过 main，只在那个放弃的分支上存在；
+    ///    将来若要做配置迁移，编号从这里重新定，不要沿用那个分支的 2/3 语义。
+    /// </para>
+    /// </summary>
     public int SchemaVersion { get; set; } = 1;
 
     /// <summary>外观：标题（播放器名）颜色是否跟随播放器品牌色。</summary>

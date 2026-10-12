@@ -20,7 +20,7 @@ internal static class AppRuleExchange
 {
     /// <summary>信封标识，导入时用来确认文件确实是本程序导出的规则。</summary>
     public const string FormatTag = "musync-app-rules";
-    /// <summary>信封版本号（仅 1，将来加字段时递增）。</summary>
+    /// <summary>信封版本号（当前 1）。导入时若文件版本更高会被拒绝，避免用旧口径解析新格式。</summary>
     public const int FormatVersion = 1;
 
     /// <summary>导出信封。字段用 camelCase，与配置文件的 PascalCase 有意区分：这是对外交换格式。</summary>
@@ -103,6 +103,20 @@ internal static class AppRuleExchange
         if (envelope?.Rules == null)
         {
             return new ImportResult { Error = "文件里没有 rules 列表，可能不是本程序导出的规则文件。" };
+        }
+
+        // 信封版本校验（2026-10-12 补）：原先 Version 只写不校验 —— 将来格式升到 2 时，
+        // 旧版本程序会拿 1 的解析口径硬读新文件，字段对不上就可能导入出错数据，
+        // 而且完全无声。现在"比本程序支持的版本新"一律拒绝，并说清原因。
+        // 缺 version 字段（旧文件 / 手工拼的）按 1 处理，保持向后兼容。
+        var fileVersion = envelope.Version ?? FormatVersion;
+        if (fileVersion > FormatVersion)
+        {
+            return new ImportResult
+            {
+                Error = $"这份规则文件来自更新的 MuSync（规则格式版本 {fileVersion}，" +
+                        $"本程序只认到 {FormatVersion}）。请先升级 MuSync 再导入。"
+            };
         }
 
         var reasons = new List<string>();

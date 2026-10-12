@@ -32,9 +32,12 @@ internal static class AppClassifier
         "360tray.exe", "360se.exe", "huorong.exe", "hipstray.exe",
         "nvcontainer.exe", "rtss.exe", "msiafterburner.exe", "fraps.exe",
         // 游戏反作弊 / 运行时辅助进程：它们会随游戏一起出现、还常抢到前台，
-        // 若不忽略，"正在玩"会显示成反作弊而不是游戏本身（ACE = 腾讯反作弊，均为 SGuard 系列）
-        "anticheatexpert.exe", "acegame.exe",
+        // 若不忽略，"正在玩"会显示成反作弊而不是游戏本身
+        // （ACE = 腾讯反作弊，主进程为 SGuard 系列、辅助进程为 ACE-Helper；
+        //   aces / aces_BE 是 BattlEye 的启动器 —— 2026-10-12 按用户实机进程补齐这几条）
+        "anticheatexpert.exe", "acegame.exe", "ace-helper.exe",
         "sguard.exe", "sguard64.exe", "sguardsvc.exe", "sguardsvc64.exe",
+        "aces.exe", "aces_be.exe", "belauncher.exe",
         "mhyprot3.exe", "easyanticheat.exe", "easyanticheat_eos.exe", "beservice.exe", "bedaisy.exe",
         "vgc.exe", "vgtray.exe", "riotclientservices.exe"
     };
@@ -53,7 +56,11 @@ internal static class AppClassifier
             ["minecraft.exe"] = (AppCategory.Game, "Minecraft"),
             ["hmcl.exe"] = (AppCategory.Game, "Minecraft"),
             ["pcl.exe"] = (AppCategory.Game, "Minecraft"),
+            // 启动器用的是通用名（含空格），必须精确匹配；实机进程名，2026-10-12 补
+            ["plain craft launcher 2.exe"] = (AppCategory.Game, "Plain Craft Launcher"),
             ["strinova.exe"] = (AppCategory.Game, "卡拉彼丘"),
+            // 卡拉彼丘的 UE 打包名（实机进程名，2026-10-12 补）
+            ["calabiyau-win64-shipping.exe"] = (AppCategory.Game, "卡拉彼丘"),
             ["naraka.exe"] = (AppCategory.Game, "永劫无间"),
             ["deltarune.exe"] = (AppCategory.Game, "Deltarune"),
             ["bluearchive.exe"] = (AppCategory.Game, "蔚蓝档案"),
@@ -239,6 +246,8 @@ internal static class AppClassifier
             ["ms-teams.exe"] = (AppCategory.Social, "Microsoft Teams"),
             ["skype.exe"] = (AppCategory.Social, "Skype"),
             ["kook.exe"] = (AppCategory.Social, "KOOK"),
+            // 语音 / 聊天客户端（实机进程名，2026-10-12 补）
+            ["oopz.exe"] = (AppCategory.Social, "Oopz"),
             ["yylite.exe"] = (AppCategory.Social, "YY"),
             ["yy.exe"] = (AppCategory.Social, "YY"),
             // 浏览器 / 其他
@@ -251,6 +260,8 @@ internal static class AppClassifier
             ["quark.exe"] = (AppCategory.Other, "夸克"),
             ["360chromex.exe"] = (AppCategory.Other, "360 极速浏览器"),
             ["uu_launcher.exe"] = (AppCategory.Other, "UU 加速器"),
+            // 加速器主程序（实机进程名，2026-10-12 补）
+            ["uu.exe"] = (AppCategory.Other, "UU 加速器"),
             ["heyboxacc.exe"] = (AppCategory.Other, "小黑盒加速器"),
             ["sakuralauncher.exe"] = (AppCategory.Other, "SakuraFrp"),
             ["i4launcher.exe"] = (AppCategory.Other, "爱思助手"),

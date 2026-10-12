@@ -203,6 +203,45 @@ public class AppRuleExchangeTests : IDisposable
     }
 
     [Fact]
+    public void Import_NewerFormatVersion_IsRejectedWithClearReason()
+    {
+        // 回归（2026-10-12 补）：原先 Version 只写不校验，旧程序会拿旧口径硬读新格式文件。
+        // 现在比本程序支持的版本新就必须拒绝，并说明"请先升级"
+        var path = PathOf("future.json");
+        File.WriteAllText(path, """
+        { "format": "musync-app-rules", "version": 99, "rules": [ { "ExeName": "a.exe" } ] }
+        """, new UTF8Encoding(false));
+
+        var result = AppRuleExchange.Import(path, []);
+
+        Assert.False(result.Ok);
+        Assert.Contains("升级", result.Error!, StringComparison.Ordinal);
+        Assert.Empty(result.Merged);
+    }
+
+    [Fact]
+    public void Import_SameOrOlderFormatVersion_StillWorks()
+    {
+        // 当前版本与缺少 version 字段（旧文件 / 手工拼的）都要照常导入
+        var current = PathOf("v1.json");
+        File.WriteAllText(current, """
+        { "format": "musync-app-rules", "version": 1, "rules": [ { "ExeName": "a.exe" } ] }
+        """, new UTF8Encoding(false));
+        var missingVersion = PathOf("noversion.json");
+        File.WriteAllText(missingVersion, """
+        { "format": "musync-app-rules", "rules": [ { "ExeName": "b.exe" } ] }
+        """, new UTF8Encoding(false));
+
+        var fromCurrent = AppRuleExchange.Import(current, []);
+        var fromMissing = AppRuleExchange.Import(missingVersion, []);
+
+        Assert.True(fromCurrent.Ok, fromCurrent.Error);
+        Assert.Equal("a.exe", Assert.Single(fromCurrent.Merged).ExeName);
+        Assert.True(fromMissing.Ok, fromMissing.Error);
+        Assert.Equal("b.exe", Assert.Single(fromMissing.Merged).ExeName);
+    }
+
+    [Fact]
     public void Import_EmptyExeName_CountedAsIgnored()
     {
         var path = PathOf("emptyexe.json");

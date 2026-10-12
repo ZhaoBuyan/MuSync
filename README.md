@@ -51,6 +51,8 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or s
 
 - Sync the running state of any app to Steam: games, work software (like VS Code), anything
 - A built-in library recognizes 200+ common apps, plus fullscreen detection, to auto-classify them (game / work / media / social — adjustable)
+- A newly seen app's name comes from the product name written inside its own executable (e.g. "Plain Craft Launcher" instead of `Plain Craft Launcher 2.exe`); if there is none, the window title is used, and the file name as a last resort. **Fully offline** — only the executable's version resource is read
+- The Apps page states where suggestions come from (the local library, offline, reading only process names and window titles) and how large that library is
 - New apps land in the list for confirmation; you can also add the current foreground app from Settings
 - The main-window panel shows the current state: green = pushed to Steam / yellow = paused (manually or a game was detected) / blue = recognized but **category not confirmed yet** / grey = idle
 - Rules can be **exported / imported** (Settings → Apps): export to a JSON file for moving to another machine, backing up, or sharing your tuned category list; import only adds what's missing and never overwrites your local settings, and nothing is written until you confirm
@@ -63,7 +65,7 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or s
 - Template presets: one click to switch between "Simple / With prefix (Playing·Listening) / Name only"
 - Progress bar style: presets plus any characters you like, length 1–50; emoji work out of the box, e.g. `[❤️❤️❤️❤️❤️❤️💕💕💕💕] 1:59/3:32`
 - Appearance: title / song colors, font, background color, background image (stretch / fit / tile / center) — all customizable with one-click reset
-- Album art: NetEase / QQ Music / KuGou show the cover provided by the player; the TTPlayer community rebuild only exposes a thumbnail stream through the System Media Transport Controls, so no cover is shown there and a colour placeholder is used instead
+- Album art: NetEase / QQ Music show the cover provided by the player; **KuGou** provides none, so its app icon is used as a placeholder; the **TTPlayer** community rebuild only exposes a thumbnail stream through the System Media Transport Controls, so no cover is shown there and a colour placeholder is used instead
 - Crop the background image by dragging a frame after picking it (no frame = use the whole image); the main window scales to the image's aspect ratio, keeping its center and staying on screen
 - Combined display and separator are configurable; text over Steam's limit is truncated intelligently at 128 bytes
 - Persistent status: when nothing is playing and no app is being synced, show a custom line instead of clearing your status (emoji supported) — toggle it in Settings → Display
@@ -88,8 +90,9 @@ Strinova                                                         ← playing a n
 
 ### Desktop & settings
 
-- Two panels on the main window: "Music" (follows the current player) and "App" — with live sync status; double-click the song title to open its page in your browser
+- Two panels on the main window: "Music" (follows the current player) and "App" — with live sync status; double-click the song title to open its page in your browser (NetEase / QQ Music provide such a link; KuGou / TTPlayer do not)
 - Lives in the notification area: hover shows the current status, right-click offers "Pause sync" for temporary invisibility, optional start with Windows
+- No more high-frequency memory reads while paused: when a player is running but paused, reads drop from every 233 ms to once a second, and playback restarting is noticed within a second (the log records the change as `节拍切换: 暂停档 1s`)
 - The Settings dialog is a single window with tabs: General / Sync / Display / Apps / Diagnostics / About
 - Update check: on launch, then every 6 hours; new versions surface on the "Settings" button and tray menu; the update dialog can download directly — the full/lite editions use "Exit & open folder" for a manual replace, the installer edition updates with one click ("Update now")
 - The Diagnostics tab offers "Copy diagnostics" (one-click copy of the full state) and "Open logs folder"; logs live in `%LocalAppData%\MuSync\logs\` and are cleaned up automatically — only the last 7 days and up to 20 MB are kept

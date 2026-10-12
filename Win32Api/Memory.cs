@@ -192,8 +192,6 @@ internal sealed partial class ProcessMemory(nint process) : IDisposable
         => BitConverter.ToDouble(ReadBytes(IntPtr.Add(address, offset), 8), 0);
     public long ReadInt64(IntPtr address, int offset = 0)
         => BitConverter.ToInt64(ReadBytes(IntPtr.Add(address, offset), 8), 0);
-    public ulong ReadUInt64(IntPtr address, int offset = 0)
-        => BitConverter.ToUInt64(ReadBytes(IntPtr.Add(address, offset), 8), 0);
     public short ReadInt16(IntPtr address, int offset = 0)
         => BitConverter.ToInt16(ReadBytes(IntPtr.Add(address, offset), 2), 0);
     public int ReadInt32(IntPtr address, int offset = 0)

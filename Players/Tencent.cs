@@ -44,8 +44,6 @@ internal sealed class Tencent : IMusicPlayer
             throw;
         }
     }
-    public bool Validate(int pid)
-        => _pid == pid;
     public void Dispose() => _process.Dispose();
 
     public Task<PlayerInfo?> GetPlayerInfoAsync()

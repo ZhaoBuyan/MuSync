@@ -68,6 +68,14 @@ internal class MainForm : Form
     private readonly string[] _currentCacheKeys = ["", "", ""];
     private readonly PlayerInfo?[] _lastPlayerInfos = new PlayerInfo?[3];
     private readonly bool[] _lastActiveStates = new bool[3];
+    /// <summary>
+    /// 当前正在显示的"占位封面"（播放器不提供封面时用它自己的图标）及其来源路径。
+    /// 单独持有引用是为了在两首歌 / 两个播放器之间切换时把上一张图 Dispose 掉，避免 GDI 句柄泄漏。
+    /// </summary>
+    private readonly Image?[] _placeholderImages = new Image?[3];
+    private readonly string[] _placeholderIconPaths = ["", "", ""];
+    /// <summary>歌曲标题的"双击可打开歌曲页"提示（ToolTip 组件需长期持有，否则会被回收）。</summary>
+    private readonly ToolTip _songUrlHint = new();
     private string _lastMusicSourceName = "";
     public MainForm()
     {
@@ -360,6 +368,11 @@ internal class MainForm : Form
             Margin = new Padding(0)
         };
         songTitleLabel.DoubleClick += (_, _) => OpenSongUrl(index);
+        // 双击打开歌曲页：只有网易云 / QQ 音乐提供链接（酷狗、千千静听没有），
+        // 用工具提示把这件事说在前面 —— 否则用户双击没反应，会以为程序坏了
+        _songUrlHint.SetToolTip(songTitleLabel, Loc.L(
+            "双击打开歌曲页面（网易云 / QQ 音乐提供该链接）",
+            "Double-click to open the song page (NetEase / QQ Music provide such a link)"));
         textFlowPanel.Controls.AddRange(songTitleLabel, artistLabel, albumLabel);
         var statusLabel = new Label
         {
@@ -621,15 +634,24 @@ internal class MainForm : Form
             else
             {
                 _currentCacheKeys[index] = "";
-                // 酷狗不提供封面：用它自己的应用图标作为占位图
-                var kuGouIcon = playerName == "酷狗音乐" ? KuGou.GetAppIcon() : null;
-                if (kuGouIcon != null)
+                // 播放器不提供封面（酷狗、千千静听）时，用**它自己的图标**当占位图，比空白灰块可读。
+                // 图标每次现取（LoadExecutableIcon 每次都返回新对象，见其注释），
+                // 因此这里按"占位图来源路径是否变化"决定要不要换，而不是比引用 —— 否则每秒都会换一次图。
+                var placeholderPath = GetPlaceholderIconSource(playerName);
+                if (placeholderPath != null)
                 {
-                    if (!ReferenceEquals(_coverPictureBoxes[index].Image, kuGouIcon))
+                    if (_placeholderIconPaths[index] != placeholderPath)
                     {
-                        _coverPictureBoxes[index].BackColor = Color.White;
-                        _coverPictureBoxes[index].Image = kuGouIcon;
-                        _currentCoverUrls[index] = "";
+                        var icon = AppResource.LoadExecutableIcon(placeholderPath);
+                        if (icon != null)
+                        {
+                            _placeholderIconPaths[index] = placeholderPath;
+                            _placeholderImages[index]?.Dispose();
+                            _placeholderImages[index] = icon;
+                            _coverPictureBoxes[index].BackColor = Color.White;
+                            _coverPictureBoxes[index].Image = icon;
+                            _currentCoverUrls[index] = "";
+                        }
                     }
                 }
                 else if (_coverPictureBoxes[index].Image != null)
@@ -637,6 +659,9 @@ internal class MainForm : Form
                     _coverPictureBoxes[index].Image = null;
                     _coverPictureBoxes[index].BackColor = Color.LightGray;
                     _currentCoverUrls[index] = "";
+                    _placeholderIconPaths[index] = "";
+                    _placeholderImages[index]?.Dispose();
+                    _placeholderImages[index] = null;
                 }
             }
             // 标题与歌名颜色：默认跟随播放器品牌色，可在设置→显示→外观中自定义
@@ -702,6 +727,46 @@ internal class MainForm : Form
         "TTPlayer" => "千千静听",
         _ => ""
     };
+
+    /// <summary>
+    /// 哪些播放器需要"用自身图标当封面占位"：酷狗与千千静听都不提供封面 URL。
+    /// 返回可执行文件路径；拿不到（进程已退出 / 读不到路径）返回 null，此时界面退回空白灰块。
+    /// 千千静听同样读它自己的进程路径，不依赖任何接口。
+    /// </summary>
+    private static string? GetPlaceholderIconSource(string playerName)
+    {
+        string? path = playerName switch
+        {
+            "酷狗音乐" => KuGou.FindAppIconPath(),
+            "千千静听" => GetProcessPathByName("TTPlayerRebuild"),
+            _ => null
+        };
+        return path != null && System.IO.File.Exists(path) ? path : null;
+    }
+
+    private static string? GetProcessPathByName(string processName)
+    {
+        try
+        {
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                try
+                {
+                    var path = process.MainModule?.FileName;
+                    if (!string.IsNullOrEmpty(path)) return path;
+                }
+                catch
+                {
+                    // 提权 / 受保护进程读不到路径：跳过
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Diagnose($"获取 {processName} 路径失败: {ex.Message}");
+        }
+        return null;
+    }
 
     /// <summary>
     /// 播放器强调色（主界面标题与歌名共用，取 <see cref="_playerColors"/> 品牌色）。internal 便于单测。

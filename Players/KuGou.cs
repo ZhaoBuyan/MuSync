@@ -43,12 +43,12 @@ internal sealed class KuGou : IMusicPlayer
     /// <summary>当前绑定的进程 PID（父级检测到进程更替后据此重建实例）。</summary>
     public int Pid => _pid;
 
-    private static Image? _appIconImage;
-
-    /// <summary>提取酷狗应用图标（作为无封面歌曲的占位图），只提取一次。</summary>
-    public static Image? GetAppIcon()
+    /// <summary>
+    /// 提取酷狗应用图标所在的 exe 路径（供主界面用它当"无封面歌曲"的占位图）。
+    /// 只负责找路径；图标提取与缓存由 <see cref="AppResource.LoadExecutableIcon"/> 统一实现。
+    /// </summary>
+    public static string? FindAppIconPath()
     {
-        if (_appIconImage != null) return _appIconImage;
         try
         {
             foreach (var process in Process.GetProcessesByName("KuGou"))
@@ -57,15 +57,7 @@ internal sealed class KuGou : IMusicPlayer
                 {
                     var path = process.MainModule?.FileName;
                     if (string.IsNullOrEmpty(path) || !File.Exists(path)) continue;
-                    Icon? icon = null;
-                    try { icon = new Icon(path, 128, 128); } catch { }
-                    icon ??= Icon.ExtractAssociatedIcon(path);
-                    if (icon != null)
-                    {
-                        _appIconImage = icon.ToBitmap();
-                        icon.Dispose();
-                        return _appIconImage;
-                    }
+                    return path;
                 }
                 catch
                 {
@@ -75,9 +67,9 @@ internal sealed class KuGou : IMusicPlayer
         }
         catch (Exception e)
         {
-            Debug.WriteLine($"[KuGou] 提取应用图标失败: {e.Message}");
+            Debug.WriteLine($"[KuGou] 查找应用图标路径失败: {e.Message}");
         }
-        return _appIconImage;
+        return null;
     }
 
     /// <summary>酷狗主进程：全部 KuGou.exe 中能读到「酷狗音乐」标题窗口的那个。</summary>

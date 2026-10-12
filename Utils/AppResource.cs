@@ -1,4 +1,7 @@
+using System;
+using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Reflection;
 namespace MuSync.Utils;
 /// <summary>内嵌资源访问：程序图标（读取失败时回退系统默认图标）。</summary>
@@ -17,6 +20,72 @@ internal static class AppResource
         catch
         {
             Icon = SystemIcons.Application;
+        }
+    }
+
+    /// <summary>
+    /// 提取可执行文件的关联图标并转成位图。
+    /// <para>
+    /// 用途：某些播放器不提供专辑封面（酷狗、千千静听），主界面用播放器自己的图标当占位图，
+    /// 比空白灰块可读得多。大尺寸优先（128×128），失败再退回系统关联图标。
+    /// </para>
+    /// <para>
+    /// ⚠️ **每次都返回新对象**（调用方负责 Dispose）：主界面靠"引用是否相同"判断要不要换图，
+    /// 缓存同一个实例会让它在被清理后就再也刷不出来（2026-10-12 统一两处实现时确认过这个坑）。
+    /// 文件不存在或提取失败一律返回 null，不抛异常。
+    /// </para>
+    /// </summary>
+    public static Image? LoadExecutableIcon(string? exePath)
+    {
+        if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) return null;
+        if (!LooksLikeExecutable(exePath)) return null;
+        try
+        {
+            Icon? icon = null;
+            try { icon = new Icon(exePath, 128, 128); } catch { /* 没有 128×128 就退回系统图标 */ }
+            icon ??= Icon.ExtractAssociatedIcon(exePath);
+            if (icon is null) return null;
+            using (icon)
+            {
+                return icon.ToBitmap();
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AppResource] 提取程序图标失败({exePath}): {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 粗校验是不是可执行文件（PE）：先看 "MZ"，再按 e_lfanew 找 "PE\0\0"。
+    /// <para>
+    /// 为什么需要它（2026-10-12 实测）：随便一个非 PE 文件丢给
+    /// <c>Icon.ExtractAssociatedIcon</c> 也会返回一个图标（不抛异常），
+    /// 于是"提取失败"和"提取到一个无意义的默认图标"分不出来。
+    /// 校验之后，非可执行文件一律走"没有图标"分支，界面退回空白灰块，语义才正确。
+    /// </para>
+    /// </summary>
+    private static bool LooksLikeExecutable(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            Span<byte> dos = stackalloc byte[64];
+            if (stream.Read(dos) < 64) return false;
+            if (dos[0] != (byte)'M' || dos[1] != (byte)'Z') return false;
+            var peOffset = BitConverter.ToInt32(dos[0x3C..0x40]);
+            if (peOffset <= 0 || peOffset > stream.Length - 4) return false;
+            stream.Position = peOffset;
+            Span<byte> signature = stackalloc byte[4];
+            if (stream.Read(signature) < 4) return false;
+            return signature[0] == (byte)'P' && signature[1] == (byte)'E'
+                   && signature[2] == 0 && signature[3] == 0;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AppResource] 校验可执行文件失败({path}): {ex.Message}");
+            return false;
         }
     }
 }

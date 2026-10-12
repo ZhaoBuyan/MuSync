@@ -58,9 +58,29 @@ public class AppClassifierTests
         Assert.True(AppClassifier.IsBuiltInIgnored("EasyAntiCheat.exe"));
         Assert.True(AppClassifier.IsBuiltInIgnored("SGuardSvc64.exe"));
         Assert.True(AppClassifier.IsBuiltInIgnored("mhyprot3.exe"));
+        // 2026-10-12 按用户实机进程补：腾讯 ACE 的辅助进程与 BattlEye 的启动器
+        Assert.True(AppClassifier.IsBuiltInIgnored("ACE-Helper.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("aces.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("aces_BE.exe"));
         // 安装 / 更新程序
         Assert.True(AppClassifier.IsBuiltInIgnored("unins000.exe"));
         Assert.True(AppClassifier.IsBuiltInIgnored("msiexec.exe"));
+    }
+
+    [Theory]
+    [InlineData("Calabiyau-Win64-Shipping.exe", (int)AppCategory.Game, "卡拉彼丘")]
+    [InlineData("Plain Craft Launcher 2.exe", (int)AppCategory.Game, "Plain Craft Launcher")]
+    [InlineData("uu.exe", (int)AppCategory.Other, "UU 加速器")]
+    [InlineData("oopz.exe", (int)AppCategory.Social, "Oopz")]
+    public void Suggest_RealMachineProcesses_FromUserConfig_AreRecognized(
+        string exeName, int expectedCategory, string expectedName)
+    {
+        // 这些名字来自用户实机的 config.json 里"未被收录"的条目，按实际进程名精确补入
+        var (category, name, fromDictionary) = AppClassifier.Suggest(exeName, "", false);
+
+        Assert.Equal((AppCategory)expectedCategory, category);
+        Assert.Equal(expectedName, name);
+        Assert.True(fromDictionary, $"{exeName} 应命中内置程序名库");
     }
 
     [Fact]

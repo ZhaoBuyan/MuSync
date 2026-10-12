@@ -22,12 +22,6 @@ internal static class Logger
     public static void Error(string message) => Write("ERROR", message);
 
     [Conditional("DEBUG")]
-    public static void Debug(string message)
-    {
-        System.Diagnostics.Debug.WriteLine($"[DEBUG] {message}");
-    }
-
-    [Conditional("DEBUG")]
     public static void Diagnose(string message)
     {
         System.Diagnostics.Debug.WriteLine($"[DIAGNOSE] {message}");
