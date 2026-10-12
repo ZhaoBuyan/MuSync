@@ -72,7 +72,11 @@ internal class RpcManager(SteamStatusManager steamManager)
     private DateTime _lastAppCheckTime = DateTime.MinValue;
     private List<string>? _cachedPlayerOrder;
     private string _cachedPlayerOrderSignature = "";
-    private static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
+    /// <summary>
+    /// 内置播放器优先级顺序。internal 供测试核对「每个播放器在数据层、默认配置、界面键表里都不缺角色」
+    /// （2026-10-12 复核发现的正是这类缺口：千千静听加进来时，主界面面板与品牌色都没跟上）。
+    /// </summary>
+    internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
     // 进度条推送间隔：跟随用户档位（快速 0.25s / 标准 0.5s / 省流 1s）
@@ -181,7 +185,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         [
             SnapshotOf(_netEaseState, "网易云音乐", active),
             SnapshotOf(_tencentState, "QQ音乐", active),
-            SnapshotOf(_lxMusicState, "LX Music", active),
+            SnapshotOf(_lxMusicState, "洛雪音乐", active),
             SnapshotOf(_kuGouState, "酷狗音乐", active),
             SnapshotOf(_ttPlayerState, "千千静听", active)
         ];
@@ -242,7 +246,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     {
         "NetEase" => (_netEaseState, "网易云音乐"),
         "Tencent" => (_tencentState, "QQ音乐"),
-        "LxMusic" => (_lxMusicState, "LX Music"),
+        "LxMusic" => (_lxMusicState, "洛雪音乐"),
         "KuGou" => (_kuGouState, "酷狗音乐"),
         "TTPlayer" => (_ttPlayerState, "千千静听"),
         _ => null

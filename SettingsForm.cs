@@ -89,7 +89,8 @@ internal sealed class SettingsForm : Form
     private readonly Timer _perfTimer = new() { Interval = 2000 };
     private readonly Timer _previewTimer = new() { Interval = 2000 };
 
-    private static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
+    /// <summary>播放器键表。internal 供测试核对「与 RpcManager.DefaultPlayerOrder / ConfigData.PlayerPriority 三处一致」。</summary>
+    internal static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
 
     public SettingsForm()
     {

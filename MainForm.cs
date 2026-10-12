@@ -13,6 +13,10 @@ namespace MuSync;
 internal class MainForm : Form
 {
     private readonly Timer _updateTimer;
+    // 下面这七个数组按「最多 3 块播放器面板」的容量声明，但主界面实际只创建第 0 块
+    // （见 InitializeComponent 的 CreatePlayerPanel(0)）：当前设计是"只展示当前活跃源"，
+    // 新增播放器（如千千静听）不需要新面板，只需要在 _playerKeys / _playerColors / Loc.PlayerName 里有角色。
+    // 保留数组形态不动 —— 收缩容量属于 UI 结构调整，本项目已明确不做界面重构。
     private readonly Panel[] _playerPanels = new Panel[3];
     private readonly PictureBox[] _coverPictureBoxes = new PictureBox[3];
     private readonly Label[] _songTitleLabels = new Label[3];
@@ -34,19 +38,31 @@ internal class MainForm : Form
     private FadingButton _settingsButton = null!;
     private bool _updateBadgeVisible;
     private GradientDivider? _appSyncDivider;
-    private readonly string[] _playerNames =
-    [
-        Loc.L("网易云音乐", "NetEase Cloud Music"), Loc.L("QQ音乐", "QQ Music"),
-        Loc.L("洛雪音乐", "LX Music"), Loc.L("酷狗音乐", "KuGou Music")
-    ];
-    // 播放器品牌色（主界面标题、歌名与面板图标共用）：网易云红 / QQ音乐绿 / 洛雪青绿 / 酷狗蓝
-    private static readonly Color[] _playerColors =
+    /// <summary>
+    /// 数据层播放器键（与 <c>RpcManager.DefaultPlayerOrder</c> 同口径），顺序即面板编号。
+    /// internal 供测试核对「每个键都有品牌色、都能被 Loc.PlayerName 翻译」——
+    /// 千千静听接入时就漏了这两处（名字有、颜色与面板文案没有）。
+    /// </summary>
+    internal static readonly string[] _playerKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
+    /// <summary>
+    /// 播放器品牌色（标题、歌名与面板图标共用）：网易云红 / QQ音乐绿 / 洛雪青绿 / 酷狗蓝 / 千千静听品牌蓝。
+    /// 与 <see cref="_playerKeys"/> **一一对应**；千千静听原先只在 GetPlayerAccentColor 里硬编码，
+    /// 现收进这张表，并由测试保证两者不脱节（曾出现"改了名字忘了颜色"）。
+    /// </summary>
+    internal static readonly Color[] _playerColors =
     [
         Color.FromArgb(211, 58, 49),
         Color.FromArgb(49, 194, 124),
         Color.FromArgb(0, 179, 134),
-        Color.FromArgb(47, 110, 224)
+        Color.FromArgb(47, 110, 224),
+        Color.FromArgb(38, 132, 214)
     ];
+    /// <summary>
+    /// 主界面标题用的播放器显示名（按 <see cref="_playerKeys"/> 顺序）。
+    /// ⚠️ 在构造函数里赋值（而非字段初始化器）：字段初始化器在窗体构造之前就把语言固化下来，
+    /// 而语言敏感测试会先按中文建一次窗体、再切英文建一次 —— 那会拿到上一轮的语言。
+    /// </summary>
+    private readonly string[] _playerNames;
     private readonly string[] _currentSongIds = new string[3];
     private readonly string[] _currentCoverUrls = ["", "", ""];
     private readonly string[] _currentCacheKeys = ["", "", ""];
@@ -55,6 +71,7 @@ internal class MainForm : Form
     private string _lastMusicSourceName = "";
     public MainForm()
     {
+        _playerNames = _playerKeys.Select(Loc.PlayerName).ToArray();
         InitializeComponent();
         SetupForm();
         _updateTimer = new Timer { Interval = 1000 }; 
@@ -675,18 +692,42 @@ internal class MainForm : Form
             _currentCacheKeys[index] = string.Empty;
         }
     }
-    /// <summary>播放器强调色（主界面标题与歌名共用，取品牌色）。</summary>
-    private static Color GetPlayerAccentColor(string playerName) => playerName switch
+    /// <summary>数据层 key → 中文显示名（与 RpcManager.GetPlayerEntry 的口径一致）。</summary>
+    internal static string PlayerNameFor(string key) => key switch
     {
-        "网易云音乐" => _playerColors[0],
-        "QQ音乐" => _playerColors[1],
-        "LX Music" => _playerColors[2],
-        "酷狗音乐" => _playerColors[3],
-        // 千千静听（TTPlayer 重制版）：自有品牌蓝。它没有独立面板（主界面只放四个播放器），
-        // 但当它成为活跃源时，标题/歌名会用到这个强调色
-        "千千静听" => Color.FromArgb(38, 132, 214),
-        _ => Color.FromArgb(122, 120, 220)
+        "NetEase" => "网易云音乐",
+        "Tencent" => "QQ音乐",
+        "LxMusic" => "洛雪音乐",
+        "KuGou" => "酷狗音乐",
+        "TTPlayer" => "千千静听",
+        _ => ""
     };
+
+    /// <summary>
+    /// 播放器强调色（主界面标题与歌名共用，取 <see cref="_playerColors"/> 品牌色）。internal 便于单测。
+    /// <para>
+    /// ⚠️ 必须**同时认数据层 key 与中文名**：调用方（<c>RpcManager.ResolveActiveState</c>）传来的
+    /// <c>playerName</c> 是中文名（"酷狗音乐"），而 <see cref="_playerKeys"/> 里是 key（"KuGou"）。
+    /// 只认 key 的话，酷狗与千千静听会静默掉进兜底色 —— 2026-10-12 自查时正是踩了这个坑。
+    /// </para>
+    /// </summary>
+    internal static Color GetPlayerAccentColor(string playerName)
+    {
+        var index = Array.IndexOf(_playerKeys, playerName);
+        if (index < 0)
+        {
+            // 中文名形态：按 key 顺序逐个比对中文名
+            for (var i = 0; i < _playerKeys.Length; i++)
+            {
+                if (PlayerNameFor(_playerKeys[i]) == playerName)
+                {
+                    index = i;
+                    break;
+                }
+            }
+        }
+        return index >= 0 ? _playerColors[index] : Color.FromArgb(122, 120, 220);
+    }
 
     // ================= 背景图比例跟随 =================
 

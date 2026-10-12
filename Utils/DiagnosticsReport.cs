@@ -77,7 +77,9 @@ internal static class DiagnosticsReport
         }
         foreach (var status in rpc.GetPlayerStatusSnapshot())
         {
-            sb.AppendLine($"{status.Name}：{DescribePlayer(status)}");
+            // 快照里的名字是数据层口径（中文，如「洛雪音乐」）；展示前统一过一遍 Loc.PlayerName，
+            // 否则英文界面下会冒出中文名（2026-10-12 复核：洛雪那条曾硬编码成 "LX Music"，与中英映射口径不一致）
+            sb.AppendLine($"{Loc.PlayerName(status.Name)}：{DescribePlayer(status)}");
         }
     }
 

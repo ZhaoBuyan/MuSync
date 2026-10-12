@@ -10,7 +10,6 @@ namespace MuSync.Utils;
 /// <summary>封面图片 LRU 缓存：容量上限 / 内存压力联动清理 / 活动键保护。</summary>
 internal static class ImageCacheManager
 {
-    private static readonly int MaxCacheSize = PerformanceConfig.ImageCacheMaxSize;
     private static readonly Dictionary<string, LinkedListNode<CacheItem>> Cache = new();
     private static readonly LinkedList<CacheItem> LruList = [];
     private static readonly Lock LockObject = new();
@@ -28,7 +27,17 @@ internal static class ImageCacheManager
             }
         }
     }
+    /// <summary>
+    /// 已经写过诊断日志的封面键（只用于「每个键只记一次」的日志去重，DEBUG 构建才有意义）。
+    /// <para>
+    /// ⚠️ 这里**必须**有上限：图片缓存本身有 LRU 上限，但这个集合原先没上限，
+    /// 而唯一清理它的 <c>ClearAllCache</c> 在主项目里没有任何调用方 →
+    /// 长时间使用（尤其单曲封面 URL 带歌曲 ID 时）它会随歌曲数无界增长。
+    /// 清空只意味着某些键会再记一次日志，对功能零影响。
+    /// </para>
+    /// </summary>
     private static readonly HashSet<string> LoggedCacheKeys = [];
+    private const int LoggedKeysMaxSize = 2000;
     /// <summary>缓存条目（键 / 图片 / 最近访问时间）。</summary>
     private class CacheItem(string key, Image image)
     {
@@ -47,69 +56,6 @@ internal static class ImageCacheManager
                 {
                     ActiveKeys.Add(key);
                 }
-            }
-        }
-    }
-    public static void PerformAggressiveCleanup()
-    {
-        lock (LockObject)
-        {
-            var currentMemory = MemoryPressureMonitor.GetCurrentMemoryUsage();
-            List<string> keysToRemove;
-            if (currentMemory > 30 * 1024 * 1024)
-            {
-                var targetCount = Math.Max(5, Cache.Count / 2); 
-                keysToRemove = Cache.OrderBy(kvp => kvp.Value.Value.LastAccessed)
-                    .Take(Cache.Count - targetCount)
-                    .Select(kvp => kvp.Key)
-                    .ToList();
-                foreach (var key in keysToRemove)
-                {
-                    RemoveFromCacheInternal(key);
-                }
-                Logger.Diagnose(
-                    $"Aggressive cleanup removed {keysToRemove.Count} items. Memory before: {currentMemory / 1024 / 1024:F1}MB, after: {MemoryPressureMonitor.GetCurrentMemoryUsage() / 1024 / 1024:F1}MB");
-            }
-            if (Cache.Count <= 15) return;
-            keysToRemove = Cache.OrderBy(kvp => kvp.Value.Value.LastAccessed)
-                .Take(Cache.Count - 15)
-                .Select(kvp => kvp.Key)
-                .ToList();
-            foreach (var key in keysToRemove)
-            {
-                RemoveFromCacheInternal(key);
-            }
-            Logger.Diagnose($"Cache size cleanup removed {keysToRemove.Count} items to maintain 15 items max");
-        }
-    }
-    public static void PerformCleanup()
-    {
-        lock (LockObject)
-        {
-            var now = DateTime.Now;
-            var keysToRemove =
-                (from kvp in Cache where (now - kvp.Value.Value.LastAccessed) > TimeSpan.FromMinutes(5) select kvp.Key)
-                .ToList();
-            if (Cache.Count > MaxCacheSize * 0.7)
-            {
-                var targetCount = (int)(MaxCacheSize * 0.5); 
-                var excessCount = Cache.Count - targetCount;
-                var sortedByTime = Cache.OrderBy(kvp => kvp.Value.Value.LastAccessed).Take(excessCount);
-                keysToRemove.AddRange(sortedByTime.Select(kvp => kvp.Key));
-            }
-            if (MemoryPressureMonitor.GetCurrentMemoryUsage() > 50 * 1024 * 1024)
-            {
-                var itemsToClean = Math.Min(5, Cache.Count); 
-                var oldestItems = Cache.OrderBy(kvp => kvp.Value.Value.LastAccessed).Take(itemsToClean);
-                keysToRemove.AddRange(oldestItems.Select(kvp => kvp.Key));
-            }
-            foreach (var key in keysToRemove.Distinct())
-            {
-                RemoveFromCacheInternal(key);
-            }
-            if (keysToRemove.Count > 0)
-            {
-                Logger.Diagnose($"Cleanup removed {keysToRemove.Count} expired cache items.");
             }
         }
     }
@@ -211,6 +157,11 @@ internal static class ImageCacheManager
             if (!LoggedCacheKeys.Contains(cacheKey))
             {
                 shouldLog = true;
+                // 到上限就整体清掉：这只是日志去重集合，清空最多让若干键重记一条诊断，不影响功能
+                if (LoggedCacheKeys.Count >= LoggedKeysMaxSize)
+                {
+                    LoggedCacheKeys.Clear();
+                }
                 LoggedCacheKeys.Add(cacheKey);
             }
         }
@@ -369,22 +320,12 @@ internal static class ImageCacheManager
         Logger.Diagnose($"Failed to download and create image for key {cacheKey} after {maxRetries} attempts.");
         return null;
     }
-    public static void ClearAllCache()
-    {
-        lock (LockObject)
-        {
-            var keysToRemove = Cache.Keys.ToList();
-            foreach (var key in keysToRemove)
-            {
-                RemoveFromCacheInternal(key);
-            }
-            lock (LoggedCacheKeys)
-            {
-                LoggedCacheKeys.Clear();
-            }
-            Logger.Diagnose("[DIAGNOSE] All caches have been cleared.");
-        }
-    }
+    /// <summary>
+    /// 手动清理缓存（主界面 Ctrl+R 调试快捷键调用）：只保留最近使用的若干项。
+    /// 说明：原先还有 ClearAllCache / PerformCleanup / PerformAggressiveCleanup / RemoveCacheByPrefix
+    /// 四个清理入口，但主项目里一个调用方都没有（只有已废弃的 reference-yySync 在用），
+    /// 而其中 ClearAllCache 是 LoggedCacheKeys 唯一的清理点 —— 留着它们等于留着"看起来会清理、实际不会"的假象，故一并删除。
+    /// </summary>
     public static void ForceCleanupCache(int keepCount = 10)
     {
         lock (LockObject)
@@ -400,27 +341,6 @@ internal static class ImageCacheManager
             }
             Logger.Diagnose(
                 $"Force cleanup removed {keysToRemove.Count} cache items, kept {keepCount} most recent items.");
-        }
-    }
-    public static void RemoveFromCache(string cacheKey)
-    {
-        if (string.IsNullOrEmpty(cacheKey)) return;
-        lock (LockObject)
-        {
-            RemoveFromCacheInternal(cacheKey);
-        }
-    }
-    public static void RemoveCacheByPrefix(string prefix)
-    {
-        if (string.IsNullOrEmpty(prefix)) return;
-        lock (LockObject)
-        {
-            var keysToRemove = Cache.Keys.Where(k => k.StartsWith(prefix)).ToList();
-            foreach (var key in keysToRemove)
-            {
-                RemoveFromCacheInternal(key);
-            }
-            Logger.Diagnose($"Removed {keysToRemove.Count} cache items with prefix '{prefix}'.");
         }
     }
     private static void RemoveFromCacheInternal(string cacheKey)

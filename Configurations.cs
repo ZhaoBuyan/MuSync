@@ -82,8 +82,13 @@ internal class ConfigData
     public bool MusicSyncEnabled { get; set; } = true;
     /// <summary>音乐暂停时不在 Steam 状态中显示。</summary>
     public bool HideMusicWhenPaused { get; set; } = true;
-    /// <summary>音乐播放器优先级顺序（NetEase/Tencent/LxMusic；正在播放的始终优先于暂停的）。</summary>
-    public List<string> PlayerPriority { get; set; } = ["NetEase", "Tencent", "LxMusic"];
+    /// <summary>
+    /// 音乐播放器优先级顺序（NetEase/Tencent/LxMusic/KuGou/TTPlayer；正在播放的始终优先于暂停的）。
+    /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsForm.PlayerOrderKeys</c> 一致：
+    /// 三处口径不同时运行期靠 Concat(Distinct) 补齐不会出错，但读代码的人会被绊住
+    /// （2026-10-12 复核时统一为五个）。
+    /// </summary>
+    public List<string> PlayerPriority { get; set; } = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
 
     // —— 程序同步 ——
     /// <summary>程序同步总开关。</summary>

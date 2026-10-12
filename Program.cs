@@ -66,7 +66,7 @@ internal static class Program
             e.SetObserved();
         };
 
-        // 启动时清理旧日志（保留最近 14 天 / 50 MB 内）
+        // 启动时清理旧日志（保留最近 7 天 / 20 MB 内，见 Logger.CleanupOldLogs）
         Logger.CleanupOldLogs();
         Logger.Info($"[Program] MuSync 启动（版本 {Application.ProductVersion}，PID {Environment.ProcessId}，{Environment.OSVersion.VersionString}）");
         Application.EnableVisualStyles();

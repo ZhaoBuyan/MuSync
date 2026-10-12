@@ -20,7 +20,12 @@ internal enum TemplateKind
 /// </summary>
 internal sealed class FormatBlockEditorForm : Form
 {
-    private static readonly string[] TypeNames =
+    /// <summary>
+    /// 积木类型下拉的显示文案。
+    /// ⚠️ 必须每次现算，不能写成 static readonly 字段：那样会在类型初始化时就把当时的语言固化下来，
+    /// 之后切语言（或测试里临时改语言）拿到的是过期文案。
+    /// </summary>
+    private static string[] TypeNames =>
     [
         Loc.L("歌名", "Song"), Loc.L("歌手", "Artist (auto separator)"),
         Loc.L("歌手（无连接符）", "Artist (no separator)"),

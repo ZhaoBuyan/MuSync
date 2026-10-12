@@ -10,14 +10,18 @@ internal static class Loc
     /// <summary>按当前语言取文案：L(中文, English)。</summary>
     public static string L(string zh, string en) => IsEnglish ? en : zh;
 
-    /// <summary>播放器显示名（数据层用中文名，界面按语言映射；兼容 LX Music 两种写法）。</summary>
+    /// <summary>
+    /// 播放器显示名（数据层用中文名，界面按语言映射）。
+    /// 同时兼容数据层 key（NetEase / Tencent / LxMusic / KuGou / TTPlayer）与中文名两种写法：
+    /// 两套写法都出现过（诊断快照曾用 key 口径），漏认哪个都会让该名字原样漏出去、英文界面下露中文。
+    /// </summary>
     public static string PlayerName(string name) => name switch
     {
-        "网易云音乐" => L("网易云音乐", "NetEase Cloud Music"),
-        "QQ音乐" => L("QQ音乐", "QQ Music"),
-        "洛雪音乐" or "LX Music" => L("洛雪音乐", "LX Music"),
-        "酷狗音乐" => L("酷狗音乐", "KuGou Music"),
-        "千千静听" => L("千千静听", "TTPlayer"),
+        "网易云音乐" or "NetEase" => L("网易云音乐", "NetEase Cloud Music"),
+        "QQ音乐" or "Tencent" => L("QQ音乐", "QQ Music"),
+        "洛雪音乐" or "LX Music" or "LxMusic" => L("洛雪音乐", "LX Music"),
+        "酷狗音乐" or "KuGou" => L("酷狗音乐", "KuGou Music"),
+        "千千静听" or "TTPlayer" => L("千千静听", "TTPlayer"),
         _ => name
     };
 }

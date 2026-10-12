@@ -207,8 +207,8 @@ internal sealed class KuGou : IMusicPlayer
         return found;
     }
 
-    /// <summary>解析窗口标题：「歌手 - 歌名 - 酷狗音乐」（歌手可缺省；歌名中的 " - " 保留）。</summary>
-    private static (string Artist, string Title)? ParseWindowTitle(string raw)
+    /// <summary>解析窗口标题：「歌手 - 歌名 - 酷狗音乐」（歌手可缺省；歌名中的 " - " 保留）。internal 便于单测。</summary>
+    internal static (string Artist, string Title)? ParseWindowTitle(string raw)
     {
         var title = raw.Trim();
         const string suffix = "- 酷狗音乐";
@@ -416,7 +416,11 @@ internal sealed class KuGou : IMusicPlayer
         }
     }
 
-    private static bool TryParseProgressPair(ReadOnlySpan<byte> span, out double progress, out double duration)
+    /// <summary>
+    /// 解析内存里 UTF-16 的「MM:SS/MM:SS」并做语义校验。internal 便于单测
+    /// （这是酷狗支持最容易出错的一段：字符串扫描 + 时长区间 + 进度不超时长 + 防止从更长数字串中截断）。
+    /// </summary>
+    internal static bool TryParseProgressPair(ReadOnlySpan<byte> span, out double progress, out double duration)
     {
         progress = 0;
         duration = 0;
@@ -438,7 +442,8 @@ internal sealed class KuGou : IMusicPlayer
         return true;
     }
 
-    private static bool TryParseTime(ReadOnlySpan<byte> span, int pos, out int totalSeconds, out int endPos)
+    /// <summary>解析 UTF-16 的「MM:SS」文本（1~2 位分钟、2 位秒、秒 ≤ 59）。internal 便于单测。</summary>
+    internal static bool TryParseTime(ReadOnlySpan<byte> span, int pos, out int totalSeconds, out int endPos)
     {
         totalSeconds = 0;
         endPos = pos;

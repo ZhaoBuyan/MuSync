@@ -5,6 +5,22 @@
         <ImplicitUsings>disable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
+        <!-- 不声明 OutputType：.NET 的测试工程必须是 Exe（测试宿主需要入口点），
+             Microsoft.NET.Test.Sdk.targets 会强制设成 Exe，项目里写 Library 也会被它覆盖。
+             此处保持不写，避免给出一个看起来能改、实际无效的设置。 -->
+        <!-- 测试程序集不需要 Win32 应用清单。
+             为什么必须显式关掉：SDK 的 SetWin32ManifestProperties（Microsoft.Common.CurrentVersion.targets）
+             在 ApplicationManifest 为空且 NoWin32Manifest != true 时，会回退把 .NET Framework 自带的
+             default.win32manifest 嵌进程序集里，内容是：
+                 <assemblyIdentity version="1.0.0.0" name="MyApplication.app"/>
+                 <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+             一个跑 xunit 的测试 DLL 带着「我是个可执行程序」的清单毫无意义，只会让程序集在
+             杀软眼里更像「伪装的独立可执行体」。本项目已因火绒按 Backdoor/Steam 误杀
+             MuSync.Tests.dll 排查过一轮（详见下载目录《MuSync-火绒误杀事件报告.md》），
+             这类多余的包装一并清掉。 -->
+        <NoWin32Manifest>true</NoWin32Manifest>
+        <!-- 测试要构造真实 WinForms 窗体（MainForm / LicenseForm / BackgroundCropForm），
+             因此仍需 Windows 桌面框架；这与「可执行与否」无关 -->
         <UseWindowsForms>true</UseWindowsForms>
         <PlatformTarget>x64</PlatformTarget>
     </PropertyGroup>
