@@ -23,7 +23,7 @@ namespace MuSync.Tests;
 /// 排查发现该程序集当时确实带着上述清单，但同时也有反证 —— 把同一份带清单的文件改名、
 /// 换目录、甚至改哈希后复制，依然被删，说明判据不是单一特征。因此本守卫守住的只是
 /// 「工程不该有的包装」，能否因此不再被误杀需要另行复验。
-/// 完整背景与证据见 docs/incident-test-assembly-false-positive.md。
+/// 完整背景与证据见本地事故档案 INCIDENTS.md（不入库）。
 /// </para>
 /// </summary>
 public class TestAssemblyPackagingGuardTests

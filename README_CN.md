@@ -164,8 +164,7 @@ powershell -ExecutionPolicy Bypass -File installer\build.ps1
 
 CI（`main` push / `v*` tag）自动构建三个产物：`MuSync.exe`（免安装）、`MuSync-lite.exe`（轻量版，需 .NET 10 运行时）、`MuSync-Setup.exe`（安装器版）。
 
-改代码前请先读 [docs/STANDARDS.md](docs/STANDARDS.md)（注释口径、测试要求、文档放置、发版流程）；
-踩过的坑记录在 [docs/incident-*.md](docs/) 下的事故档案里。
+改代码前请先读 [docs/STANDARDS.md](docs/STANDARDS.md)（注释口径、测试要求、文档放置、发版流程）。
 
 ## 项目结构
 

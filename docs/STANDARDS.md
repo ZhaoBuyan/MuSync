@@ -50,7 +50,7 @@ public DateTime PositionSampleTime { get; set; }
 需要完整背景（现象、证据、排查过程）时，代码里只留一句指向文档：
 
 ```csharp
-// 背景与证据见 docs/incident-test-assembly-false-positive.md
+// 背景与证据见本地档案 INCIDENTS.md
 ```
 
 ---
@@ -62,7 +62,7 @@ public DateTime PositionSampleTime { get; set; }
 | `README.md` / `README_CN.md` | 面向用户：功能、安装、常见问题 | ✅ |
 | `CHANGELOG.md` | 面向用户：每个版本的可见变化 | ✅ |
 | `SECURITY.md` | 面向用户：读取范围、网络流量、风险与撤销 | ✅ |
-| `docs/incident-*.md` | **事故档案**：现象、证据、根因、处置、遗留 | ✅ |
+| `INCIDENTS.md` | **事故档案**：现象、证据、根因、处置、遗留 | ❌ 本地保留 |
 | `docs/STANDARDS.md` | 本文件 | ✅ |
 | `docs/kugou-reverse-notes.md` | 酷狗逆向笔记（只对维护者有意义） | ❌ 本地保留 |
 | `ROADMAP.md` | 决策史与待办（含已放弃方案的取舍理由） | ❌ 本地保留 |
@@ -70,6 +70,9 @@ public DateTime PositionSampleTime { get; set; }
 **约定**：
 - 事故档案**只增不改**：修好之后不要回头修改"当时的结论"，有新结论就在文末追加"后续"一节。
   误报排查里最容易犯的错就是事后把当时正确的推理改写成现在的结论。
+- 事故档案与 `ROADMAP.md` 一样**不入库**（见 `.gitignore`）：代码里可以引用 `INCIDENTS.md`，
+  但那只是给本机维护者看的指路，别人 clone 不到它是正常的 —— 因此**不要把只有档案里才有的
+  关键信息当成代码注释的唯一出处**：读代码的人必须能从注释本身判断"为什么不能那样改"。
 - 用户可见的变化进 `CHANGELOG.md`；内部重构、死代码清理、注释整理**不进 CHANGELOG**（那是开发噪音）。
 
 ---
@@ -100,7 +103,7 @@ public DateTime PositionSampleTime { get; set; }
 ## 五、构建环境注意
 
 - 本机若装了会误判测试程序集的杀软，构建会以
-  `无法复制 MuSync.Tests.dll，因为找不到该文件` 的形式失败（详见 `docs/incident-test-assembly-false-positive.md`）。
+  `无法复制 MuSync.Tests.dll，因为找不到该文件` 的形式失败（详见本地档案 `INCIDENTS.md`）。
 - **程序运行时会锁住 `bin\Release\...\MuSync.exe`**，此时构建主项目会报 MSB3027/MSB3021；
   先退出程序再构建，或构建到另一个配置。
 - 单测命令：`dotnet test tests\MuSync.Tests\MuSync.Tests.csproj -c Release`；
