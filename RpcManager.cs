@@ -1039,7 +1039,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     }
 
     /// <summary>
-    /// 判断本轮读取相对上一轮是否发生变化（换歌 / 暂停态变化 / 同一首歌内进度跳变）。
+    /// 判断本轮读取相对上一轮是否发生变化（换歌 / 暂停态变化 / 封面变化 / 同一首歌内进度跳变）。
     /// internal 便于单测（见 RpcManagerChangeDetectionTests）。
     /// </summary>
     internal static bool DetectStateChange(PlayerInfo? current, PlayerInfo? last, DateTime currentTime,
@@ -1052,6 +1052,11 @@ internal class RpcManager(SteamStatusManager steamManager)
         // ⚠️ 不能只靠下面的"进度推算"（2026-10-11 修）：SMTC 这类源的位置每 ~5 秒才更新一次，
         // 推算出的偏差常常小于容差，换歌会被误判成"没变化" → 状态迟迟不更新。
         if (IsDifferentTrack(c, l)) return true;
+        // 封面变化也算状态变化（2026-10-12 补）：同曲目换封面时标题/歌手/专辑全都相同，
+        // 早先会判成"没变化" → 界面封面不会刷新（实测复现：仅封面不同时本函数返回 False）。
+        // 封面抖动风险已实测排除：QQ音乐连读 10 次封面 URL 稳定，网易云更是只在播放列表
+        // JSON 变化时才重读 —— 因此这不会反复重置防抖窗口。
+        if (!string.Equals(c.Cover, l.Cover, StringComparison.Ordinal)) return true;
         if (c.Pause) return false;
         // 进度推算只用于"同一首歌内位置是否跳变"（拖动进度条等）；
         // 轮询间隔太短时样本噪声大（SMTC 位置是 5 秒级的离散值），跳过以免误判

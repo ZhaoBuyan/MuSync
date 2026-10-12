@@ -1491,7 +1491,7 @@ internal sealed class SettingsForm : Form
             _ => SyncSpeedLevel.Standard
         };
         settings.PlayerPriority = CurrentPriorityOrder();
-        settings.Apps = _rules;
+        MergeBackgroundDiscoveredRules(settings);
 
         Configurations.Instance.Save();
         Program.GetRpcManager()?.RequestStateRefresh();
@@ -1506,6 +1506,54 @@ internal sealed class SettingsForm : Form
                     Loc.L("操作失败", "Operation failed"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
+    }
+
+    /// <summary>
+    /// 把当前规则写回配置。
+    /// <para>
+    /// ⚠️ 不能直接 <c>settings.Apps = _rules</c>（2026-10-12 修的真 bug）：
+    /// <c>_rules</c> 是**对话框打开那一刻的克隆**，而主循环在对话框开着的时候会继续自动发现程序
+    /// （前台切到未收录的程序就写进 <c>settings.Apps</c>）。整体替换等于把期间发现的新程序
+    /// 无声丢掉 —— 用户操作是"打开设置 → 切几个程序 → 点确定"，回来就发现那几条不见了。
+    /// </para>
+    /// <para>
+    /// 合并口径：以对话框里的列表为准（用户可能删过、改过、导入过），
+    /// 再把"对话框没显示过、但活列表里已经有的"补进去。这样既不丢后台发现，也不复活用户删掉的条目。
+    /// 仍然存在的已知不足：对话框打开期间后台新发现的行不会实时出现在表格里（需要关掉重开）。
+    /// </para>
+    /// </summary>
+    private void MergeBackgroundDiscoveredRules(ConfigData settings)
+    {
+        var kept = MergeDiscoveredRules(_rules, settings.Apps);
+        if (kept.Count > 0)
+        {
+            Logger.Info($"[AppSync] 保存设置时保留对话框打开期间自动发现的 {kept.Count} 个程序：" +
+                        string.Join("、", kept.Select(r => r.ExeName)));
+        }
+    }
+
+    /// <summary>
+    /// 合并"对话框里的规则"与"活配置里的规则"，返回被保留下来的后台新发现条目。
+    /// 纯函数（不碰界面、不碰单例），便于单测 —— 上面那个真 bug 正是缺了这层可测性才漏出去的。
+    /// </summary>
+    internal static List<AppRule> MergeDiscoveredRules(List<AppRule> dialogRules, List<AppRule> liveRules)
+    {
+        var shown = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in dialogRules)
+        {
+            shown.Add(rule.ExeName);
+        }
+        var discovered = new List<AppRule>();
+        foreach (var live in liveRules)
+        {
+            if (shown.Contains(live.ExeName)) continue;
+            discovered.Add(live);
+        }
+        // 以对话框里的列表为准（用户可能删过、改过、导入过），再把后台新发现的补在后面
+        liveRules.Clear();
+        liveRules.AddRange(dialogRules);
+        liveRules.AddRange(discovered);
+        return discovered;
     }
 
     // ================= 账户 =================

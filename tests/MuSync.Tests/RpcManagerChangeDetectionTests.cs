@@ -128,6 +128,45 @@ public class RpcManagerChangeDetectionTests
         Assert.True(changed);
     }
 
+    /// <summary>
+    /// 回归（2026-10-12 实测复现）：同一首歌、同歌手、同专辑，**只有封面不同**时，
+    /// 早先返回 False → 界面封面不会刷新（典型场景：封面迟到、换了专辑图）。
+    /// </summary>
+    [Fact]
+    public void CoverChange_IsDetected()
+    {
+        var changed = RpcManager.DetectStateChange(
+            Info("Same Song") with { Cover = "https://new-cover.jpg" },
+            Info("Same Song") with { Cover = "https://old-cover.jpg" },
+            T0.AddSeconds(1.2), T0, Tolerance);
+
+        Assert.True(changed);
+    }
+
+    [Fact]
+    public void CoverAppearingLater_IsDetected()
+    {
+        // 封面迟到（先只读到标题，随后拿到封面 URL）也要被察觉
+        var changed = RpcManager.DetectStateChange(
+            Info("Same Song") with { Cover = "https://cover.jpg" },
+            Info("Same Song") with { Cover = "" },
+            T0.AddSeconds(1.2), T0, Tolerance);
+
+        Assert.True(changed);
+    }
+
+    [Fact]
+    public void SameCover_IsNotDetected()
+    {
+        // 反向保护：封面没变时不许被当成变化，否则会反复重推
+        var changed = RpcManager.DetectStateChange(
+            Info("Same Song") with { Cover = "https://cover.jpg" },
+            Info("Same Song") with { Cover = "https://cover.jpg" },
+            T0.AddSeconds(1.2), T0, Tolerance);
+
+        Assert.False(changed);
+    }
+
     [Fact]
     public void PlayerIdentityChange_IsDetected()
     {
