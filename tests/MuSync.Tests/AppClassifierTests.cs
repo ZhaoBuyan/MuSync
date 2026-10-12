@@ -46,6 +46,66 @@ public class AppClassifierTests
         Assert.True(AppClassifier.IsBuiltInIgnored("cloudmusic.exe"));
         Assert.True(AppClassifier.IsBuiltInIgnored("QQMusic.exe"));
         Assert.True(AppClassifier.IsBuiltInIgnored("lx-music-desktop.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("KuGou.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("TTPlayerRebuild.exe"));
+    }
+
+    [Fact]
+    public void IsBuiltInIgnored_LaunchersAndAntiCheat_AreExcluded()
+    {
+        // 反作弊 / 运行时辅助进程会随游戏一起出现，不该单独成为"正在玩的程序"
+        Assert.True(AppClassifier.IsBuiltInIgnored("AntiCheatExpert.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("EasyAntiCheat.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("SGuardSvc64.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("mhyprot3.exe"));
+        // 安装 / 更新程序
+        Assert.True(AppClassifier.IsBuiltInIgnored("unins000.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("msiexec.exe"));
+    }
+
+    [Fact]
+    public void IsBuiltInIgnored_ShellAndBrowserChildProcesses_AreExcluded()
+    {
+        // 开始菜单 / WebView 子进程 / Steam 后台：常驻且容易抢前台，必须忽略
+        Assert.True(AppClassifier.IsBuiltInIgnored("searchapp.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("msedgewebview2.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("steamwebhelper.exe"));
+        Assert.True(AppClassifier.IsBuiltInIgnored("textinputhost.exe"));
+    }
+
+    [Theory]
+    [InlineData("MiSideFull.exe", (int)AppCategory.Game, "米塔 MiSide")]
+    [InlineData("CalabiYau.exe", (int)AppCategory.Game, "卡拉彼丘")]
+    [InlineData("osu!.exe", (int)AppCategory.Game, "osu!")]
+    [InlineData("LobotomyCorp.exe", (int)AppCategory.Game, "脑叶公司")]
+    [InlineData("studio64.exe", (int)AppCategory.Work, "Android Studio")]
+    [InlineData("unity.exe", (int)AppCategory.Work, "Unity")]
+    [InlineData("kicad.exe", (int)AppCategory.Work, "KiCad")]
+    [InlineData("fl64.exe", (int)AppCategory.Work, "FL Studio")]
+    [InlineData("docker desktop.exe", (int)AppCategory.Work, "Docker Desktop")]
+    [InlineData("JianyingPro.exe", (int)AppCategory.Work, "剪映专业版")]
+    [InlineData("obs64.exe", (int)AppCategory.Media, "OBS Studio")]
+    [InlineData("potplayer.exe", (int)AppCategory.Media, "PotPlayer")]
+    [InlineData("KOOK.exe", (int)AppCategory.Social, "KOOK")]
+    [InlineData("lark.exe", (int)AppCategory.Social, "飞书")]
+    [InlineData("quark.exe", (int)AppCategory.Other, "夸克")]
+    [InlineData("uu_launcher.exe", (int)AppCategory.Other, "UU 加速器")]
+    [InlineData("Battle.net.exe", (int)AppCategory.Other, "战网")]
+    public void Suggest_ExpandedLibrary_ReturnsExpectedCategoryAndName(
+        string exeName, int expectedCategory, string expectedName)
+    {
+        var (category, name, fromDictionary) = AppClassifier.Suggest(exeName, "", false);
+        Assert.Equal((AppCategory)expectedCategory, category);
+        Assert.Equal(expectedName, name);
+        Assert.True(fromDictionary, $"{exeName} 应命中内置程序名库");
+    }
+
+    [Fact]
+    public void Suggest_ExpandedLibrary_IsCaseInsensitive()
+    {
+        var (category, name, _) = AppClassifier.Suggest("MISIDEFULL.EXE", "", false);
+        Assert.Equal(AppCategory.Game, category);
+        Assert.Equal("米塔 MiSide", name);
     }
 }
 

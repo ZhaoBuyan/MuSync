@@ -50,7 +50,7 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or s
 ### App sync
 
 - Sync the running state of any app to Steam: games, work software (like VS Code), anything
-- A built-in dictionary recognizes ~50 common apps, plus fullscreen detection, to auto-classify them (game / work / media / social — adjustable)
+- A built-in library recognizes 200+ common apps, plus fullscreen detection, to auto-classify them (game / work / media / social — adjustable)
 - New apps land in the list for confirmation; you can also add the current foreground app from Settings
 - The main-window panel shows the current state: green = pushed to Steam / yellow = paused (manually or a game was detected) / blue = recognized but **category not confirmed yet** / grey = idle
 - Rules can be **exported / imported** (Settings → Apps): export to a JSON file for moving to another machine, backing up, or sharing your tuned category list; import only adds what's missing and never overwrites your local settings, and nothing is written until you confirm
@@ -63,6 +63,7 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or s
 - Template presets: one click to switch between "Simple / With prefix (Playing·Listening) / Name only"
 - Progress bar style: presets plus any characters you like, length 1–50; emoji work out of the box, e.g. `[❤️❤️❤️❤️❤️❤️💕💕💕💕] 1:59/3:32`
 - Appearance: title / song colors, font, background color, background image (stretch / fit / tile / center) — all customizable with one-click reset
+- Album art: NetEase / QQ Music / KuGou show the cover provided by the player; the TTPlayer community rebuild only exposes a thumbnail stream through the System Media Transport Controls, so no cover is shown there and a colour placeholder is used instead
 - Crop the background image by dragging a frame after picking it (no frame = use the whole image); the main window scales to the image's aspect ratio, keeping its center and staying on screen
 - Combined display and separator are configurable; text over Steam's limit is truncated intelligently at 128 bytes
 - Persistent status: when nothing is playing and no app is being synced, show a custom line instead of clearing your status (emoji supported) — toggle it in Settings → Display
@@ -91,7 +92,7 @@ Strinova                                                         ← playing a n
 - Lives in the notification area: hover shows the current status, right-click offers "Pause sync" for temporary invisibility, optional start with Windows
 - The Settings dialog is a single window with tabs: General / Sync / Display / Apps / Diagnostics / About
 - Update check: on launch, then every 6 hours; new versions surface on the "Settings" button and tray menu; the update dialog can download directly — the full/lite editions use "Exit & open folder" for a manual replace, the installer edition updates with one click ("Update now")
-- The Diagnostics tab offers "Copy diagnostics" (one-click copy of the full state) and "Open logs folder"; logs live in `%LocalAppData%\MuSync\logs\`
+- The Diagnostics tab offers "Copy diagnostics" (one-click copy of the full state) and "Open logs folder"; logs live in `%LocalAppData%\MuSync\logs\` and are cleaned up automatically — only the last 7 days and up to 20 MB are kept
 
 ## Editions & Upgrading
 
@@ -141,7 +142,7 @@ MuSync (this project)
              └─ Copyright (c) 2018 Kyle's original project
 ```
 
-Only the player memory-reverse-engineering (NetEase pattern scan / QQ Music offsets / the LX interface) comes from that lineage; everything else — including the KuGou reader, the connection layer, state arbitration, display engine, app sync, config and security systems — is implemented independently by this project. As a note: the Chinese description 「半新写」 literally means "only half rewritten" — it refers to this lineage, not to a project name. For the full list of changes relative to yySync, see [CHANGELOG.md](CHANGELOG.md).
+Only the player readers that use memory reverse-engineering (NetEase pattern scan / QQ Music offsets / the LX interface) come from that lineage; everything else — including the KuGou reader, the TTPlayer reader (which uses the Windows System Media Transport Controls, not memory), the connection layer, state arbitration, display engine, app sync, config and security systems — is implemented independently by this project. As a note: the Chinese description 「半新写」 literally means "only half rewritten" — it refers to this lineage, not to a project name. For the full list of changes relative to yySync, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Build & test
 
@@ -163,10 +164,17 @@ CI (on `main` push / `v*` tag) builds three artifacts: `MuSync.exe` (portable, f
 ```
 MuSync.csproj                  # main app (WinForms)
 Program.cs                     # entry point / tray / update checks
-MainForm / SettingsForm        # main window / settings dialog (single window, tabs)
-FormatBlockEditorForm          # block editor
-UpdateForm                     # update dialog (download / open release page)
-SteamLoginForm                 # Steam sign-in window
+MainForm.cs                    # main window
+SettingsForm.cs                # settings dialog (single window, tabs)
+FormatBlockEditorForm.cs       # block editor
+BackgroundCropForm.cs          # background image crop window
+UpdateForm.cs                  # update dialog (download / open release page)
+SteamLoginForm.cs              # Steam sign-in window
+LicenseForm.cs                 # open-source licence viewer
+RpcManager.cs                  # state arbitration and push (sync loop)
+SteamSessionManager.cs         # Steam connection and sign-in
+SteamStatusManager.cs          # Steam status text push
+Configurations.cs              # config load/save and encryption
 Players/                       # player readers (NetEase / QQ / LX Music / KuGou / TTPlayer)
 Utils/                         # foreground watcher / classifier / template codec / updates / logging / DPAPI etc.
 Models/                        # data models

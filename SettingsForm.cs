@@ -1063,7 +1063,7 @@ internal sealed class SettingsForm : Form
                 CategoryToText(rule.Category),
                 rule.Mode == AppSyncMode.Always ? Loc.L("运行即显示", "Always when running") : Loc.L("前台时显示", "When in foreground"),
                 OverrideToText(rule.Override),
-                rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("AI 建议", "AI suggestion"));
+                rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("程序名库", "App library"));
             _rulesGrid.Rows[index].Tag = rule;
             ApplyRowStyle(_rulesGrid.Rows[index], rule);
         }
@@ -1079,7 +1079,7 @@ internal sealed class SettingsForm : Form
         {
             row.DefaultCellStyle.ForeColor = Color.Gray;
         }
-        row.Cells[6].Value = rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("AI 建议", "AI suggestion");
+        row.Cells[6].Value = rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("程序名库", "App library");
     }
 
     // ================= 规则导入 / 导出 =================

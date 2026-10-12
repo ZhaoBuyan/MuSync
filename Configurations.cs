@@ -111,11 +111,6 @@ internal class ConfigData
 
     /// <summary>程序同步规则列表。</summary>
     public List<AppRule> Apps { get; set; } = [];
-
-    // —— AI 辅助分类（可选，用户自备 API）——
-    public string AiApiEndpoint { get; set; } = "";
-    public string AiApiKey { get; set; } = "";
-    public string AiApiModel { get; set; } = "";
 }
 
 /// <summary>配置管理器（单例）：读取 / 保存 config.json——宽容解析、写入加锁、坏文件自动备份。</summary>

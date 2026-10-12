@@ -1,7 +1,7 @@
 ﻿; ============================================================
 ;  MuSync 安装器脚本（Inno Setup 6.5+）
 ;
-;  构建：ISCC.exe /DAppVersion=0.4.0 MuSync.iss
+;  构建：ISCC.exe /DAppVersion=<版本号> MuSync.iss（不传则默认 0.0.0，见下方 #ifndef）
 ;  产物：..\dist-setup\MuSync-Setup.exe
 ;
 ;  设计要点：
