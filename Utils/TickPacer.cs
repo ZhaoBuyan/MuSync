@@ -3,8 +3,11 @@ using System.Threading;
 namespace MuSync.Utils;
 /// <summary>
 /// 主循环的节拍器：内核等待（WaitHandle）＋提前唤醒，完全不经过 .NET 定时器队列。
-/// 背景：2026-09-21 的转储显示主循环会卡在 `Task.Delay` 上（定时器回调整个丢失、循环再也不动），
-/// 节拍改成内核等待后不再依赖那条通路；设置变化 / 重连 / 看门狗复位都能立刻唤醒，不必等满一拍。
+/// <para>
+/// 为什么不用 <c>Task.Delay</c>：主循环曾经整体停摆 —— 卡在 `Task.Delay` 的定时器回调上，
+/// 回调整个丢失、循环再也不动。节拍改走内核等待后不再依赖那条通路；
+/// 设置变化 / 重连 / 看门狗复位都能立刻唤醒，不必等满一拍。
+/// </para>
 /// </summary>
 internal sealed class TickPacer
 {

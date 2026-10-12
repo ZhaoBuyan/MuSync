@@ -105,10 +105,10 @@ internal static class AppRuleExchange
             return new ImportResult { Error = "文件里没有 rules 列表，可能不是本程序导出的规则文件。" };
         }
 
-        // 信封版本校验（2026-10-12 补）：原先 Version 只写不校验 —— 将来格式升到 2 时，
-        // 旧版本程序会拿 1 的解析口径硬读新文件，字段对不上就可能导入出错数据，
-        // 而且完全无声。现在"比本程序支持的版本新"一律拒绝，并说清原因。
-        // 缺 version 字段（旧文件 / 手工拼的）按 1 处理，保持向后兼容。
+        // 信封版本校验：Version 若只写不校验，将来格式升到 2 时，
+        // 旧版本程序会拿 1 的解析口径硬读新文件，字段对不上就可能导入出错数据，而且完全无声。
+        // 因此"比本程序支持的版本新"一律拒绝并说清原因；
+        // 缺 version 字段（旧文件 / 手工拼的）按当前版本处理，保持向后兼容。
         var fileVersion = envelope.Version ?? FormatVersion;
         if (fileVersion > FormatVersion)
         {

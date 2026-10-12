@@ -32,7 +32,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         /// <para>
         /// 为什么不能用 <see cref="LastPollTime"/>：那个每次轮询都会被刷新，而轮询每 233ms 一次，
         /// 于是「距上次轮询过了多久」永远是 0 → 进度推算等于没推算，只能等源自己上报新位置才跳一下
-        /// （2026-10-11 实测：SMTC 类源表现为约 5 秒跳一次）。
+        /// （SMTC 类源表现为约 5 秒跳一次）。
         /// </para>
         /// </summary>
         public DateTime PositionSampleTime { get; set; } = DateTime.MinValue;
@@ -74,7 +74,6 @@ internal class RpcManager(SteamStatusManager steamManager)
     private string _cachedPlayerOrderSignature = "";
     /// <summary>
     /// 内置播放器优先级顺序。internal 供测试核对「每个播放器在数据层、默认配置、界面键表里都不缺角色」
-    /// （2026-10-12 复核发现的正是这类缺口：千千静听加进来时，主界面面板与品牌色都没跟上）。
     /// </summary>
     internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
     private const double JumpToleranceSeconds = 0.4;
@@ -96,7 +95,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// </para>
     /// <para>
     /// ⚠️ 判定必须用「本轮有没有读到正在播放的源」，不能用「有没有检测到播放器进程」：
-    /// 后者在暂停时同样为真，等于没降频（2026-10-12 加这一段时确认过这一点）。
+    /// 后者在暂停时同样为真，等于没降频。
     /// </para>
     /// </summary>
     private static readonly TimeSpan PausedPollInterval = TimeSpan.FromSeconds(1);
@@ -113,8 +112,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     private DateTime _lastProgressUpdateTime = DateTime.MinValue;
     private DateTime _lastTrayStatusUpdateTime = DateTime.MinValue;
 
-    // ---- 稳定性兜底（2026-09-22）----
-    // 背景：2026-09-21 的转储显示主循环会卡在 `Task.Delay` 上（定时器回调整个丢失、循环再也不动）。
+    // ---- 稳定性兜底 ----
+    // 主循环曾经整体停摆：进程与界面都健康，但循环卡在 `Task.Delay` 的回调上再也不动（回调从未被调用）。
     // 对策：节拍改成内核等待（不经过 .NET 定时器队列），另加心跳 + 独立看门狗线程，停摆即重启循环。
     /// <summary>节拍器：内核等待，可被提前唤醒（设置变化 / 重连 / 看门狗复位）。</summary>
     private readonly TickPacer _ticker = new();
@@ -502,8 +501,7 @@ internal class RpcManager(SteamStatusManager steamManager)
 
     /// <summary>
     /// 节拍等待：内核等待（TickPacer → WaitHandle），不依赖 .NET 定时器队列。
-    /// 2026-09-21 的转储里主循环正是卡在 `Task.Delay` 的定时器回调上，换成内核等待后不再走那条路；
-    /// 被唤醒（设置变化 / 重连 / 看门狗复位）时提前进入下一拍。
+    /// 主循环曾经卡在 `Task.Delay` 的定时器回调上（回调整个丢失），换成内核等待后不再走那条路；
     /// </summary>
     private void WaitForNextTick(TimeSpan delay, CancellationToken token)
     {
@@ -657,8 +655,7 @@ internal class RpcManager(SteamStatusManager steamManager)
 
     /// <summary>
     /// 节拍档位变了就写一条日志（只记变化，正常听歌下一小时也就几条）。
-    /// 用途：暂停降频这类"看不见的行为"必须能从日志核对，否则只能靠猜
-    /// （2026-10-12 排查轮询相关问题时反复吃过这个亏）。
+    /// 用途：暂停降频这类"看不见的行为"必须能从日志核对，否则只能靠猜。
     /// </summary>
     private void LogPollTier(int tier)
     {
@@ -1049,10 +1046,10 @@ internal class RpcManager(SteamStatusManager steamManager)
         if (current is not { } c || last is not { } l) return false;
         if (c.Identity != l.Identity || c.Pause != l.Pause) return true;
         // 换歌判定：直接比较曲目信息。
-        // ⚠️ 不能只靠下面的"进度推算"（2026-10-11 修）：SMTC 这类源的位置每 ~5 秒才更新一次，
+        // ⚠️ 不能只靠下面的"进度推算"：SMTC 这类源的位置每 ~5 秒才更新一次，
         // 推算出的偏差常常小于容差，换歌会被误判成"没变化" → 状态迟迟不更新。
         if (IsDifferentTrack(c, l)) return true;
-        // 封面变化也算状态变化（2026-10-12 补）：同曲目换封面时标题/歌手/专辑全都相同，
+        // 封面变化也算状态变化：同曲目换封面时标题/歌手/专辑全都相同，
         // 早先会判成"没变化" → 界面封面不会刷新（实测复现：仅封面不同时本函数返回 False）。
         // 封面抖动风险已实测排除：QQ音乐连读 10 次封面 URL 稳定，网易云更是只在播放列表
         // JSON 变化时才重读 —— 因此这不会反复重置防抖窗口。

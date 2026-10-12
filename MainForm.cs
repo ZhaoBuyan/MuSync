@@ -773,7 +773,7 @@ internal class MainForm : Form
     /// <para>
     /// ⚠️ 必须**同时认数据层 key 与中文名**：调用方（<c>RpcManager.ResolveActiveState</c>）传来的
     /// <c>playerName</c> 是中文名（"酷狗音乐"），而 <see cref="_playerKeys"/> 里是 key（"KuGou"）。
-    /// 只认 key 的话，酷狗与千千静听会静默掉进兜底色 —— 2026-10-12 自查时正是踩了这个坑。
+    /// 只认 key 的话，酷狗与千千静听会静默掉进兜底色（调用方传的是中文名）。
     /// </para>
     /// </summary>
     internal static Color GetPlayerAccentColor(string playerName)

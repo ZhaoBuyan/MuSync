@@ -74,7 +74,7 @@ internal class SteamSessionManager : IDisposable
     /// ⚠️ 这是「要不要弹登录窗」的判据，不能只看 <see cref="LoginWithTokenAsync"/> 的返回值：
     /// 断网 / 超时（NetworkLost、Timeout）它也返回 false，但那属于程序内可自愈的失败，
     /// 自带的重连循环几秒后就会自己登录成功 —— 此时弹窗会「抢跑」。
-    /// （2026-10-11 用户实测：弹窗弹出后 2 秒，后台就自己登录成功了，窗口却还杵在屏幕上）
+    /// （实际表现：弹窗弹出后 2 秒，后台往往就自己登录成功了，窗口却还杵在屏幕上）
     /// </para>
     /// </summary>
     public bool TokenLoginRejected { get; private set; }

@@ -145,7 +145,7 @@ public class AppNameSuggestionTests
     [Fact]
     public void LibrarySize_CoversKnownProgramsAndIgnoreList()
     {
-        // 228 条程序名 + 57 条忽略名单（2026-10-12 的规模）；这里只钉住"两边都算进去了"
+        // 程序名库与忽略名单两部分都要计入；这里只钉住"两边都算进去了"，不钉具体数字（会随版本变）
         Assert.True(AppClassifier.LibrarySize > 200, $"库规模异常: {AppClassifier.LibrarySize}");
     }
 }

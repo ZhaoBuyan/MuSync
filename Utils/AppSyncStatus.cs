@@ -32,8 +32,8 @@ internal readonly record struct AppSyncStatusResult(AppSyncPanelState State, str
 
 /// <summary>
 /// 程序同步面板「状态点」的状态判定。
-/// 这里是本项目 2026-09-30 决定的补状态方案：原先面板只有「未检测到程序（灰）」「已显示（绿）」两种，
-/// 而托盘早就在显示暂停态了，主界面掉队——本类把两边口径统一到一处判定上。
+/// 为什么要有这么多状态：主界面若只有「未检测到程序（灰）」与「已显示（绿）」两种，
+/// 就比托盘（早就在显示暂停态）少一截信息。本类把两边的口径统一到一处判定上。
 /// </summary>
 internal static class AppSyncStatus
 {

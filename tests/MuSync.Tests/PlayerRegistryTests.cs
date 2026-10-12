@@ -9,9 +9,7 @@ namespace MuSync.Tests;
 /// <summary>
 /// 播放器接入的「角色完整性」守卫。
 /// <para>
-/// 由来（2026-10-12 复核）：接入千千静听时只补了数据层与设置项，
-/// 主界面的品牌色表与面板显示名没跟上 —— 这类缺口不会让任何测试变红，只会让用户看到错颜色/漏文案。
-/// 播放器信息散落在五处：<c>RpcManager.DefaultPlayerOrder</c>（数据层）、
+/// 为什么需要它：播放器信息散落在五处 —— <c>RpcManager.DefaultPlayerOrder</c>（数据层）、
 /// <c>ConfigData.PlayerPriority</c>（默认配置）、<c>SettingsForm.PlayerOrderKeys</c>（设置页键表）、
 /// <c>MainForm._playerKeys</c> + <c>MainForm._playerColors</c>（界面）、<c>Loc.PlayerName</c>（显示名映射）。
 /// 本测试把它们钉成"必须同时存在"。
@@ -52,7 +50,7 @@ public class PlayerRegistryTests
     }
 
     /// <summary>
-    /// 关键回归（2026-10-12 自查发现）：调用方传的是**中文名**（<c>RpcManager.ResolveActiveState</c> 的口径），
+    /// 关键回归：调用方传的是**中文名**（<c>RpcManager.ResolveActiveState</c> 的口径），
     /// 而颜色表按 **key** 排列 —— 只认 key 的实现会让酷狗/千千静听静默掉进兜底色。
     /// </summary>
     [Fact]

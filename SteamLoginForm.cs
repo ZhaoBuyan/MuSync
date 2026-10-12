@@ -25,7 +25,7 @@ internal sealed class SteamLoginForm : Form
         InitializeComponent();
         // 已经登录上就根本不需要登录窗口（例如后台自愈重连先成功了）。
         // 窗口一显示就自动关掉，避免出现「已经登录、甚至开始同步了，还杵着一个登录窗」。
-        // 2026-10-11 用户实测：这一窗还会诱导用户再登一次，把已有会话顶掉（LogonSessionReplaced）→ 反复掉线。
+        // 这一窗还会诱导用户再登一次，把已有会话顶掉（LogonSessionReplaced）→ 反复掉线。
         Shown += (s, e) =>
         {
             if (_session.IsLoggedOn) CompleteWithSuccess();

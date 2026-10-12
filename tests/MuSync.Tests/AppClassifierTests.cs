@@ -58,7 +58,7 @@ public class AppClassifierTests
         Assert.True(AppClassifier.IsBuiltInIgnored("EasyAntiCheat.exe"));
         Assert.True(AppClassifier.IsBuiltInIgnored("SGuardSvc64.exe"));
         Assert.True(AppClassifier.IsBuiltInIgnored("mhyprot3.exe"));
-        // 2026-10-12 按用户实机进程补：腾讯 ACE 的辅助进程与 BattlEye 的启动器
+        // 腾讯 ACE 的辅助进程与 BattlEye 的启动器：都在实机进程里见过抢前台
         Assert.True(AppClassifier.IsBuiltInIgnored("ACE-Helper.exe"));
         Assert.True(AppClassifier.IsBuiltInIgnored("aces.exe"));
         Assert.True(AppClassifier.IsBuiltInIgnored("aces_BE.exe"));

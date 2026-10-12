@@ -22,8 +22,8 @@ namespace MuSync.Players;
 /// </para>
 /// <para>
 /// ⚠️ 本类**必须全程 async**，不得出现 `.GetAwaiter().GetResult()` / `.Result` / `.Wait()` 这类同步等待。
-/// 2026-10-11 实测教训：把 SMTC 的异步调用同步化会阻塞线程池线程，而主循环节拍用 Task.Delay
-/// （同样依赖线程池）→ 线程池被占住后主循环停止推进，表现为「日志长时间空白、切歌完全不认」。
+/// 把 SMTC 的异步调用同步化会阻塞线程池线程，而主循环节拍依赖线程池
+/// → 线程池被占住后主循环停止推进，表现为「日志长时间空白、切歌完全不认」。
 /// </para>
 /// </summary>
 internal sealed class TTPlayerSmtc : IMusicPlayer

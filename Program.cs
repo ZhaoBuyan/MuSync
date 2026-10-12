@@ -213,7 +213,7 @@ internal static class Program
                 // 失败 != 需要人工登录：断网 / 超时属于可自愈失败，自带的重连循环几秒后就会自己登录成功。
                 // 先等一会儿（重连成功会立刻唤醒），登录上了就不弹窗 —— 否则会出现
                 // 「已经登录上、甚至都开始同步了，却还弹着一个登录窗」，用户再点一次登录还会把会话顶掉
-                // （LogonSessionReplaced → 反复掉线重连）。2026-10-11 用户实测。
+                // （LogonSessionReplaced → 反复掉线重连）。
                 if (await WaitForSessionLoginAsync(TimeSpan.FromSeconds(30)))
                 {
                     Logger.Info("[Program] 令牌自动重连登录成功，无需手动登录");

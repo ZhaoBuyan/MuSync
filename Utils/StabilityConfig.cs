@@ -1,10 +1,11 @@
 using System;
 namespace MuSync.Utils;
 /// <summary>
-/// 稳定性兜底参数集中配置（2026-09-22 卡死兜底批次）：
-/// 节拍等待 / 看门狗阈值 / 心跳间隔，以及各处 await 的超时上限。
-/// 背景：2026-09-21 的转储显示主循环会卡在 `Task.Delay` 上（定时器回调整体丢失），
-/// 之后主循环每个等待都必须有超时或看门狗兜底。
+/// 稳定性兜底参数集中配置：节拍等待 / 看门狗阈值 / 心跳间隔，以及各处 await 的超时上限。
+/// <para>
+/// 为什么每个 await 都必须有超时或看门狗兜底：主循环曾经整体停摆 —— 进程与界面都健康，
+/// 但循环卡在 <c>Task.Delay</c> 的回调上再也不动（回调从未被调用）。详见 RpcManager 的看门狗一节。
+/// </para>
 /// </summary>
 internal static class StabilityConfig
 {

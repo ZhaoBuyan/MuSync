@@ -44,7 +44,7 @@ public class WatchdogTests
     [Fact]
     public void Stall_LikeReportedDump_Restarts()
     {
-        // 复现 2026-09-21 转储里的现场：最后一拍停在 4 分 16 秒前 → 必须判定为停摆
+        // 停摆现场：最后一拍停在 4 分 16 秒前 → 必须判定为停摆
         Assert.True(RpcManager.ShouldRestartLoop(true, TimeSpan.FromSeconds(256), Threshold));
     }
 

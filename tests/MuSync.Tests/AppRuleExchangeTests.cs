@@ -205,7 +205,7 @@ public class AppRuleExchangeTests : IDisposable
     [Fact]
     public void Import_NewerFormatVersion_IsRejectedWithClearReason()
     {
-        // 回归（2026-10-12 补）：原先 Version 只写不校验，旧程序会拿旧口径硬读新格式文件。
+        // 回归：Version 若只写不校验，旧程序会拿旧口径硬读新格式文件。
         // 现在比本程序支持的版本新就必须拒绝，并说明"请先升级"
         var path = PathOf("future.json");
         File.WriteAllText(path, """

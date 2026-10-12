@@ -36,11 +36,11 @@ internal class ConfigData
     /// 因此这个数字目前只作记录，不参与任何判定。
     /// </para>
     /// <para>
-    /// ⚠️ 两点务必注意（2026-10-12 复核）：
-    /// ① 用户机器上的实际值可能**高于**本常量（已实测到 `SchemaVersion: 3`，来自早已放弃的 v0.5.0 预览版）。
-    ///    读进来是什么就存回什么，不要"纠正"成 1 —— 那是无意义的改动，还会盖掉磁盘上的真实来源信息。
-    /// ② 真正的迁移分支（`MigrateSettings`）从未进过 main，只在那个放弃的分支上存在；
-    ///    将来若要做配置迁移，编号从这里重新定，不要沿用那个分支的 2/3 语义。
+    /// ⚠️ 两点务必注意：
+    /// ① 用户机器上的实际值可能**高于**本常量（实机见过 `SchemaVersion: 3`，来自一个已放弃的预览版）。
+    ///    读进来是什么就存回什么，不要"纠正"成 1 —— 那是无意义的改动，还会抹掉磁盘上的真实来源。
+    /// ② 真正的迁移分支（`MigrateSettings`）从未进过 main。将来若要做配置迁移，
+    ///    编号从这里重新定，不要沿用那个已放弃分支的 2/3 语义。
     /// </para>
     /// </summary>
     public int SchemaVersion { get; set; } = 1;
@@ -98,8 +98,7 @@ internal class ConfigData
     /// <summary>
     /// 音乐播放器优先级顺序（NetEase/Tencent/LxMusic/KuGou/TTPlayer；正在播放的始终优先于暂停的）。
     /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsForm.PlayerOrderKeys</c> 一致：
-    /// 三处口径不同时运行期靠 Concat(Distinct) 补齐不会出错，但读代码的人会被绊住
-    /// （2026-10-12 复核时统一为五个）。
+    /// 三处口径不同时运行期靠 Concat(Distinct) 补齐不会出错，但读代码的人会被绊住。
     /// </summary>
     public List<string> PlayerPriority { get; set; } = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
 

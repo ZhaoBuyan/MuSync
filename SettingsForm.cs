@@ -1511,7 +1511,7 @@ internal sealed class SettingsForm : Form
     /// <summary>
     /// 把当前规则写回配置。
     /// <para>
-    /// ⚠️ 不能直接 <c>settings.Apps = _rules</c>（2026-10-12 修的真 bug）：
+    /// ⚠️ 不能直接 <c>settings.Apps = _rules</c>：
     /// <c>_rules</c> 是**对话框打开那一刻的克隆**，而主循环在对话框开着的时候会继续自动发现程序
     /// （前台切到未收录的程序就写进 <c>settings.Apps</c>）。整体替换等于把期间发现的新程序
     /// 无声丢掉 —— 用户操作是"打开设置 → 切几个程序 → 点确定"，回来就发现那几条不见了。

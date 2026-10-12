@@ -30,8 +30,8 @@ public class DiagnosticsReportTests
     public void Build_ReportsAppLibrarySize_RegardlessOfAppSyncSwitch()
     {
         // 库规模随版本变化：放进诊断后，反馈问题时能直接看出用户用的是哪一版库。
-        // 它与「程序同步是否开启」无关，必须无条件输出
-        //（2026-10-12 实测：用户配置里 AppSyncEnabled=false 时，原先整段早退、这行根本不出现）。
+        // 它与「程序同步是否开启」无关，必须无条件输出：用户配置里 AppSyncEnabled=false 时，
+        // 该段其余内容会被早退分支跳过，这行不能跟着一起消失。
         // ⚠️ 断言只查数字、不查中文标签：本类没进 LanguageSensitiveCollection，
         // 而 EnglishUiGuardTests 会把全局语言切成 English（诊断按语言输出）。
         var text = DiagnosticsReport.Build();

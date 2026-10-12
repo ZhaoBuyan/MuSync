@@ -10,9 +10,9 @@ namespace MuSync.Tests;
 /// <summary>
 /// 可执行文件图标提取的测试（无封面播放器的占位图来源：酷狗 / 千千静听）。
 /// <para>
-/// 背景（2026-10-12 实测）：<c>Icon.ExtractAssociatedIcon</c> 对**非可执行文件**也会返回一个图标，
+/// 为什么加 PE 校验：<c>Icon.ExtractAssociatedIcon</c> 对**非可执行文件**也会返回一个图标，
 /// 不抛异常 —— 于是"提取失败"与"提取到一个无意义的默认图标"分不出来。
-/// 因此加了 PE 头校验；这里同时钉住两件事：真 exe 仍能取到图（校验没把功能挡死）、非 PE 文件返回 null。
+/// 因此加了 PE 头校验。这里同时钉住两件事：真 exe 仍能取到图（校验没把功能挡死）、非 PE 文件返回 null。
 /// </para>
 /// </summary>
 public class AppIconTests

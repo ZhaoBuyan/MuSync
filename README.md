@@ -162,6 +162,8 @@ powershell -ExecutionPolicy Bypass -File installer\build.ps1
 
 CI (on `main` push / `v*` tag) builds three artifacts: `MuSync.exe` (portable, full edition), `MuSync-lite.exe` (lightweight, requires .NET 10 runtime), and `MuSync-Setup.exe` (installer edition).
 
+Before changing code, read [docs/STANDARDS.md](docs/STANDARDS.md) (comment conventions, testing requirements, where docs live, release flow). Past incidents are archived under [docs/](docs/).
+
 ## Project layout
 
 ```
