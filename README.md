@@ -50,7 +50,7 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or s
 ### App sync
 
 - Sync the running state of any app to Steam: games, work software (like VS Code), anything
-- A built-in library recognizes 200+ common apps, plus fullscreen detection, to auto-classify them (game / work / media / social — adjustable)
+- A built-in library recognizes 200+ common apps, plus fullscreen detection, to auto-classify them (game / work / media / social — adjustable); the exact count grows with each version and is shown in Settings → Apps and in "Copy diagnostics"
 - A newly seen app's name comes from the product name written inside its own executable (e.g. "Plain Craft Launcher" instead of `Plain Craft Launcher 2.exe`); if there is none, the window title is used, and the file name as a last resort. **Fully offline** — only the executable's version resource is read
 - The Apps page states where suggestions come from (the local library, offline, reading only process names and window titles) and how large that library is
 - New apps land in the list for confirmation; you can also add the current foreground app from Settings
