@@ -7,19 +7,33 @@ namespace MuSync.Utils;
 /// <summary>内嵌资源访问：程序图标（读取失败时回退系统默认图标）。</summary>
 internal static class AppResource
 {
-    public static Icon Icon { get; }
-    static AppResource()
+    private static Icon? _icon;
+
+    /// <summary>
+    /// 程序图标（内嵌资源；取不到时退回系统默认图标）。
+    /// <para>
+    /// ⚠️ 刻意用**惰性初始化**而不是静态构造函数：静态构造函数一旦抛异常，
+    /// 整个类型就永久不可用（后续任何成员访问都抛 <c>TypeInitializationException</c>）。
+    /// 实测踩过：取图标失败导致本类型初始化失败，进而让**同一个类里**的
+    /// <see cref="TryGetProcessPath"/> 也抛异常，而调用方（浏览器媒体读取）把它 catch 成
+    /// "读取失败" —— 结果是为了拿一个图标，把整个媒体来源搞挂了。
+    /// 惰性初始化把失败限制在"这次取图标"这一件事上。
+    /// </para>
+    /// </summary>
+    public static Icon Icon => _icon ??= LoadIconOrDefault();
+
+    private static Icon LoadIconOrDefault()
     {
         try
         {
             var assembly = Assembly.GetExecutingAssembly();
             const string resourceName = "MuSync.Resources.icon.ico";
             using var stream = assembly.GetManifestResourceStream(resourceName);
-            Icon = stream != null ? new Icon(stream) : SystemIcons.Application;
+            return stream != null ? new Icon(stream) : SystemIcons.Application;
         }
         catch
         {
-            Icon = SystemIcons.Application;
+            return SystemIcons.Application;
         }
     }
 

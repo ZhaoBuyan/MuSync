@@ -41,7 +41,6 @@ internal sealed class BrowserMedia : IMusicPlayer
 
     private static readonly TimeSpan ManagerRetryDelay = TimeSpan.FromSeconds(30);
 
-    private Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager? _manager;
     private DateTime _managerFailedAtUtc = DateTime.MinValue;
     /// <summary>
     /// 最近一次成功读到的信息与时刻。
@@ -55,9 +54,8 @@ internal sealed class BrowserMedia : IMusicPlayer
     private PlayerInfo? _lastGoodInfo;
     private DateTime _lastGoodUtc = DateTime.MinValue;
     private static readonly TimeSpan StaleFallbackWindow = TimeSpan.FromSeconds(8);
-    /// <summary>会话管理器重建的最小间隔（见 DescribeWithRecoveryAsync 的限频说明）。</summary>
-    private static readonly TimeSpan RebuildMinInterval = TimeSpan.FromSeconds(5);
-    private DateTime _lastRebuildAttemptUtc = DateTime.MinValue;
+    /// <summary>上次真正读取会话的时刻（用于按配置间隔节流，其余节拍直接用上次读数）。</summary>
+    private DateTime _lastReadUtc = DateTime.MinValue;
     /// <summary>封面字节缓存：身份（来源+标题）不变时复用，避免每拍重复读取与分配。</summary>
     private string? _coverIdentity;
     private byte[]? _cachedCover;
@@ -72,19 +70,35 @@ internal sealed class BrowserMedia : IMusicPlayer
     /// </summary>
     internal static string? LastActiveBrowserPath { get; private set; }
 
-    /// <summary>把会话的 AppId 映射成该浏览器可执行文件的路径；取不到返回 null。</summary>
+    /// <summary>
+    /// 把会话的 AppId 映射成该浏览器可执行文件的路径；取不到返回 null。
+    /// <para>
+    /// ⚠️ 整段包在 try/catch 里：这只是"为了拿封面占位图标"的锦上添花，
+    /// **绝不允许**它把媒体会话的读取判成失败。
+    /// 实测踩过：取路径时触发 <c>AppResource</c> 的类型初始化异常，
+    /// 异常一路冒到 <see cref="GetPlayerInfoAsync"/> 的 catch，于是整个浏览器来源被判成"读不到"，
+    /// 状态被其它播放器顶掉 —— 为一个图标搞挂了主功能。
+    /// </para>
+    /// </summary>
     private static string? ResolveBrowserExecutablePath(string appId)
     {
         if (string.IsNullOrWhiteSpace(appId)) return null;
-        // AppId 形如 "MSEdge" / "chrome"，与进程名并不总是一致（Edge 的进程名是 msedge），
-        // 所以按白名单逐项比对前缀，命中后取该进程的可执行文件路径
-        foreach (var name in BrowserProcessNamesForPath)
+        try
         {
-            if (appId.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+            // AppId 形如 "MSEdge" / "chrome"，与进程名并不总是一致（Edge 的进程名是 msedge），
+            // 所以按白名单逐项比对前缀，命中后取该进程的可执行文件路径
+            foreach (var name in BrowserProcessNamesForPath)
             {
-                var path = AppResource.TryGetProcessPath(name);
-                if (path != null) return path;
+                if (appId.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    var path = AppResource.TryGetProcessPath(name);
+                    if (path != null) return path;
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            Logger.Info($"[浏览器媒体] 取占位图标路径失败（不影响媒体读取）: {ex.GetType().Name}: {ex.Message}");
         }
         return null;
     }
@@ -94,53 +108,51 @@ internal sealed class BrowserMedia : IMusicPlayer
         ["MSEdge", "msedge", "chrome", "brave", "vivaldi", "opera", "firefox", "librewolf", "waterfox"];
 
     /// <summary>
-    /// 取会话快照；为空时**重建会话管理器再取一次**。
+    /// 取会话快照。**每次都重新获取会话管理器**，不再长期缓存它。
     /// <para>
-    /// 为什么需要它（实测）：会话管理器对象在被反复快速调用后会失效 ——
-    /// 同一个管理器第一次 <c>GetSessions()</c> 正常返回 2 个会话，
-    /// 0.3 秒后再调就持续返回 0 个（而重新 RequestAsync 拿到的管理器又是好的）。
-    /// 主循环每 233ms 读一次，正好踩中这个失效。
+    /// ⚠️ 实测教训（两次踩同一个坑）：缓存的会话管理器在被反复调用后会失效 ——
+    /// 同一个管理器先返回 2 个会话，之后**持续返回 0 个**，而重新 RequestAsync 拿到的又是好的。
+    /// 主循环的节奏（233ms）正好踩中它。
+    /// 第一版靠"列表为空就重建 + 限频 5 秒"补救，但**两次重建之间仍会返回空**：
+    /// 实测 60 拍里有 27 拍"系统明明是 Playing、读取器却是 null"，
+    /// 表现为状态被其它播放器反复顶掉又切回来。
+    /// 现在改为每次重新获取管理器，从根上消除失效窗口；配合按配置间隔才真正读取（默认 1 秒），
+    /// 开销与原来同一量级（原来每拍都在读会话）。
     /// </para>
     /// </summary>
-    private async Task<List<Smtc.SessionSnapshot>> DescribeWithRecoveryAsync()
+    private async Task<List<Smtc.SessionSnapshot>> DescribeAsync()
     {
-        var sessions = await Smtc.DescribeAsync(_manager!, IsBrowserAppId).ConfigureAwait(false);
-        if (sessions.Count > 0) return sessions;
-
-        // 会话列表为空：可能确实是没人在放，也可能是管理器失效了 —— 重建一次再判定。
-        // ⚠️ 重建必须限频：全速档下本方法每 233ms 走一次，若"确实没人在放"时不限频，
-        // 就会变成每秒重建约 4 次会话管理器（白白开销）。这里 5 秒最多重建一次。
-        var now = DateTime.UtcNow;
-        if (now - _lastRebuildAttemptUtc < RebuildMinInterval) return sessions;
-        _lastRebuildAttemptUtc = now;
-
-        _manager = await Smtc.RequestManagerAsync().ConfigureAwait(false);
-        if (_manager == null)
+        var manager = await Smtc.RequestManagerAsync().ConfigureAwait(false);
+        if (manager == null)
         {
             _managerFailedAtUtc = DateTime.UtcNow;
-            return sessions;
+            return [];
         }
         _managerFailedAtUtc = DateTime.MinValue;
-        return await Smtc.DescribeAsync(_manager, IsBrowserAppId).ConfigureAwait(false);
+        return await Smtc.DescribeAsync(manager, IsBrowserAppId).ConfigureAwait(false);
     }
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
-        // 管理器失败后先退避，别每轮都撞同一个失败点
-        if (_manager == null && _managerFailedAtUtc != DateTime.MinValue &&
+        // 管理器获取失败后先退避，别每轮都撞同一个失败点
+        if (_managerFailedAtUtc != DateTime.MinValue &&
             DateTime.UtcNow - _managerFailedAtUtc < ManagerRetryDelay)
         {
             return StaleFallback();
         }
         try
         {
-            _manager ??= await Smtc.RequestManagerAsync().ConfigureAwait(false);
-            if (_manager == null)
+            // 按配置的刷新间隔才真正读取（默认 1 秒）：与"数据源"页里那条心率源同一节奏，
+            // 其余节拍直接用上次读数，避免每 233ms 都做一轮跨进程 SMTC 调用
+            var interval = Configurations.Instance.Settings.BrowserMediaRefreshSeconds;
+            var now = DateTime.UtcNow;
+            if (_lastReadUtc != DateTime.MinValue && now - _lastReadUtc < TimeSpan.FromSeconds(Math.Max(1, interval)))
             {
-                _managerFailedAtUtc = DateTime.UtcNow;
-                return StaleFallback();
+                return _lastGoodInfo ?? StaleFallback();
             }
-            var sessions = await DescribeWithRecoveryAsync().ConfigureAwait(false);
+            _lastReadUtc = now;
+
+            var sessions = await DescribeAsync().ConfigureAwait(false);
             var index = PickBrowserSession(sessions);
             if (index < 0) return StaleFallback();
 
@@ -181,7 +193,6 @@ internal sealed class BrowserMedia : IMusicPlayer
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[Browser] 读取会话失败: {ex.Message}");
-            _manager = null;
             _managerFailedAtUtc = DateTime.UtcNow;
             return StaleFallback();
         }
@@ -281,5 +292,5 @@ internal sealed class BrowserMedia : IMusicPlayer
         };
     }
 
-    public void Dispose() => _manager = null;
+    public void Dispose() { }
 }

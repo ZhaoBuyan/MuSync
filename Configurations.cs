@@ -103,6 +103,12 @@ internal class ConfigData
     /// </summary>
     public bool BrowserMediaSyncEnabled { get; set; }
     /// <summary>
+    /// 浏览器媒体的读取间隔（秒，默认 1）。实际状态推送频率仍跟随同步档位，
+    /// 这里只控制"多久去系统媒体控件问一次" —— 浏览器会话读得越密越容易踩到接口失效，
+    /// 而视频标题本身也不需要 233ms 的精度。
+    /// </summary>
+    public int BrowserMediaRefreshSeconds { get; set; } = 1;
+    /// <summary>
     /// 音乐播放器优先级顺序（NetEase/Tencent/LxMusic/KuGou/TTPlayer；正在播放的始终优先于暂停的）。
     /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsForm.PlayerOrderKeys</c> 一致：
     /// 三处口径不同时运行期靠 Concat(Distinct) 补齐不会出错，但读代码的人会被绊住。
