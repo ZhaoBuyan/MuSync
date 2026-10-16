@@ -6,6 +6,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Text;
 using System.Threading.Tasks;
 using MuSync.Models;
@@ -34,6 +35,8 @@ internal sealed class KuGou : IMusicPlayer
 
     private DateTime _lastGrowthUtc = DateTime.UtcNow;
     private DateTime _lastProgressScanUtc = DateTime.MinValue;
+    /// <summary>单次读取互斥标志（见 GetPlayerInfoAsync 的说明）：同一实例同一时刻只允许一次读取。</summary>
+    private int _readInFlight;
     private string _currentSongId = Guid.NewGuid().ToString();
     private string? _lastTitle;
     private string? _lastArtist;
@@ -112,45 +115,59 @@ internal sealed class KuGou : IMusicPlayer
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
-        // 1) 窗口标题 → 歌手 / 歌名
-        var windowTitle = GetWindowTitle();
-        if (windowTitle is null) return null;
-        var track = ParseWindowTitle(windowTitle);
-        if (track is not { } t || t.Title.Length == 0) return null;
-
-        // 2) 切歌检测：清理旧歌的候选与活跃副本（新歌副本可能是新地址）
-        if (t.Title != _lastTitle || t.Artist != _lastArtist)
+        // ⚠️ 单次读取互斥：RpcManager 给每次读取加了超时（WaitAsync），超时后**被放弃的任务仍在跑**，
+        // 而下一拍会对同一个实例再调一次 —— 于是两个线程同时 Clear/Add/索引写
+        // _candidateAddrs / _liveAddrs / _lastValues（切歌时还会整批 Clear 并触发全内存重扫，
+        // 是真正可能超过超时的场景），轻则抛出被下面的 catch 吞掉、表现为进度丢失，重则损坏集合。
+        // 这里用无锁标志做到"同一实例同一时刻只有一次读取"：已有读取在跑就直接放弃本轮，
+        // 由调用方的瞬时失败容忍（1 秒宽限窗口）沿用上一次读数，不会闪断。
+        if (Interlocked.CompareExchange(ref _readInFlight, 1, 0) != 0) return null;
+        try
         {
-            _currentSongId = Guid.NewGuid().ToString();
-            _lastTitle = t.Title;
-            _lastArtist = t.Artist;
-            _lastProgressScanUtc = DateTime.MinValue;   // 切歌后允许立即重新扫描
-            _candidateAddrs.Clear();
-            _liveAddrs.Clear();
-            _lastValues.Clear();
-            _lastGrowthUtc = DateTime.UtcNow;
+            // 1) 窗口标题 → 歌手 / 歌名
+            var windowTitle = GetWindowTitle();
+            if (windowTitle is null) return null;
+            var track = ParseWindowTitle(windowTitle);
+            if (track is not { } t || t.Title.Length == 0) return null;
+
+            // 2) 切歌检测：清理旧歌的候选与活跃副本（新歌副本可能是新地址）
+            if (t.Title != _lastTitle || t.Artist != _lastArtist)
+            {
+                _currentSongId = Guid.NewGuid().ToString();
+                _lastTitle = t.Title;
+                _lastArtist = t.Artist;
+                _lastProgressScanUtc = DateTime.MinValue;   // 切歌后允许立即重新扫描
+                _candidateAddrs.Clear();
+                _liveAddrs.Clear();
+                _lastValues.Clear();
+                _lastGrowthUtc = DateTime.UtcNow;
+            }
+
+            // 3) 内存 → 进度 / 时长（增长时间戳由读取过程更新）
+            var (progress, duration) = await Task.Run(ReadProgressFromMemory);
+
+            // 暂停判定：进度文本是秒级的、轮询比它快，单轮“未增长”不能当作暂停；
+            // 统一用“距最后一次观察到增长的时间”判断，超过 2 秒视为暂停；
+            // 读不到进度（duration=0，如内存读取异常）时不判定为暂停，避免把播放中的歌误显示为已暂停
+            var paused = duration > 0 && (DateTime.UtcNow - _lastGrowthUtc).TotalSeconds > 2.0;
+
+            return new PlayerInfo
+            {
+                Identity = _currentSongId,
+                Title = t.Title,
+                Artists = t.Artist,
+                Album = string.Empty,
+                Cover = string.Empty,
+                Schedule = progress,
+                Duration = duration,
+                Pause = paused,
+                Url = string.Empty
+            };
         }
-
-        // 3) 内存 → 进度 / 时长（增长时间戳由读取过程更新）
-        var (progress, duration) = await Task.Run(ReadProgressFromMemory);
-
-        // 暂停判定：进度文本是秒级的、轮询比它快，单轮“未增长”不能当作暂停；
-        // 统一用“距最后一次观察到增长的时间”判断，超过 2 秒视为暂停；
-        // 读不到进度（duration=0，如内存读取异常）时不判定为暂停，避免把播放中的歌误显示为已暂停
-        var paused = duration > 0 && (DateTime.UtcNow - _lastGrowthUtc).TotalSeconds > 2.0;
-
-        return new PlayerInfo
+        finally
         {
-            Identity = _currentSongId,
-            Title = t.Title,
-            Artists = t.Artist,
-            Album = string.Empty,
-            Cover = string.Empty,
-            Schedule = progress,
-            Duration = duration,
-            Pause = paused,
-            Url = string.Empty
-        };
+            Interlocked.Exchange(ref _readInFlight, 0);
+        }
     }
 
     // ================= 窗口标题 =================

@@ -786,14 +786,19 @@ internal class MainForm : Form
         {
             foreach (var process in Process.GetProcessesByName(processName))
             {
-                try
+                // using：读 MainModule 会打开进程句柄，用完必须归还
+                // （封面占位路径每拍都可能走这里，不释放就是持续的句柄 churn）
+                using (process)
                 {
-                    var path = process.MainModule?.FileName;
-                    if (!string.IsNullOrEmpty(path)) return path;
-                }
-                catch
-                {
-                    // 提权 / 受保护进程读不到路径：跳过
+                    try
+                    {
+                        var path = process.MainModule?.FileName;
+                        if (!string.IsNullOrEmpty(path)) return path;
+                    }
+                    catch
+                    {
+                        // 提权 / 受保护进程读不到路径：跳过
+                    }
                 }
             }
         }

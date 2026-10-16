@@ -36,6 +36,9 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
     /// <summary>上次取会话管理器失败的时刻；失败后按 <see cref="ManagerRetryDelay"/> 退避重试，而不是永久放弃。</summary>
     private DateTime _managerFailedAtUtc = DateTime.MinValue;
     private static readonly TimeSpan ManagerRetryDelay = TimeSpan.FromSeconds(30);
+    /// <summary>会话管理器重建的最小间隔（见 FindSessionAsync 的失效说明）。</summary>
+    private static readonly TimeSpan RebuildMinInterval = TimeSpan.FromSeconds(5);
+    private DateTime _lastRebuildAttemptUtc = DateTime.MinValue;
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
@@ -67,7 +70,26 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
             }
             var sessions = _manager.GetSessions();
             var index = PickSessionIndex(Describe(sessions), AppIdPrefix);
-            return index < 0 ? null : sessions[index];
+            if (index >= 0) return sessions[index];
+
+            // ⚠️ 没命中时不能直接放弃：会话管理器在被反复快速调用后会**持续返回 0 个会话**
+            // （这是实测确认过的失效，浏览器媒体那边同样踩过），而本方法每 233ms 就走一次。
+            // 不重建的话，一旦失效就会永久报"没在播放"，只能等千千静听进程退出才自愈。
+            // 重建限频 5 秒，避免"确实没在播放"时每拍都重建管理器。
+            var now = DateTime.UtcNow;
+            if (now - _lastRebuildAttemptUtc < RebuildMinInterval) return null;
+            _lastRebuildAttemptUtc = now;
+            _manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask()
+                .ConfigureAwait(false);
+            if (_manager == null)
+            {
+                _managerFailedAtUtc = DateTime.UtcNow;
+                return null;
+            }
+            _managerFailedAtUtc = DateTime.MinValue;
+            var retrySessions = _manager.GetSessions();
+            var retryIndex = PickSessionIndex(Describe(retrySessions), AppIdPrefix);
+            return retryIndex < 0 ? null : retrySessions[retryIndex];
         }
         catch (Exception ex)
         {

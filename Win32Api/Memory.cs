@@ -86,7 +86,13 @@ internal static class Memory
         {
             if (firstByte != 0xFFFF)
             {
-                i = Array.IndexOf(memoryBlock, (byte)firstByte, i);
+                // ⚠️ 必须把搜索限制在 searchRange 内（第三个参数是起始下标、第四个是搜索长度）：
+                // 不限制时 IndexOf 可能返回 searchRange 之后的下标，随后 memoryBlock[i + j] 越界抛异常。
+                // 该异常经 NetEase 构造 rethrow、最终被轮询的通用 catch 吞掉 ——
+                // 表现为"这个播放器永远创建不出来，而且每拍都在重扫内存"，极难查。
+                var remaining = searchRange - i;
+                if (remaining <= 0) break;
+                i = Array.IndexOf(memoryBlock, (byte)firstByte, i, remaining);
                 if (i == -1)
                 {
                     break;

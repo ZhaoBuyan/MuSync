@@ -18,6 +18,11 @@ namespace MuSync.Tests;
 /// 合并口径：以对话框里的列表为准（用户可能删过 / 改过 / 导入过），
 /// 再把"对话框没显示过、但活列表里已经有的"补在后面。
 /// </para>
+/// <para>
+/// ⚠️ 合并函数**不修改入参**：它曾经直接在活列表上 Clear/AddRange，而这发生在"正在枚举该列表"的
+/// foreach 内部；轮询线程还会在后台向同一个列表 Add，枚举期间被改写会抛 InvalidOperationException。
+/// 现在由调用方先取快照、再用返回的合并结果整体替换，并在测试里钉住"入参不被改动"。
+/// </para>
 /// </summary>
 public class SettingsRulesMergeTests
 {
@@ -28,6 +33,8 @@ public class SettingsRulesMergeTests
         IsUserConfirmed = confirmed
     };
 
+    private static string[] Names(IEnumerable<AppRule> rules) => rules.Select(r => r.ExeName).ToArray();
+
     [Fact]
     public void BackgroundDiscoveredRules_AreKeptOnSave()
     {
@@ -35,11 +42,11 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { Rule("a.exe") };
         var live = new List<AppRule> { Rule("a.exe"), Rule("b.exe") };
 
-        var kept = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
 
         Assert.Single(kept);
         Assert.Equal("b.exe", kept[0].ExeName);
-        Assert.Equal(["a.exe", "b.exe"], live.Select(r => r.ExeName));
+        Assert.Equal(["a.exe", "b.exe"], Names(merged));
     }
 
     [Fact]
@@ -48,10 +55,10 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { Rule("a.exe") };
         var live = new List<AppRule> { Rule("a.exe"), Rule("b.exe"), Rule("c.exe"), Rule("d.exe") };
 
-        var kept = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
 
         Assert.Equal(3, kept.Count);
-        Assert.Equal(["a.exe", "b.exe", "c.exe", "d.exe"], live.Select(r => r.ExeName));
+        Assert.Equal(["a.exe", "b.exe", "c.exe", "d.exe"], Names(merged));
     }
 
     [Fact]
@@ -61,12 +68,12 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { Rule("a.exe") };
         var live = new List<AppRule> { Rule("a.exe"), Rule("b.exe") };
 
-        var kept = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
 
         // b.exe 在活列表里、对话框没显示过 → 会被当作"后台发现"保留（这是设计取舍：
         // 无法区分"用户删的"与"后台新加的"，宁可保留也不静默丢数据）
         Assert.Single(kept);
-        Assert.Equal(["a.exe", "b.exe"], live.Select(r => r.ExeName));
+        Assert.Equal(["a.exe", "b.exe"], Names(merged));
     }
 
     [Fact]
@@ -78,10 +85,10 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { edited };
         var live = new List<AppRule> { Rule("a.exe", "旧名字") };
 
-        SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, _) = SettingsForm.MergeDiscoveredRules(dialog, live);
 
-        Assert.Equal("我改的名字", live[0].DisplayName);
-        Assert.Equal(AppCategory.Game, live[0].Category);
+        Assert.Equal("我改的名字", merged[0].DisplayName);
+        Assert.Equal(AppCategory.Game, merged[0].Category);
     }
 
     [Fact]
@@ -91,11 +98,11 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { Rule("App.EXE") };
         var live = new List<AppRule> { Rule("app.exe") };
 
-        var kept = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
 
         Assert.Empty(kept);
-        Assert.Single(live);
-        Assert.Equal("App.EXE", live[0].ExeName);   // 以对话框里的写法为准
+        Assert.Single(merged);
+        Assert.Equal("App.EXE", merged[0].ExeName);   // 以对话框里的写法为准
     }
 
     [Fact]
@@ -104,10 +111,10 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { Rule("a.exe"), Rule("b.exe") };
         var live = new List<AppRule> { Rule("a.exe") };
 
-        var kept = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
 
         Assert.Empty(kept);
-        Assert.Equal(["a.exe", "b.exe"], live.Select(r => r.ExeName));
+        Assert.Equal(["a.exe", "b.exe"], Names(merged));
     }
 
     [Fact]
@@ -117,9 +124,37 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule>();
         var live = new List<AppRule> { Rule("auto.exe") };
 
-        var kept = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
 
         Assert.Single(kept);
-        Assert.Equal(["auto.exe"], live.Select(r => r.ExeName));
+        Assert.Equal(["auto.exe"], Names(merged));
+    }
+
+    [Fact]
+    public void Merge_DoesNotModifyItsInputs()
+    {
+        // 关键回归：合并过程不能改动入参 —— 否则"枚举期间被改写"的异常会重现，
+        // 而且调用方拿到的快照会被悄悄改写。
+        var dialog = new List<AppRule> { Rule("a.exe") };
+        var live = new List<AppRule> { Rule("a.exe"), Rule("b.exe") };
+        var dialogBefore = Names(dialog);
+        var liveBefore = Names(live);
+
+        SettingsForm.MergeDiscoveredRules(dialog, live);
+
+        Assert.Equal(dialogBefore, Names(dialog));
+        Assert.Equal(liveBefore, Names(live));
+    }
+
+    [Fact]
+    public void Merge_AcceptsSnapshotArray()
+    {
+        // 调用方传的是 ToArray() 快照（只读接口），合并必须照样工作
+        var (merged, kept) = SettingsForm.MergeDiscoveredRules(
+            new[] { Rule("a.exe") },
+            new[] { Rule("a.exe"), Rule("b.exe") });
+
+        Assert.Single(kept);
+        Assert.Equal(["a.exe", "b.exe"], Names(merged));
     }
 }

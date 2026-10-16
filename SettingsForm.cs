@@ -1426,7 +1426,10 @@ internal sealed class SettingsForm : Form
             _ => 1
         };
 
-        foreach (var rule in settings.Apps)
+        // ⚠️ 先快照再枚举：轮询线程在后台会自动发现新程序并 config.Apps.Add，
+        // 而 List<T> 在枚举期间被改写会抛 InvalidOperationException（版本号变化）——
+        // 这里没有 try/catch，异常会冒到全局兜底弹"未处理错误"框。
+        foreach (var rule in settings.Apps.ToArray())
         {
             _rules.Add(CloneRule(rule));
         }
@@ -1529,7 +1532,10 @@ internal sealed class SettingsForm : Form
     /// </summary>
     private void MergeBackgroundDiscoveredRules(ConfigData settings)
     {
-        var kept = MergeDiscoveredRules(_rules, settings.Apps);
+        // 先取快照：轮询线程可能正在向 settings.Apps 里 Add 新发现的程序
+        var (merged, kept) = MergeDiscoveredRules(_rules, settings.Apps.ToArray());
+        settings.Apps.Clear();
+        settings.Apps.AddRange(merged);
         if (kept.Count > 0)
         {
             Logger.Info($"[AppSync] 保存设置时保留对话框打开期间自动发现的 {kept.Count} 个程序：" +
@@ -1538,10 +1544,18 @@ internal sealed class SettingsForm : Form
     }
 
     /// <summary>
-    /// 合并"对话框里的规则"与"活配置里的规则"，返回被保留下来的后台新发现条目。
-    /// 纯函数（不碰界面、不碰单例），便于单测 —— 上面那个真 bug 正是缺了这层可测性才漏出去的。
+    /// 合并"对话框里的规则"与"活配置里的规则"，返回合并结果与被保留下来的后台新发现条目。
+    /// 纯函数（不碰界面、不碰单例、**也不修改入参**），便于单测 ——
+    /// 上面那个真 bug 正是缺了这层可测性才漏出去的。
     /// </summary>
-    internal static List<AppRule> MergeDiscoveredRules(List<AppRule> dialogRules, List<AppRule> liveRules)
+    /// <param name="liveRulesSnapshot">
+    /// 活配置规则的**快照**（调用方先 ToArray()）。
+    /// ⚠️ 不要直接把 settings.Apps 传进来：轮询线程在后台会向它 Add，
+    /// 枚举期间被改写会抛 InvalidOperationException；而这里若再对它 Clear/AddRange，
+    /// 更是"一边枚举一边改写"，保存设置时会让用户刚改的东西直接丢掉。
+    /// </param>
+    internal static (List<AppRule> Merged, List<AppRule> Discovered) MergeDiscoveredRules(
+        IReadOnlyList<AppRule> dialogRules, IReadOnlyList<AppRule> liveRulesSnapshot)
     {
         var shown = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var rule in dialogRules)
@@ -1549,16 +1563,16 @@ internal sealed class SettingsForm : Form
             shown.Add(rule.ExeName);
         }
         var discovered = new List<AppRule>();
-        foreach (var live in liveRules)
+        foreach (var live in liveRulesSnapshot)
         {
             if (shown.Contains(live.ExeName)) continue;
             discovered.Add(live);
         }
         // 以对话框里的列表为准（用户可能删过、改过、导入过），再把后台新发现的补在后面
-        liveRules.Clear();
-        liveRules.AddRange(dialogRules);
-        liveRules.AddRange(discovered);
-        return discovered;
+        var merged = new List<AppRule>(dialogRules.Count + discovered.Count);
+        merged.AddRange(dialogRules);
+        merged.AddRange(discovered);
+        return (merged, discovered);
     }
 
     // ================= 账户 =================

@@ -17,12 +17,29 @@ namespace MuSync;
 /// </summary>
 internal class RpcManager(SteamStatusManager steamManager)
 {
-    /// <summary>单个播放器的轮询状态：最近信息、时间戳、错误码与降频控制。</summary>
     /// <summary>单个播放器的运行时状态。internal 供测试直接验证"读取失败容忍"等逻辑。</summary>
     internal class PlayerState
     {
         public IMusicPlayer? Player { get; set; }
-        public PlayerInfo? LastPolledInfo { get; set; }
+        /// <summary>
+        /// 最近一次读到的播放信息。
+        /// <para>
+        /// ⚠️ 刻意用"装箱成单元素数组的引用"存放：轮询线程在写，UI 线程与诊断快照在读，
+        /// 而 <c>PlayerInfo</c> 是约一百字节的 record struct —— 直接把 <c>Nullable&lt;PlayerInfo&gt;</c>
+        /// 字段跨线程赋值不是原子操作，UI 可能读到"新标题 + 旧进度 / 旧封面"的撕裂值。
+        /// 换成引用后，写入与读取就是一次指针交换（本文用 <see cref="Volatile"/> 保证可见性与顺序）。
+        /// </para>
+        /// </summary>
+        public PlayerInfo? LastPolledInfo
+        {
+            get
+            {
+                var holder = Volatile.Read(ref _lastPolledInfoHolder);
+                return holder is null ? null : holder[0];
+            }
+            set => Volatile.Write(ref _lastPolledInfoHolder, value.HasValue ? [value.Value] : null);
+        }
+        private PlayerInfo?[]? _lastPolledInfoHolder;
         public DateTime LastPollTime { get; set; } = DateTime.MinValue;
         /// <summary>最近一次「进程探测 + 轮询」的时间（用于非活跃播放器降频）。</summary>
         public DateTime LastCheckTime { get; set; } = DateTime.MinValue;
@@ -136,6 +153,11 @@ internal class RpcManager(SteamStatusManager steamManager)
     private long _lastHeartbeatLogMs = Environment.TickCount64;
     /// <summary>当前这一份主循环的取消源（看门狗重启时会换新的一份）。</summary>
     private CancellationTokenSource? _loopCts;
+    /// <summary>
+    /// 主循环代际号：看门狗重启时递增。旧循环即使还在 await 里，也会在下一圈核对到代号变化后退出，
+    /// 避免"两份主循环并存"并发读写同一批状态（详见 RunLoopAsync 的参数说明）。
+    /// </summary>
+    private int _loopGeneration;
     private bool _loopStarted;
 
     /// <summary>请求立即重推状态（设置变化 / 重连 / 系统唤醒），并唤醒节拍等待、不必等下一拍。</summary>
@@ -341,18 +363,30 @@ internal class RpcManager(SteamStatusManager steamManager)
     }
 
     /// <summary>把主循环放到后台任务上跑（看门狗每次重启都会新起一份）。</summary>
-    private void LaunchLoop(CancellationToken token) => _ = Task.Run(() => RunLoopAsync(token), token);
-
-    /// <summary>主循环本体：轮询 → 合成 → 节拍等待。停摆由看门狗兜底，本方法只负责正常跑完一圈又一圈。</summary>
-    private async Task RunLoopAsync(CancellationToken token)
+    private void LaunchLoop(CancellationToken token)
     {
-        while (!token.IsCancellationRequested)
+        var generation = Interlocked.Increment(ref _loopGeneration);
+        _ = Task.Run(() => RunLoopAsync(token, generation), token);
+    }
+
+    /// <summary>
+    /// 主循环本体：轮询 → 合成 → 节拍等待。停摆由看门狗兜底，本方法只负责正常跑完一圈又一圈。
+    /// </summary>
+    /// <param name="generation">
+    /// 本循环的代际号。看门狗重启时会先换代再启新循环，而旧循环要到本轮 await 走完才会发现自己被取消 ——
+    /// 期间两份主循环会并存并并发读写同一批状态。因此每圈开始（以及每圈结束）都核对代际号，
+    /// 发现已被取代就立即退出，把"并存窗口"从"整轮"缩短到"一个 await"。
+    /// </param>
+    private async Task RunLoopAsync(CancellationToken token, int generation)
+    {
+        while (!token.IsCancellationRequested && Volatile.Read(ref _loopGeneration) == generation)
         {
             var currentTime = DateTime.UtcNow;
             // anyPlayerActive：本轮检测到播放器进程（决定"是否算空闲"）
             // anyPlayerPlaying：本轮读到**正在播放**的源（决定节拍快慢 —— 暂停时降到 1 秒）
             var anyPlayerActive = false;
             var anyPlayerPlaying = false;
+            var superseded = false;
             try
             {
                 // 本 tick 的活跃源（活跃源全速轮询；其余降频，节省内存读取与进程枚举）
@@ -360,6 +394,9 @@ internal class RpcManager(SteamStatusManager steamManager)
                 MaybeInjectTestStall();
 #endif
                 var activeSnapshot = ResolveActiveState().State;
+                // 每个耗时步骤前刷新"还活着"的时刻：单拍要顺序 await 多个播放器（每个上限 5 秒），
+                // 只在整拍结束打心跳会让看门狗把"慢一拍"误判成停摆（见 MarkStepAlive 的说明）
+                MarkStepAlive();
 
                 if (ShouldCheckPlayer(_netEaseState, activeSnapshot, currentTime))
                 {
@@ -367,6 +404,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollNetEaseAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_netEaseState);
+                    MarkStepAlive();
                 }
 
                 if (ShouldCheckPlayer(_tencentState, activeSnapshot, currentTime))
@@ -375,6 +413,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollTencentAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_tencentState);
+                    MarkStepAlive();
                 }
 
                 if (ShouldCheckPlayer(_lxMusicState, activeSnapshot, currentTime))
@@ -383,6 +422,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollLxMusicAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_lxMusicState);
+                    MarkStepAlive();
                 }
 
                 if (ShouldCheckPlayer(_kuGouState, activeSnapshot, currentTime))
@@ -391,6 +431,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollKuGouAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_kuGouState);
+                    MarkStepAlive();
                 }
 
                 if (ShouldCheckPlayer(_ttPlayerState, activeSnapshot, currentTime))
@@ -399,6 +440,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollTTPlayerAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_ttPlayerState);
+                    MarkStepAlive();
                 }
 
                 if (ShouldCheckPlayer(_browserState, activeSnapshot, currentTime))
@@ -407,6 +449,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollBrowserAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_browserState);
+                    MarkStepAlive();
                 }
 
                 // 内存快照：每 10 分钟记一次（用于排查内存增长趋势）
@@ -492,6 +535,10 @@ internal class RpcManager(SteamStatusManager steamManager)
                 }
                 var idleFor = _idleSinceUtc == DateTime.MinValue ? TimeSpan.Zero : DateTime.UtcNow - _idleSinceUtc;
                 MarkTick();
+                // 本轮结束前再核一次代际：若期间已被看门狗取代，本轮结束后就退出，
+                // 不要再等待下一拍（否则旧循环会与新循环并行跑下去）。
+                // 注意：这里在 finally 里，不能直接 break，用标志位带出去。
+                superseded = Volatile.Read(ref _loopGeneration) != generation;
                 var pausedOnly = anyPlayerActive && !anyPlayerPlaying;
                 LogPollTier(anyPlayerPlaying ? 0
                     : pausedOnly ? 1
@@ -505,6 +552,11 @@ internal class RpcManager(SteamStatusManager steamManager)
                         idleFor),
                     token);
             }
+            if (superseded)
+            {
+                Logger.Info("[MuSync] 本份主循环已被看门狗取代，退出");
+                break;
+            }
         }
         Logger.Info("[MuSync] 主循环已停止");
     }
@@ -515,6 +567,18 @@ internal class RpcManager(SteamStatusManager steamManager)
         Interlocked.Exchange(ref _lastTickMs, Environment.TickCount64);
         Interlocked.Increment(ref _tickCount);
     }
+
+    /// <summary>
+    /// 只刷新"还活着"的时刻，不增加拍数。
+    /// <para>
+    /// ⚠️ 为什么需要它：整拍结束才打一次心跳时，单拍最坏情况要顺序 await 全部播放器
+    /// （每个读取上限 5 秒）再加程序检测与状态推送 —— 累加起来可能逼近甚至超过看门狗的停摆阈值。
+    /// 那样看门狗会把"这一拍很慢"误判成"主循环停摆"，进而重启循环；而旧循环正卡在 await 里、
+    /// 要等本轮 finally 走完才会发现取消，于是**两份主循环并存**，并发读写同一批状态。
+    /// 在每个耗时步骤前后刷新时刻，看门狗看到的才是真的"卡死"而不是"慢"。
+    /// </para>
+    /// </summary>
+    private void MarkStepAlive() => Interlocked.Exchange(ref _lastTickMs, Environment.TickCount64);
 
     /// <summary>距上一拍的时长（单调时钟，不受系统时间调整影响）。</summary>
     private TimeSpan SinceLastTick() =>
@@ -832,7 +896,9 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// <summary>酷狗：探测主进程 + 轮询（进程更替时重建实例）。返回是否检测到进程。</summary>
     private async Task<bool> PollKuGouAsync(DateTime currentTime)
     {
-        var kugouProcess = KuGou.FindMainProcess();
+        // using：这里只需要进程 Id，句柄应立即归还
+        // （酷狗活跃时本方法每 233ms 走一次，不释放就是持续的句柄 churn）
+        using var kugouProcess = KuGou.FindMainProcess();
         if (kugouProcess != null)
         {
             // 酷狗重启（进程更替）后重建读取实例
@@ -1106,9 +1172,21 @@ internal class RpcManager(SteamStatusManager steamManager)
                 }
                 else if (rule != null)
                 {
-                    // 命中规则但不允许显示（典型：新发现、等用户在设置里确认分类）
-                    // → 记下来供主界面显示「待确认」状态点；不参与推送
+                    // 命中规则但被 IsAllowedToDisplay 挡下（非"未确认"类的原因）
                     pendingForeground = foreground;
+                }
+                else
+                {
+                    // ⚠️ 命中规则但 Enabled=false（就是"新发现、待用户确认"那一类）时，
+                    // AppRuleManager.Match 返回的是 (null, false) —— 规则本身不返回。
+                    // 于是这里若只看 rule，待确认状态**永远不可达**，主界面不出蓝点、只显示"未检测到程序"。
+                    // 因此按 exe 名回查一次配置，把待确认的前台程序记下来。
+                    var discovered = config.Apps.FirstOrDefault(r =>
+                        r.ExeName.Equals(foreground.ExeName, StringComparison.OrdinalIgnoreCase));
+                    if (discovered is { Enabled: false })
+                    {
+                        pendingForeground = foreground;
+                    }
                 }
             }
             if (!applied)
