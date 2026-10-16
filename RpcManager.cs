@@ -24,22 +24,25 @@ internal class RpcManager(SteamStatusManager steamManager)
         /// <summary>
         /// 最近一次读到的播放信息。
         /// <para>
-        /// ⚠️ 刻意用"装箱成单元素数组的引用"存放：轮询线程在写，UI 线程与诊断快照在读，
+        /// ⚠️ 刻意经一个包装类以**引用**方式存放：轮询线程在写，UI 线程与诊断快照在读，
         /// 而 <c>PlayerInfo</c> 是约一百字节的 record struct —— 直接把 <c>Nullable&lt;PlayerInfo&gt;</c>
         /// 字段跨线程赋值不是原子操作，UI 可能读到"新标题 + 旧进度 / 旧封面"的撕裂值。
-        /// 换成引用后，写入与读取就是一次指针交换（本文用 <see cref="Volatile"/> 保证可见性与顺序）。
+        /// 换成引用后，写入与读取就是一次指针交换（<see cref="Volatile"/> 保证可见性与顺序），
+        /// 且相比"装箱成单元素数组"没有任何分配。
         /// </para>
         /// </summary>
         public PlayerInfo? LastPolledInfo
         {
-            get
-            {
-                var holder = Volatile.Read(ref _lastPolledInfoHolder);
-                return holder is null ? null : holder[0];
-            }
-            set => Volatile.Write(ref _lastPolledInfoHolder, value.HasValue ? [value.Value] : null);
+            get => Volatile.Read(ref _lastPolledInfoRef)?.Value;
+            set => Volatile.Write(ref _lastPolledInfoRef, value.HasValue ? new InfoRef(value.Value) : null);
         }
-        private PlayerInfo?[]? _lastPolledInfoHolder;
+        private InfoRef? _lastPolledInfoRef;
+
+        /// <summary>承载单个 <see cref="PlayerInfo"/> 的引用包装（只为把结构体变成可原子交换的引用）。</summary>
+        private sealed class InfoRef(PlayerInfo value)
+        {
+            public readonly PlayerInfo Value = value;
+        }
         public DateTime LastPollTime { get; set; } = DateTime.MinValue;
         /// <summary>最近一次「进程探测 + 轮询」的时间（用于非活跃播放器降频）。</summary>
         public DateTime LastCheckTime { get; set; } = DateTime.MinValue;
