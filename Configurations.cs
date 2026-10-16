@@ -167,8 +167,30 @@ internal class Configurations
         }
     }
 
+    /// <summary>
+    /// 本次启动"没能读成功、正在用默认值跑"（磁盘上的配置仍在，只是没读到）。
+    /// <para>
+    /// ⚠️ 为 true 时**禁止写盘**：内存里是默认值，写回去就等于把用户配置清空。
+    /// 由 <see cref="Save"/> 检查，见 Load 里对应分支的说明。
+    /// </para>
+    /// </summary>
+    private bool _loadFailedWithDefaults;
+    /// <summary>"因未成功加载而跳过保存"的日志只提醒一次，避免每个自动发现的新程序都刷一条。</summary>
+    private bool _saveBlockedLogged;
+
     public void Save()
     {
+        if (_loadFailedWithDefaults)
+        {
+            // 只提醒一次，避免每个自动发现的新程序都刷一条
+            if (!_saveBlockedLogged)
+            {
+                _saveBlockedLogged = true;
+                Logger.Warn("本次启动未能读取配置（沿用默认值），已跳过保存以免覆盖磁盘上的原配置；" +
+                            "重启程序即可恢复正常保存");
+            }
+            return;
+        }
         try
         {
             var node = JsonSerializer.SerializeToNode(Settings, ConfigJson.Options);
@@ -218,8 +240,12 @@ internal class Configurations
             Logger.Error($"加载配置失败，使用默认值: {e.Message}");
             if (e is IOException or UnauthorizedAccessException)
             {
-                // 读取/权限/占用等临时故障：保留磁盘上的原文件，本次仅用内存默认值，下次启动重试
+                // 读取/权限/占用等临时故障：保留磁盘上的原文件，本次仅用内存默认值，下次启动重试。
+                // ⚠️ 只置内存默认值是不够的：必须立"禁止保存"的护栏，否则之后任何一次 Save()
+                // （例如自动发现新程序时会顺手保存）都会把这份默认值写回磁盘，
+                // 用户的令牌、语言、外观、程序规则会被静默清空 —— 而这里连 .bak 都没来得及拷。
                 Logger.Warn("配置文件暂时不可读（可能是占用或权限问题），本次不会覆盖磁盘文件");
+                _loadFailedWithDefaults = true;
                 Settings = new ConfigData();
                 return;
             }

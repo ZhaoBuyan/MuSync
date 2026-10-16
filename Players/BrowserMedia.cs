@@ -126,8 +126,14 @@ internal sealed class BrowserMedia : IMusicPlayer
             else
             {
                 cover = await Smtc.TryReadThumbnailAsync(snapshot.Thumbnail).ConfigureAwait(false);
-                _coverIdentity = identity;
-                _cachedCover = cover;
+                // ⚠️ 只在**真的读到**时才记缓存：读封面失败的原因很多（元数据偶发读空、短读、超上限），
+                // 若把 null 也缓存下来，这一段媒体的封面就再也不重试了 —— 一次瞬时失败 = 整首没封面。
+                // 不缓存失败则保持"每拍重试"的自愈能力，成功后才享受零重复读取。
+                if (cover != null)
+                {
+                    _coverIdentity = identity;
+                    _cachedCover = cover;
+                }
             }
 
             var info = BuildInfo(snapshot, identity, cover);

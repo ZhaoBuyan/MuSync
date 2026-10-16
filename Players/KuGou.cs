@@ -37,6 +37,12 @@ internal sealed class KuGou : IMusicPlayer
     private DateTime _lastProgressScanUtc = DateTime.MinValue;
     /// <summary>单次读取互斥标志（见 GetPlayerInfoAsync 的说明）：同一实例同一时刻只允许一次读取。</summary>
     private int _readInFlight;
+    /// <summary>本次读取的开始时刻，用于标志被长期占住时的强制逃逸。</summary>
+    private DateTime _readInFlightSinceUtc = DateTime.MinValue;
+    /// <summary>标志被占住超过该时长即强制复位（2 倍轮询超时）。</summary>
+    private static readonly TimeSpan ReadInFlightEscapeAfter = TimeSpan.FromSeconds(10);
+    /// <summary>最近一次成功读数：命中互斥时返回它，而不是让调用方以为"没在播放"。</summary>
+    private PlayerInfo? _lastSuccessfulInfo;
     private string _currentSongId = Guid.NewGuid().ToString();
     private string? _lastTitle;
     private string? _lastArtist;
@@ -119,9 +125,23 @@ internal sealed class KuGou : IMusicPlayer
         // 而下一拍会对同一个实例再调一次 —— 于是两个线程同时 Clear/Add/索引写
         // _candidateAddrs / _liveAddrs / _lastValues（切歌时还会整批 Clear 并触发全内存重扫，
         // 是真正可能超过超时的场景），轻则抛出被下面的 catch 吞掉、表现为进度丢失，重则损坏集合。
-        // 这里用无锁标志做到"同一实例同一时刻只有一次读取"：已有读取在跑就直接放弃本轮，
-        // 由调用方的瞬时失败容忍（1 秒宽限窗口）沿用上一次读数，不会闪断。
-        if (Interlocked.CompareExchange(ref _readInFlight, 1, 0) != 0) return null;
+        //
+        // 命中互斥时**返回上次成功读数**而不是 null：调用方的容忍窗口只有 1 秒，而单次读取的
+        // 超时预算是 5 秒 —— 返回 null 会让酷狗在这几秒内被当成"没在播放"（活跃源掉线、状态被清），
+        // 正好是本函数想避免的闪断。
+        //
+        // 另外给标志加"逃逸"：目标进程被挂起/换页时 ReadProcessMemory 可能长时间阻塞，
+        // 那样标志会被永久占住、酷狗一直报"没在播放"。超过 2 倍轮询超时仍未释放就强制复位
+        // （此刻旧任务已是孤儿，风险与加互斥之前相同，不会更差）。
+        if (Interlocked.CompareExchange(ref _readInFlight, 1, 0) != 0)
+        {
+            if (DateTime.UtcNow - _readInFlightSinceUtc > ReadInFlightEscapeAfter)
+            {
+                Interlocked.Exchange(ref _readInFlight, 0);
+            }
+            return _lastSuccessfulInfo;
+        }
+        _readInFlightSinceUtc = DateTime.UtcNow;
         try
         {
             // 1) 窗口标题 → 歌手 / 歌名
@@ -151,7 +171,7 @@ internal sealed class KuGou : IMusicPlayer
             // 读不到进度（duration=0，如内存读取异常）时不判定为暂停，避免把播放中的歌误显示为已暂停
             var paused = duration > 0 && (DateTime.UtcNow - _lastGrowthUtc).TotalSeconds > 2.0;
 
-            return new PlayerInfo
+            var result = new PlayerInfo
             {
                 Identity = _currentSongId,
                 Title = t.Title,
@@ -163,6 +183,9 @@ internal sealed class KuGou : IMusicPlayer
                 Pause = paused,
                 Url = string.Empty
             };
+            // 记下成功读数：命中互斥（上一轮读取还没结束）时直接把它还给调用方，避免活跃源掉线
+            _lastSuccessfulInfo = result;
+            return result;
         }
         finally
         {

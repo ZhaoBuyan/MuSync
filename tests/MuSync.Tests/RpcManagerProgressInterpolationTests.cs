@@ -108,4 +108,45 @@ public class RpcManagerProgressInterpolationTests
         Assert.Equal(241, result.Duration, 3);
         Assert.False(result.Pause);
     }
+    // ---- 采样时刻重置口径（暂停态变化必须重置）----
+
+    private static PlayerInfo Info(double schedule, bool pause) => new()
+    {
+        Identity = "k", Title = "t", Artists = "", Album = "", Cover = "",
+        Schedule = schedule, Duration = 100, Url = "", Pause = pause
+    };
+
+    [Fact]
+    public void SampleTime_ResetsOnFirstRead()
+    {
+        Assert.True(RpcManager.ShouldResetPositionSampleTime(null, Info(10, false)));
+    }
+
+    [Fact]
+    public void SampleTime_ResetsWhenReadFails()
+    {
+        Assert.True(RpcManager.ShouldResetPositionSampleTime(Info(10, false), null));
+    }
+
+    [Fact]
+    public void SampleTime_ResetsWhenPositionChanges()
+    {
+        Assert.True(RpcManager.ShouldResetPositionSampleTime(Info(10, false), Info(11, false)));
+    }
+
+    [Fact]
+    public void SampleTime_ResetsWhenPauseStateChanges()
+    {
+        // 关键回归：暂停期间位置冻住不动，若不重置采样时刻，
+        // 恢复播放时会把整个暂停时长加到位置上（表现为"暂停了进度条还在走"）
+        Assert.True(RpcManager.ShouldResetPositionSampleTime(Info(10, false), Info(10, true)));
+        Assert.True(RpcManager.ShouldResetPositionSampleTime(Info(10, true), Info(10, false)));
+    }
+
+    [Fact]
+    public void SampleTime_KeepsWhenNothingChanged()
+    {
+        // 位置与暂停态都没变 → 采样时刻保持，进度推算才有基准
+        Assert.False(RpcManager.ShouldResetPositionSampleTime(Info(10, false), Info(10, false)));
+    }
 }

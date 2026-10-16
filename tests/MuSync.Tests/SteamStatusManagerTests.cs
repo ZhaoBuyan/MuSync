@@ -205,4 +205,48 @@ public class SteamStatusManagerTests
         Assert.Throws<OverflowException>(() => TimeSpan.FromSeconds(double.PositiveInfinity));
         Assert.Throws<OverflowException>(() => TimeSpan.FromSeconds(1e18));
     }
+    // ---- 进度条：非有限的位置/总长不得抛（本项目开了 CheckForOverflowUnderflow）----
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    [InlineData(1e18)]
+    public void ProgressBar_NonFiniteSchedule_DoesNotThrow(double schedule)
+    {
+        // 洞曾在 (int)(progress * barLength)：Math.Clamp(NaN,0,1) 返回 NaN（不是 0），
+        // checked 上下文中 (int)NaN 抛 OverflowException → 冒到主循环兜底 → 每拍清空全部播放器。
+        // 位置来自播放器内存读取，读到错位数据时出现 NaN 是现实可能的。
+        var song = MakeSong(schedule: schedule, duration: 255);
+        var preview = SteamStatusManager.GetStatusPreview(song, null, DefaultConfig());
+        Assert.NotNull(preview);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(1e18)]
+    public void ProgressBar_NonFiniteDuration_DoesNotThrow(double duration)
+    {
+        var song = MakeSong(schedule: 10, duration: duration);
+        var preview = SteamStatusManager.GetStatusPreview(song, null, DefaultConfig());
+        Assert.NotNull(preview);
+    }
+
+    [Fact]
+    public void ProgressBar_ScheduleBeyondDuration_FillsCompletelyWithoutThrowing()
+    {
+        // 位置远超总长：进度夹到满格，且不得抛（与 MainForm 百分比路径是同型转型）
+        var config = DefaultConfig();
+        config.MusicFormat = "{song}{progress}";   // 必须显式带上 {progress} 才会渲染进度条
+        config.ProgressBarLength = 10;
+        var song = MakeSong(schedule: 9999, duration: 100);
+
+        var preview = SteamStatusManager.GetStatusPreview(song, null, config);
+
+        Assert.NotNull(preview);
+        var compact = preview.Replace(" ", "");
+        Assert.Contains(new string('#', 10), compact);   // 满格
+        Assert.DoesNotContain('-', compact);             // 没有空槽
+    }
 }

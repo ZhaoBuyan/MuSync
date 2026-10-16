@@ -153,10 +153,15 @@ internal class SteamStatusManager
     {
         if (music.Pause) return " (Paused)";
         if (music.Duration <= 0) return "";
+        // ⚠️ 必须同时挡掉非有限值：本工程在 Debug 与 Release 都开了 CheckForOverflowUnderflow，
+        // 而 Math.Clamp(NaN, 0, 1) 返回的是 **NaN**（不是 0），下一行 (int)(NaN * n) 会抛 OverflowException。
+        // 异常会冒到主循环兜底 → 每拍重建全部播放器并清空状态，等于该媒体存在期间同步彻底失效。
+        // 位置来自播放器的内存读取，读到错位数据时出现 NaN/Infinity 是现实可能的。
+        if (!double.IsFinite(music.Schedule) || !double.IsFinite(music.Duration)) return "";
         var barLength = config.ProgressBarLength is >= 1 and <= 50 ? config.ProgressBarLength : 10;
         var sb = new StringBuilder(" [");
         var progress = Math.Clamp(music.Schedule / music.Duration, 0, 1);
-        var filledCount = (int)(progress * barLength);
+        var filledCount = (int)Math.Clamp(progress * barLength, 0, barLength);
         var fill = BarStyleParser.Normalize(config.ProgressBarFillChar, "#");
         var empty = BarStyleParser.Normalize(config.ProgressBarEmptyChar, "-");
         for (var i = 0; i < filledCount; i++)

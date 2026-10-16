@@ -614,10 +614,15 @@ internal class MainForm : Form
                 _statusLabels[index].Text = statusText;
                 _statusLabels[index].ForeColor = statusColor;
             }
-            if (playerInfo.Value.Duration > 0)
+            // ⚠️ 必须同时要求两个值都有限：本工程开了 CheckForOverflowUnderflow，
+            // 而 NaN 参与除法后 (int) 转型会抛 OverflowException（异常会冒到全局兜底）。
+            // 位置来自播放器内存读取，读到错位数据时出现 NaN/Infinity 是现实可能的。
+            if (playerInfo.Value.Duration > 0 &&
+                double.IsFinite(playerInfo.Value.Schedule) && double.IsFinite(playerInfo.Value.Duration))
             {
-                var progressPercentage = (int)((playerInfo.Value.Schedule / playerInfo.Value.Duration) * 100);
-                var newValue = Math.Max(0, Math.Min(100, progressPercentage));
+                var progressPercentage = (int)Math.Clamp(
+                    playerInfo.Value.Schedule / playerInfo.Value.Duration * 100, 0, 100);
+                var newValue = progressPercentage;
                 if (_progressBars[index].Value != newValue) _progressBars[index].Value = newValue;
                 // ⚠️ 不能写成 TimeSpan 的 mm\:ss：那只输出分与秒、丢掉小时位，
                 // 超过一小时的曲目/视频总时长会显示成 08:20 而不是 1:08:20（实测踩过）

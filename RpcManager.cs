@@ -1103,15 +1103,34 @@ internal class RpcManager(SteamStatusManager steamManager)
             state.PendingUpdateInfo = null;
         }
         // 只有位置读数"真的变了"才更新采样时刻：源的读数在两次上报之间是冻住的，
-        // 这个时刻就是该位置的有效起点，进度推算以它为基准
-        if (state.LastPolledInfo is not { } previousInfo ||
-            !currentInfo.HasValue ||
-            !previousInfo.Schedule.Equals(currentInfo.Value.Schedule))
+        // 这个时刻就是该位置的有效起点，进度推算以它为基准。
+        // ⚠️ 暂停态变化也必须重置：暂停期间位置读数冻住不动，若不重置，
+        // 采样时刻就停在"暂停之前"，恢复播放（或下一次读数变化）时
+        // InterpolatePosition 会把**整个暂停时长**加到位置上并夹到总时长 ——
+        // 表现为"暂停了进度条还在往前跑 / 一恢复就满格"。
+        if (ShouldResetPositionSampleTime(state.LastPolledInfo, currentInfo))
         {
             state.PositionSampleTime = currentTime;
         }
         state.LastPolledInfo = currentInfo;
         state.LastPollTime = currentTime;
+    }
+
+    /// <summary>
+    /// 是否需要把"位置采样时刻"重置为现在（纯函数，便于单测）。
+    /// <para>
+    /// 触发重置的三种情况：首次读数、本轮读不到内容、位置真的变了、或**暂停态变了**。
+    /// 最后一条曾经漏掉，后果是暂停期间位置读数冻住不动 → 采样时刻停在"暂停之前" →
+    /// 恢复播放或下一次读数变化时，进度推算会把整个暂停时长一次性加进去（夹到总时长），
+    /// 表现为"暂停了进度条还在走 / 一恢复就满格"。
+    /// </para>
+    /// </summary>
+    internal static bool ShouldResetPositionSampleTime(PlayerInfo? previous, PlayerInfo? current)
+    {
+        if (previous is not { } prev) return true;
+        if (current is not { } now) return true;
+        if (!prev.Schedule.Equals(now.Schedule)) return true;
+        return prev.Pause != now.Pause;
     }
 
     /// <summary>
