@@ -91,7 +91,7 @@ internal sealed class SettingsForm : Form
     private readonly Timer _previewTimer = new() { Interval = 2000 };
 
     /// <summary>播放器键表。internal 供测试核对「与 RpcManager.DefaultPlayerOrder / ConfigData.PlayerPriority 三处一致」。</summary>
-    internal static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
+    internal static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
 
     public SettingsForm()
     {
@@ -139,6 +139,7 @@ internal sealed class SettingsForm : Form
         tabs.TabPages.Add(CreateSyncPage());
         tabs.TabPages.Add(CreateDisplayPage());
         tabs.TabPages.Add(CreateAppsPage());
+        tabs.TabPages.Add(CreateDataSourcesPage());
         tabs.TabPages.Add(CreateDiagnosticsPage());
         tabs.TabPages.Add(CreateAboutPage());
 
@@ -952,7 +953,245 @@ internal sealed class SettingsForm : Form
         }
     }
 
-    // ================= 控件工具 =================
+    // ================= 数据源页 =================
+
+    /// <summary>数据源编辑行的控件集合（保存时逐行读回）。</summary>
+    private sealed class DataSourceRowControls
+    {
+        public required CheckBox Enabled { get; init; }
+        public required TextBox Name { get; init; }
+        public required TextBox Url { get; init; }
+        public required TextBox ValuePath { get; init; }
+        public required TextBox Format { get; init; }
+        public required NumericUpDown Refresh { get; init; }
+        public required Label Status { get; init; }
+        public required Panel Container { get; init; }
+    }
+
+    private readonly List<DataSourceRowControls> _dataSourceRows = [];
+    private Panel _dataSourcesPanel = null!;
+    private Label _dataSourceHint = null!;
+
+    private TabPage CreateDataSourcesPage()
+    {
+        var page = new TabPage(Loc.L("数据源", "Data sources")) { BackColor = Color.White };
+
+        var intro = new Label
+        {
+            AutoSize = true,
+            Location = new Point(10, 8),
+            MaximumSize = new Size(660, 0),
+            ForeColor = Color.DimGray,
+            Text = Loc.L(
+                "从任意返回 JSON 的 HTTP 地址取一个值，当作状态模板里的积木用。" +
+                "例如心率服务填 地址=http://127.0.0.1:9000/heartrate、取值=heart_rate、显示=❤{v}，" +
+                "就能在格式模板里写 {心率}。取不到值时该积木展开为空，不影响其它同步。",
+                "Fetch a value from any HTTP endpoint that returns JSON and use it as a template block. " +
+                "Missing values expand to nothing and never affect other syncing.")
+        };
+        page.Controls.Add(intro);
+
+        var addButton = new Button
+        {
+            Text = Loc.L("添加数据源", "Add source"),
+            Location = new Point(10, 74),
+            Size = new Size(110, 28)
+        };
+        addButton.Click += (_, _) => AddDataSourceRow(new DataSourceConfig
+        {
+            Enabled = true,
+            Name = Loc.L("心率", "Heart rate"),
+            Url = "http://127.0.0.1:9000/heartrate",
+            ValuePath = "heart_rate",
+            Format = "❤{v}",
+            RefreshSeconds = 1
+        });
+
+        var testButton = new Button
+        {
+            Text = Loc.L("测试当前填写", "Test as filled"),
+            Location = new Point(128, 74),
+            Size = new Size(120, 28)
+        };
+        testButton.Click += async (_, _) => await TestDataSourcesAsync();
+
+        _dataSourceHint = new Label
+        {
+            AutoSize = true,
+            Location = new Point(258, 80),
+            ForeColor = Color.DimGray,
+            Text = Loc.L("提示：音乐类服务关闭时其积木会展开为空。", "Tip: blocks expand to nothing while the service is down.")
+        };
+        page.Controls.AddRange([addButton, testButton, _dataSourceHint]);
+
+        _dataSourcesPanel = new Panel
+        {
+            Location = new Point(10, 108),
+            Size = new Size(660, 300),
+            AutoScroll = true,
+            BackColor = Color.White
+        };
+        page.Controls.Add(_dataSourcesPanel);
+        return page;
+    }
+
+    /// <summary>把一条数据源配置渲染成一行可编辑控件。</summary>
+    private void AddDataSourceRow(DataSourceConfig source)
+    {
+        var row = new Panel
+        {
+            Location = new Point(0, _dataSourceRows.Count * 118),
+            Size = new Size(640, 112),
+            BackColor = Color.White
+        };
+
+        var enabled = new CheckBox
+        {
+            Text = Loc.L("启用", "Enabled"),
+            Location = new Point(0, 4),
+            AutoSize = true,
+            Checked = source.Enabled
+        };
+        var nameLabel = new Label { Text = Loc.L("名称", "Name"), Location = new Point(70, 6), AutoSize = true };
+        var name = new TextBox { Location = new Point(110, 3), Size = new Size(110, 23), Text = source.Name };
+        var urlLabel = new Label { Text = Loc.L("地址", "URL"), Location = new Point(228, 6), AutoSize = true };
+        var url = new TextBox { Location = new Point(268, 3), Size = new Size(360, 23), Text = source.Url };
+
+        var pathLabel = new Label { Text = Loc.L("取值", "Value path"), Location = new Point(70, 36), AutoSize = true };
+        var path = new TextBox { Location = new Point(110, 33), Size = new Size(150, 23), Text = source.ValuePath };
+        var formatLabel = new Label { Text = Loc.L("显示", "Format"), Location = new Point(268, 36), AutoSize = true };
+        var format = new TextBox { Location = new Point(308, 33), Size = new Size(120, 23), Text = source.Format };
+        var refreshLabel = new Label { Text = Loc.L("间隔(秒)", "Every (s)"), Location = new Point(436, 36), AutoSize = true };
+        var refresh = new NumericUpDown
+        {
+            Location = new Point(500, 33),
+            Size = new Size(60, 23),
+            Minimum = 1,
+            Maximum = 3600,
+            Value = Math.Clamp(source.RefreshSeconds, 1, 3600)
+        };
+        var removeButton = new Button
+        {
+            Text = Loc.L("删除", "Remove"),
+            Location = new Point(570, 32),
+            Size = new Size(58, 25)
+        };
+        var status = new Label
+        {
+            Location = new Point(0, 64),
+            Size = new Size(630, 20),
+            ForeColor = Color.DimGray,
+            Text = Loc.L("状态：未测试", "Status: not tested")
+        };
+
+        var controls = new DataSourceRowControls
+        {
+            Enabled = enabled,
+            Name = name,
+            Url = url,
+            ValuePath = path,
+            Format = format,
+            Refresh = refresh,
+            Status = status,
+            Container = row
+        };
+        removeButton.Click += (_, _) =>
+        {
+            _dataSourceRows.Remove(controls);
+            _dataSourcesPanel.Controls.Remove(row);
+            row.Dispose();
+            RelayoutDataSourceRows();
+        };
+
+        row.Controls.AddRange([enabled, nameLabel, name, urlLabel, url, pathLabel, path,
+            formatLabel, format, refreshLabel, refresh, removeButton, status]);
+        _dataSourcesPanel.Controls.Add(row);
+        _dataSourceRows.Add(controls);
+    }
+
+    private void RelayoutDataSourceRows()
+    {
+        for (var i = 0; i < _dataSourceRows.Count; i++)
+        {
+            _dataSourceRows[i].Container.Location = new Point(0, i * 118);
+        }
+    }
+
+    /// <summary>按当前界面上的填写读回数据源列表（保存设置时用）。</summary>
+    private List<DataSourceConfig> CollectDataSources()
+    {
+        var list = new List<DataSourceConfig>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in _dataSourceRows)
+        {
+            var name = row.Name.Text.Trim();
+            if (name.Length == 0) continue;
+            // ⚠️ 名称就是模板里的积木名：大括号会让积木边界出现歧义，直接拒收并提示
+            if (name.Contains('{') || name.Contains('}'))
+            {
+                row.Status.ForeColor = Color.Firebrick;
+                row.Status.Text = Loc.L("名称不能包含大括号 { }", "Name cannot contain { }");
+                continue;
+            }
+            if (!seen.Add(name))
+            {
+                row.Status.ForeColor = Color.Firebrick;
+                row.Status.Text = Loc.L("名称重复，已忽略这一条", "Duplicate name, ignored");
+                continue;
+            }
+            list.Add(new DataSourceConfig
+            {
+                Enabled = row.Enabled.Checked,
+                Name = name,
+                Url = row.Url.Text.Trim(),
+                ValuePath = row.ValuePath.Text.Trim(),
+                Format = row.Format.Text,
+                RefreshSeconds = (int)row.Refresh.Value
+            });
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// 「测试」按钮：按界面上的填写立刻各读一次，把 HTTP 结果与取到的值显示出来。
+    /// 这是通用数据源最容易配错的地方（地址、字段名、嵌套路径），没有它根本没法排查。
+    /// </summary>
+    private async Task TestDataSourcesAsync()
+    {
+        var rows = _dataSourceRows.ToArray();
+        if (rows.Length == 0)
+        {
+            _dataSourceHint.ForeColor = Color.DimGray;
+            _dataSourceHint.Text = Loc.L("还没有添加数据源。", "No data sources yet.");
+            return;
+        }
+        _dataSourceHint.ForeColor = Color.DimGray;
+        _dataSourceHint.Text = Loc.L("正在测试…", "Testing…");
+        var okCount = 0;
+        foreach (var row in rows)
+        {
+            var source = new DataSourceConfig
+            {
+                Enabled = true,          // 测试时忽略"启用"开关：没启用也想验证配置对不对
+                Name = row.Name.Text.Trim(),
+                Url = row.Url.Text.Trim(),
+                ValuePath = row.ValuePath.Text.Trim(),
+                Format = row.Format.Text,
+                RefreshSeconds = 1
+            };
+            var result = await Utils.HttpDataSource.ProbeAsync(source);
+            if (result.Ok) okCount++;
+            row.Status.ForeColor = result.Ok ? Color.ForestGreen : Color.Firebrick;
+            row.Status.Text = result.Ok
+                ? Loc.L($"成功：{result.RawBody}  →  {result.Value}  →  积木展开为 \"{result.Display}\"",
+                        $"OK: {result.RawBody}  →  {result.Value}  →  block renders \"{result.Display}\"")
+                : Loc.L($"失败：{result.Error}", $"Failed: {result.Error}");
+        }
+        _dataSourceHint.ForeColor = okCount == rows.Length ? Color.ForestGreen : Color.Firebrick;
+        _dataSourceHint.Text = Loc.L($"{okCount}/{rows.Length} 个可用", $"{okCount}/{rows.Length} reachable");
+    }
+
+
     private static GroupBox CreateGroupBox(string text, int x, int y, int width, int height)
     {
         return new GroupBox
@@ -1377,6 +1616,17 @@ internal sealed class SettingsForm : Form
         _musicSyncCheckBox.Checked = settings.MusicSyncEnabled;
         _hidePausedMusicCheckBox.Checked = settings.HideMusicWhenPaused;
         _browserMediaCheckBox.Checked = settings.BrowserMediaSyncEnabled;
+        // 数据源：清掉旧行再按配置重建（对话框可能被重复打开）
+        foreach (var row in _dataSourceRows.ToArray())
+        {
+            _dataSourcesPanel.Controls.Remove(row.Container);
+            row.Container.Dispose();
+        }
+        _dataSourceRows.Clear();
+        foreach (var source in settings.DataSources ?? [])
+        {
+            AddDataSourceRow(source);
+        }
         _enableAppSyncCheckBox.Checked = settings.AppSyncEnabled;
         _syncNonGameCheckBox.Checked = settings.SyncNonGameApps;
         _pauseWhenPlayingGameCheckBox.Checked = settings.PauseWhenPlayingGame;
@@ -1458,6 +1708,8 @@ internal sealed class SettingsForm : Form
         settings.MusicSyncEnabled = _musicSyncCheckBox.Checked;
         settings.HideMusicWhenPaused = _hidePausedMusicCheckBox.Checked;
         settings.BrowserMediaSyncEnabled = _browserMediaCheckBox.Checked;
+        // 数据源按界面上的填写回写（名称重复/含大括号的条目会被 CollectDataSources 过滤掉）
+        settings.DataSources = CollectDataSources();
         settings.AppSyncEnabled = _enableAppSyncCheckBox.Checked;
         settings.SyncNonGameApps = _syncNonGameCheckBox.Checked;
         settings.PauseWhenPlayingGame = _pauseWhenPlayingGameCheckBox.Checked;

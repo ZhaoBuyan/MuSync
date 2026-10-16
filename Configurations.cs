@@ -107,7 +107,7 @@ internal class ConfigData
     /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsForm.PlayerOrderKeys</c> 一致：
     /// 三处口径不同时运行期靠 Concat(Distinct) 补齐不会出错，但读代码的人会被绊住。
     /// </summary>
-    public List<string> PlayerPriority { get; set; } = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
+    public List<string> PlayerPriority { get; set; } = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
 
     // —— 程序同步 ——
     /// <summary>程序同步总开关。</summary>
@@ -123,10 +123,19 @@ internal class ConfigData
     /// <summary>常驻状态文案（空 = 未启用；超过状态长度上限时按 UTF-8 截断）。</summary>
     public string PersistentStatusText { get; set; } = "";
 
-    // —— 显示格式模板（变量：{app} {song} {artist} {artistPart} {progress} {sep}）——
+    // —— 显示格式模板（变量：{app} {song} {artist} {artistPart} {progress} {sep} + 自定义数据源名）——
     public string MusicFormat { get; set; } = "{song}{artistPart}{progress}";
     public string ProgramFormat { get; set; } = "{app}";
     public string CombinedFormat { get; set; } = "{app} {sep} {song}{artistPart}";
+    /// <summary>
+    /// 自定义 HTTP 数据源：从任意返回 JSON 的 HTTP 地址取一个值，当作模板积木用。
+    /// <para>
+    /// 例如「心率」源 = 地址 <c>http://127.0.0.1:9000/heartrate</c> + 取值表达式 <c>heart_rate</c> +
+    /// 显示格式 <c>❤{v}</c>，于是模板里写 <c>{心率}</c> 就会展开成 <c>❤92</c>。
+    /// 取不到值时该积木展开为空，不影响任何既有同步。
+    /// </para>
+    /// </summary>
+    public List<DataSourceConfig> DataSources { get; set; } = [];
     /// <summary>进度条填充/空白字符（支持 emoji，各取一个字符）。</summary>
     public string ProgressBarFillChar { get; set; } = "#";
     public string ProgressBarEmptyChar { get; set; } = "-";
@@ -135,6 +144,36 @@ internal class ConfigData
 
     /// <summary>程序同步规则列表。</summary>
     public List<AppRule> Apps { get; set; } = [];
+}
+
+/// <summary>
+/// 一个自定义 HTTP 数据源的配置。
+/// <para>
+/// 语义：请求 <see cref="Url"/>，按 <see cref="ValuePath"/> 从返回的 JSON 里取一个值，
+/// 套上 <see cref="Format"/> 后作为模板积木 <c>{名称}</c> 的展开结果。
+/// </para>
+/// <para>
+/// ⚠️ <see cref="Name"/> 就是模板里的积木名，所以**不能包含大括号**（否则会嵌套出歧义）；
+/// 名称重复时后一个生效（加载时会去重并提示，避免同一块积木有两个来源）。
+/// </para>
+/// </summary>
+public class DataSourceConfig
+{
+    /// <summary>是否启用。默认关：不主动往任何地址发请求。</summary>
+    public bool Enabled { get; set; }
+    /// <summary>积木名（模板里写 <c>{名称}</c> 使用）。</summary>
+    public string Name { get; set; } = "";
+    /// <summary>完整请求地址（含协议与端口，例如 http://127.0.0.1:9000/heartrate）。</summary>
+    public string Url { get; set; } = "";
+    /// <summary>
+    /// 取值表达式：从 JSON 里取哪个字段，支持 <c>a.b.c</c> 嵌套；留空则取根值
+    /// （对端直接返回数字/字符串时用得上）。取到的值可以是数字、字符串或布尔。
+    /// </summary>
+    public string ValuePath { get; set; } = "";
+    /// <summary>显示格式，<c>{v}</c> 会被替换成取到的值；留空则只显示值本身。</summary>
+    public string Format { get; set; } = "{v}";
+    /// <summary>刷新间隔（秒）。实际推送频率跟随同步档位，这里只控制"多久去问一次对端"。</summary>
+    public int RefreshSeconds { get; set; } = 1;
 }
 
 /// <summary>配置管理器（单例）：读取 / 保存 config.json——宽容解析、写入加锁、坏文件自动备份。</summary>

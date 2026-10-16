@@ -104,7 +104,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// 浏览器媒体刻意不在这里：它在 ResolveActiveState 里固定排最后，也不出现在设置页的优先级列表中
     /// （放进来会与 SettingsForm.PlayerOrderKeys 的口径冲突）。
     /// </summary>
-    internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
+    internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
     // 进度条推送间隔：跟随用户档位（快速 0.25s / 标准 0.5s / 省流 1s）
@@ -133,6 +133,15 @@ internal class RpcManager(SteamStatusManager steamManager)
     private static readonly TimeSpan DeepIdlePollInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan DeepIdleAfter = TimeSpan.FromMinutes(5);
     private DateTime _idleSinceUtc = DateTime.MinValue;
+    /// <summary>
+    /// 自定义数据源的运行实例（与配置列表一一对应）。
+    /// <para>
+    /// 每个"积木"一个实例，负责自己的到期判断、退避与过期判定；
+    /// 值由主循环每拍刷新一次（<see cref="RefreshDataSourcesAsync"/>），
+    /// 合成状态时通过 <see cref="SteamStatusManager.DynamicBlockResolver"/> 取用。
+    /// </para>
+    /// </summary>
+    private readonly Dictionary<string, Utils.HttpDataSource> _dataSources = new(StringComparer.OrdinalIgnoreCase);
     // 非活跃源的探测/轮询间隔（秒）：只有当前活跃源保持全速，节省内存读取与进程枚举
     private const double InactiveCheckIntervalSeconds = 1.0;
     // 进度推算判定"同一首歌内位置跳变"所需的最小间隔（秒）：间隔太短时位置样本噪声大
@@ -270,7 +279,8 @@ internal class RpcManager(SteamStatusManager steamManager)
         if (_cachedPlayerOrder is null || signature != _cachedPlayerOrderSignature)
         {
             _cachedPlayerOrderSignature = signature;
-            // 浏览器媒体固定排在最后，且不参与设置页的优先级列表
+            // 浏览器媒体（视频）与其它播放器一样参与用户优先级列表；
+            // Append 只是兜底：旧配置里没有 "Browser" 时把它补在末尾，避免它被漏掉而完全读不到
             _cachedPlayerOrder = priority.Concat(DefaultPlayerOrder).Distinct().Append("Browser").ToList();
         }
         return _cachedPlayerOrder;
@@ -360,6 +370,8 @@ internal class RpcManager(SteamStatusManager steamManager)
             });        }
         _loopStarted = true;
         MarkTick();
+        // 注册自定义积木的取值回调（状态合成是静态方法，通过它拿到本实例的数据源实时值）
+        SteamStatusManager.DynamicBlockResolver = CurrentDynamicBlocks;
         LaunchLoop(_loopCts.Token);
         new Thread(WatchdogLoop)
         {
@@ -516,6 +528,8 @@ internal class RpcManager(SteamStatusManager steamManager)
                 }
                 if ((currentTime - _lastProgressUpdateTime).TotalSeconds >= ProgressUpdateIntervalSeconds)
                 {
+                    // 自定义数据源与音乐同频刷新（值变了会经下面的进度推送带到状态里）
+                    await RefreshDataSourcesAsync(token);
                     await UpdateProgressForActivePlayers(currentTime);
                     _lastProgressUpdateTime = currentTime;
                 }
@@ -613,6 +627,70 @@ internal class RpcManager(SteamStatusManager steamManager)
 
     /// <summary>本份主循环已被看门狗取代（控制流信号，只用于跳出 tick，不表示错误）。</summary>
     private sealed class LoopSupersededException : Exception;
+
+    /// <summary>
+    /// 刷新自定义数据源（每个源自己判断是否到期，未到期直接返回上次的值）。
+    /// <para>
+    /// ⚠️ 调用点放在进度推送那一段（与音乐同频），不额外增加节拍开销；
+    /// 且这里**不允许任何异常冒出去**：一个配错的地址绝不能影响音乐与程序的同步。
+    /// </para>
+    /// </summary>
+    private async Task RefreshDataSourcesAsync(CancellationToken token)
+    {
+        try
+        {
+            var configured = Configurations.Instance.Settings.DataSources;
+            if (configured is null || configured.Count == 0)
+            {
+                if (_dataSources.Count > 0) _dataSources.Clear();
+                return;
+            }
+
+            // 配置增删后同步实例集合（按名字对齐；禁用的源也会保留实例，重新启用即继续用）
+            foreach (var source in configured)
+            {
+                if (string.IsNullOrWhiteSpace(source.Name)) continue;
+                if (!_dataSources.ContainsKey(source.Name))
+                {
+                    _dataSources[source.Name] = new Utils.HttpDataSource();
+                }
+            }
+
+            foreach (var source in configured)
+            {
+                if (string.IsNullOrWhiteSpace(source.Name)) continue;
+                if (!_dataSources.TryGetValue(source.Name, out var instance)) continue;
+                await instance.RefreshIfDueAsync(source, token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常退出
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[数据源] 刷新异常（已忽略）: {ex.Message}");
+        }
+    }
+
+    /// <summary>当前可用的积木值（积木名 → 已按显示格式展开的文本）。供状态合成与设置页预览取用。</summary>
+    internal IReadOnlyDictionary<string, string> CurrentDynamicBlocks()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, instance) in _dataSources)
+        {
+            var display = instance.Display;
+            // 展开为空串（而不是不放进字典）也是对的：效果同为"这块积木当前没有内容"
+            result[name] = display ?? "";
+        }
+        return result;
+    }
+
+    /// <summary>数据源的运行状态快照（供设置页显示连接状态 / 数据是否已停止）。</summary>
+    internal (string? Display, string? Error, DateTime LastSuccessUtc) DataSourceStatus(string name) =>
+        _dataSources.TryGetValue(name, out var instance)
+            ? (instance.Display, instance.LastError, instance.LastSuccessUtc)
+            : (null, null, DateTime.MinValue);
 
     /// <summary>距上一拍的时长（单调时钟，不受系统时间调整影响）。</summary>
     private TimeSpan SinceLastTick() =>

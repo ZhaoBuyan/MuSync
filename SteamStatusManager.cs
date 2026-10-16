@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using System.Threading.Tasks;
@@ -46,7 +47,7 @@ internal class SteamStatusManager
         var config = Configurations.Instance.Settings;
         if (config.PauseWhenPlayingGame && _session.IsRealGameActive) return;
         if (_manualPause) return;
-        var newName = ComposeStatus(musicInfo, appDisplay, config);
+        var newName = ComposeStatus(musicInfo, appDisplay, config, DynamicBlockResolver?.Invoke());
         if (newName == null)
         {
             ClearStatus();
@@ -83,29 +84,39 @@ internal class SteamStatusManager
         Logger.Info("[SteamStatus] 状态已清除");
     }
 
-    /// <summary>合成最终状态文本；返回 null 表示"无内容可显示"（调用方应清除状态）。</summary>
-    public static string? ComposeStatus(PlayerInfo? music, string? appDisplay, ConfigData config)
+    /// <summary>
+    /// 合成最终状态文本；返回 null 表示"无内容可显示"（调用方应清除状态）。
+    /// </summary>
+    /// <param name="dynamicBlocks">
+    /// 自定义数据源的值（积木名 → 已按显示格式展开好的文本）。
+    /// 例如 <c>{"心率": "❤92"}</c>，模板里写 <c>{心率}</c> 即可展开；缺失的积木展开为空。
+    /// </param>
+    public static string? ComposeStatus(PlayerInfo? music, string? appDisplay, ConfigData config,
+        IReadOnlyDictionary<string, string>? dynamicBlocks = null)
     {
+        var blocks = dynamicBlocks ?? EmptyBlocks;
         var appText = string.IsNullOrWhiteSpace(appDisplay) ? null : appDisplay.Trim();
-        var musicText = BuildMusicText(music, config, includeProgress: true);
+        var musicText = BuildMusicText(music, config, includeProgress: true, blocks);
         if (appText == null && musicText == null)
         {
             // 无音乐也无程序：常驻状态开启且文案非空时推送常驻文案，否则返回 null（调用方清除状态）
             var persistent = config.PersistentStatusEnabled ? (config.PersistentStatusText ?? "").Trim() : "";
+            // 常驻文案同样支持积木（例如不播音乐时只想显示心率）
+            persistent = ApplyTemplate(persistent, "", null, "", config, blocks);
             return persistent.Length == 0 ? null : TruncateToUtf8ByteLength(persistent, MaxStatusBytes);
         }
         if (appText == null) return TruncateToUtf8ByteLength(musicText!, MaxStatusBytes);
         if (musicText == null)
         {
-            var programText = ApplyTemplate(config.ProgramFormat, appText, null, "", config);
+            var programText = ApplyTemplate(config.ProgramFormat, appText, null, "", config, blocks);
             return TruncateToUtf8ByteLength(string.IsNullOrWhiteSpace(programText) ? appText : programText,
                 MaxStatusBytes);
         }
         // 程序 + 音乐：按组合模板生成，超长时逐级降级（去进度 → 仅歌名 → 仅程序名）
         var song = music!.Value;
         var progressPart = BuildProgressPart(song, config);
-        var full = ApplyTemplate(config.CombinedFormat, appText, song, progressPart, config);
-        var noProgress = ApplyTemplate(config.CombinedFormat, appText, song, "", config);
+        var full = ApplyTemplate(config.CombinedFormat, appText, song, progressPart, config, blocks);
+        var noProgress = ApplyTemplate(config.CombinedFormat, appText, song, "", config, blocks);
         var songOnly = $"{appText} {config.CombinedSeparator} {song.Title}".Trim();
         string[] candidates = [full, noProgress, songOnly, appText];
         foreach (var candidate in candidates)
@@ -118,19 +129,33 @@ internal class SteamStatusManager
         return TruncateToUtf8ByteLength(candidates[0].Trim(), MaxStatusBytes);
     }
 
-    public static string GetStatusPreview(PlayerInfo? music, string? appDisplay, ConfigData config)
+    private static readonly Dictionary<string, string> EmptyBlocks = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 自定义积木的取值回调：由 RpcManager 在启动时注册，返回"积木名 → 当前显示文本"。
+    /// <para>
+    /// 为什么用回调而不是直接引用：<see cref="ComposeStatus"/> 是静态的（格式编辑器的预览也用它），
+    /// 而数据源的运行实例归 RpcManager 所有。注册一次即可让两边拿到同一份实时值。
+    /// 未注册（或取不到值）时所有自定义积木展开为空，不影响任何既有行为。
+    /// </para>
+    /// </summary>
+    public static Func<IReadOnlyDictionary<string, string>>? DynamicBlockResolver { get; set; }
+
+    public static string GetStatusPreview(PlayerInfo? music, string? appDisplay, ConfigData config,
+        IReadOnlyDictionary<string, string>? dynamicBlocks = null)
     {
-        return ComposeStatus(music, appDisplay, config) ?? "MuSync";
+        return ComposeStatus(music, appDisplay, config, dynamicBlocks) ?? "MuSync";
     }
 
-    private static string? BuildMusicText(PlayerInfo? music, ConfigData config, bool includeProgress)
+    private static string? BuildMusicText(PlayerInfo? music, ConfigData config, bool includeProgress,
+        IReadOnlyDictionary<string, string> blocks)
     {
         if (music is not { } m) return null;
         if (!config.MusicSyncEnabled) return null;
         // 暂停时按设置隐藏；HideMusicWhenPaused=false 时显示 "(Paused)"（旧行为）
         if (m.Pause && config.HideMusicWhenPaused) return null;
         var progress = includeProgress ? BuildProgressPart(m, config) : "";
-        var text = ApplyTemplate(config.MusicFormat, "", m, progress, config);
+        var text = ApplyTemplate(config.MusicFormat, "", m, progress, config, blocks);
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
@@ -144,27 +169,39 @@ internal class SteamStatusManager
     /// </para>
     /// </summary>
     private static string ApplyTemplate(string template, string app, PlayerInfo? music, string progressPart,
-        ConfigData config)
+        ConfigData config, IReadOnlyDictionary<string, string> blocks)
     {
         var artist = music?.Artists ?? "";
         var artistPart = string.IsNullOrEmpty(artist) ? "" : $" - {artist}";
         if (string.IsNullOrEmpty(template)) return "";
-        return PlaceholderPattern.Replace(template, match => match.Value switch
+        return PlaceholderPattern.Replace(template, match =>
         {
-            "{app}" => app,
-            "{song}" => music?.Title ?? "",
-            // {artistPart} 必须先于 {artist} 判断：否则 "{artistPart}" 会被当成 "{artist}" + "Part}"
-            "{artistPart}" => artistPart,
-            "{artist}" => artist,
-            "{progress}" => progressPart,
-            "{sep}" => config.CombinedSeparator,
-            _ => match.Value
+            var token = match.Value;
+            switch (token)
+            {
+                case "{app}": return app;
+                case "{song}": return music?.Title ?? "";
+                // {artistPart} 必须先于 {artist} 判断：否则 "{artistPart}" 会被当成 "{artist}" + "Part}"
+                case "{artistPart}": return artistPart;
+                case "{artist}": return artist;
+                case "{progress}": return progressPart;
+                case "{sep}": return config.CombinedSeparator;
+            }
+            // 自定义数据源积木：{名称} → 取到的值；没在配（或当前取不到值）时展开为空
+            var name = token.Length > 2 ? token[1..^1] : "";
+            return blocks.TryGetValue(name, out var value) ? value : "";
         }).Trim();
     }
 
-    /// <summary>模板占位符（单趟替换用，见 <see cref="ApplyTemplate"/>）。</summary>
+    /// <summary>
+    /// 模板占位符：内建标记 + 任意自定义积木名（<c>{心率}</c> 这类）。
+    /// <para>
+    /// ⚠️ 匹配范围放宽到"任意无括号的名字"，但**仍然是单趟扫描**：认不出的名字展开为空，
+    /// 且替换进去的文本不会被再次扫描 —— 这是"外部文本不被当成模板解释"的保证。
+    /// </para>
+    /// </summary>
     private static readonly System.Text.RegularExpressions.Regex PlaceholderPattern =
-        new(@"\{(?:app|song|artist|artistPart|progress|sep)\}",
+        new(@"\{[^{}\r\n]{1,32}\}",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static string BuildProgressPart(PlayerInfo music, ConfigData config)
