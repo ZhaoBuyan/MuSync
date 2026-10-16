@@ -134,20 +134,38 @@ internal class SteamStatusManager
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
+    /// <summary>
+    /// 模板替换：**单趟扫描**，只替换模板原文里的占位符。
+    /// <para>
+    /// ⚠️ 不能用一串 <c>Replace</c> 顺序替换：那样替换**进去的内容**会被后续占位符再次命中。
+    /// 例如曲目名恰好是 <c>{progress}</c>（或用户把程序显示名设成 <c>{sep}</c>），
+    /// 经 <c>.Replace("{song}", ...)</c> 注入后又被后面的 <c>.Replace("{progress}", ...)</c> 展开 ——
+    /// 外部文本被当成模板解释。单趟扫描从根上避免。
+    /// </para>
+    /// </summary>
     private static string ApplyTemplate(string template, string app, PlayerInfo? music, string progressPart,
         ConfigData config)
     {
         var artist = music?.Artists ?? "";
         var artistPart = string.IsNullOrEmpty(artist) ? "" : $" - {artist}";
-        return (template ?? "")
-            .Replace("{app}", app)
-            .Replace("{song}", music?.Title ?? "")
-            .Replace("{artistPart}", artistPart)
-            .Replace("{artist}", artist)
-            .Replace("{progress}", progressPart)
-            .Replace("{sep}", config.CombinedSeparator)
-            .Trim();
+        if (string.IsNullOrEmpty(template)) return "";
+        return PlaceholderPattern.Replace(template, match => match.Value switch
+        {
+            "{app}" => app,
+            "{song}" => music?.Title ?? "",
+            // {artistPart} 必须先于 {artist} 判断：否则 "{artistPart}" 会被当成 "{artist}" + "Part}"
+            "{artistPart}" => artistPart,
+            "{artist}" => artist,
+            "{progress}" => progressPart,
+            "{sep}" => config.CombinedSeparator,
+            _ => match.Value
+        }).Trim();
     }
+
+    /// <summary>模板占位符（单趟替换用，见 <see cref="ApplyTemplate"/>）。</summary>
+    private static readonly System.Text.RegularExpressions.Regex PlaceholderPattern =
+        new(@"\{(?:app|song|artist|artistPart|progress|sep)\}",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static string BuildProgressPart(PlayerInfo music, ConfigData config)
     {

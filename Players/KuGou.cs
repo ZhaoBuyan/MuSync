@@ -62,15 +62,20 @@ internal sealed class KuGou : IMusicPlayer
         {
             foreach (var process in Process.GetProcessesByName("KuGou"))
             {
-                try
+                // using：读 MainModule 会打开进程句柄，用完必须归还
+                // （封面占位路径会走这里，不释放就是持续的句柄 churn）
+                using (process)
                 {
-                    var path = process.MainModule?.FileName;
-                    if (string.IsNullOrEmpty(path) || !File.Exists(path)) continue;
-                    return path;
-                }
-                catch
-                {
-                    // 跳过访问失败的进程
+                    try
+                    {
+                        var path = process.MainModule?.FileName;
+                        if (string.IsNullOrEmpty(path) || !File.Exists(path)) continue;
+                        return path;
+                    }
+                    catch
+                    {
+                        // 跳过访问失败的进程
+                    }
                 }
             }
         }

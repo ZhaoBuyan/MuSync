@@ -338,19 +338,26 @@ internal class RpcManager(SteamStatusManager steamManager)
         _loopCts = new CancellationTokenSource();
         if (token.CanBeCanceled)
         {
-            var loopCts = _loopCts;
+            // ⚠️ 通过一个"当前 CTS"间接取消，而不是在注册时把 _loopCts 捕获成局部变量：
+            // 看门狗重启会换一份新的 CTS，若注册时捕获的是旧那份，
+            // 之后程序退出调用 token.Cancel() 就再也取消不了当前主循环 ——
+            // 表现为退出阶段主循环仍在跑（与状态清除、会话释放并发）。
             token.Register(() =>
             {
                 try
                 {
-                    loopCts.Cancel();
+                    // 读**当前**这份 CTS（看门狗重启会换新），而不是注册时捕获的那份。
+                    // 注：这里与 RestartLoop 的写入之间是"退出竞态"，
+                    // 最坏情况是取消到上一份（已随重启作废）—— 与不加这层保护的后果相当，
+                    // 不会更差；真正的正确性靠 Release 语义（引用写入是原子的）。
+                    var cts = _loopCts;
+                    cts?.Cancel();
                 }
                 catch (ObjectDisposedException)
                 {
                     // 退出竞态：忽略
                 }
-            });
-        }
+            });        }
         _loopStarted = true;
         MarkTick();
         LaunchLoop(_loopCts.Token);

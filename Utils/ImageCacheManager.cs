@@ -268,34 +268,35 @@ internal static class ImageCacheManager
                     {
                         var cleanupCount = MemoryPressureMonitor.GetSuggestedCleanupCount();
                         var itemsToCleanup = Math.Min(cleanupCount, LruList.Count);
-                        for (var i = 0; i < itemsToCleanup && LruList.Last != null; i++)
+                        for (var i = 0; i < itemsToCleanup; i++)
                         {
-                            var evictedItem = LruList.Last.Value;
-                            // ⚠️ 不要在这里再 UnregisterImageSize：RemoveFromCacheInternal 内部已经扣减过，
-                            // 重复扣减会让追踪值越来越低于真实占用，最终内存压力阈值再也触发不了（实测过的记账缺陷）。
-                            // 返回 false 表示该项被 ActiveKeys 挡住（正在显示）而未能移除 —— 必须跳出，否则死循环。
-                            if (!RemoveFromCacheInternal(evictedItem.Key)) break;
-                            Logger.Diagnose($"Proactive cleanup evicted item with key: {evictedItem.Key}");
+                            // 从尾部往前找第一个**不在显示中**的项：只看尾部的话，
+                            // 一旦最后一项恰好是当前显示的封面就整体停下，后面的可淘汰项永远动不了，
+                            // 内存阈值与条数上限会双双静默失效。
+                            if (!EvictOldestEvictable()) break;
                         }
                     }
-                    while (MemoryPressureMonitor.ShouldEvictItems(imageSize) && LruList.Last != null)
+                    while (MemoryPressureMonitor.ShouldEvictItems(imageSize))
                     {
-                        var evictedItem = LruList.Last.Value;
-                        // 同第一个循环：不重复扣减计数，且被 ActiveKeys 挡住时跳出
-                        if (!RemoveFromCacheInternal(evictedItem.Key)) break;
-                        Logger.Diagnose($"Memory pressure evicted item with key: {evictedItem.Key}");
+                        if (!EvictOldestEvictable()) break;
                     }
                     // 硬上限：内存阈值只管"占了多少字节"，条数无上限时大量小图仍会堆积
                     // （PerformanceConfig.ImageCacheMaxSize 此前在主项目里没有任何引用，等于没有这道闸）
                     var maxItems = PerformanceConfig.ImageCacheMaxSize;
-                    while (maxItems > 0 && LruList.Count > maxItems && LruList.Last != null)
+                    while (maxItems > 0 && LruList.Count > maxItems)
                     {
-                        if (!RemoveFromCacheInternal(LruList.Last.Value.Key)) break;
+                        if (!EvictOldestEvictable()) break;
                     }
                     var newItem = new CacheItem(cacheKey, image);
                     var newNode = new LinkedListNode<CacheItem>(newItem);
                     LruList.AddFirst(newNode);
                     Cache[cacheKey] = newNode;
+                    // 注意顺序：上限判定在上面（插入前），所以稳态是 maxItems + 1 —— 这里补一次插入后判定，
+                    // 让它严格落在上限内。
+                    while (maxItems > 0 && LruList.Count > maxItems)
+                    {
+                        if (!EvictOldestEvictable()) break;
+                    }
                     MemoryPressureMonitor.RegisterImageSize(imageSize);
                     Logger.Diagnose(
                         $"Cached new image with key: {cacheKey}, size: {imageSize} bytes, total cache memory: {MemoryPressureMonitor.GetCurrentMemoryUsage()} bytes");
@@ -346,6 +347,26 @@ internal static class ImageCacheManager
                 $"Force cleanup removed {keysToRemove.Count} cache items, kept {keepCount} most recent items.");
         }
     }
+    /// <summary>
+    /// 从 LRU 尾部往前淘汰**第一个不在显示中**的项；全部都在显示中则返回 false。
+    /// <para>
+    /// 为什么不能只看尾部（LruList.Last）：最后一项恰好是当前显示的封面时，
+    /// 直接 break 会让后面所有可淘汰项永远动不了 —— 内存阈值与条数上限双双静默失效。
+    /// 上限与阈值都靠它推进，因此"跳过活动项、继续往前找"是必需的，同时仍满足
+    /// "正在显示的封面绝不释放"（否则 PictureBox 会引用到已释放的位图）。
+    /// </para>
+    /// </summary>
+    private static bool EvictOldestEvictable()
+    {
+        for (var node = LruList.Last; node != null; node = node.Previous)
+        {
+            if (ActiveKeys.Contains(node.Value.Key)) continue;
+            var key = node.Value.Key;
+            return RemoveFromCacheInternal(key);
+        }
+        return false;
+    }
+
     /// <summary>移除一个缓存项。返回 false 表示未移除（不存在，或正在显示被 ActiveKeys 挡住）。</summary>
     private static bool RemoveFromCacheInternal(string cacheKey)
     {

@@ -249,4 +249,33 @@ public class SteamStatusManagerTests
         Assert.Contains(new string('#', 10), compact);   // 满格
         Assert.DoesNotContain('-', compact);             // 没有空槽
     }
+    // ---- 模板替换必须是单趟扫描（不得二次展开注入进来的文本）----
+
+    [Fact]
+    public void ApplyTemplate_SongTitleThatLooksLikePlaceholder_IsNotReExpanded()
+    {
+        // 歌名恰好是 {progress}：若用一串 Replace 顺序替换，注入后会被后面的
+        // .Replace("{progress}", ...) 再展开一次（外部文本被当成模板解释）。
+        var config = DefaultConfig();
+        config.MusicFormat = "{song}";
+        var song = MakeSong(title: "{progress}");
+
+        var preview = SteamStatusManager.GetStatusPreview(song, null, config);
+
+        Assert.Equal("{progress}", preview);
+    }
+
+    [Fact]
+    public void ApplyTemplate_AppNameContainingSeparatorToken_IsNotReExpanded()
+    {
+        var config = DefaultConfig();
+        config.CombinedFormat = "{app}{sep}{song}";
+        config.CombinedSeparator = " | ";
+        var song = MakeSong(title: "歌");
+
+        var preview = SteamStatusManager.GetStatusPreview(song, "{sep}", config);
+
+        Assert.Contains("{sep}", preview);
+        Assert.Contains(" | ", preview);          // 真正的分隔符仍要生效
+    }
 }

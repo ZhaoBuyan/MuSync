@@ -118,7 +118,10 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
             {
                 // 单个会话读取失败按"未播放"处理，不影响其它候选
             }
-            list.Add(new SmtcSessionSnapshot(session.SourceAppUserModelId, playing));
+            // AppId 可能为 null（同仓库 Smtc.cs 对同一字段就写了 ?? ""）：
+            // 直接传下去会让 PickSessionIndex 里的 StartsWith 抛 NRE，被上层 catch 抓走后退避 30 秒，
+            // 而且只要那个会话还在就会反复如此
+            list.Add(new SmtcSessionSnapshot(session.SourceAppUserModelId ?? "", playing));
         }
         return list;
     }

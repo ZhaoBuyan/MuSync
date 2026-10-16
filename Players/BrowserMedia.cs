@@ -186,6 +186,11 @@ internal sealed class BrowserMedia : IMusicPlayer
     {
         if (string.IsNullOrWhiteSpace(appId)) return false;
         var head = appId;
+        // 兼容"全路径形态"的 AUMID（某些浏览器发布的是可执行文件全路径）：
+        // 先取文件名，再取第一个 '.' 之前的部分 —— 否则首个 '.' 落在 xxx.exe 里，
+        // 首段会变成整条路径，白名单永远命中不了。
+        var slash = head.LastIndexOfAny(['\\', '/']);
+        if (slash >= 0 && slash < head.Length - 1) head = head[(slash + 1)..];
         var dot = head.IndexOf('.');
         if (dot > 0) head = head[..dot];
         foreach (var prefix in BrowserAppIdPrefixes)

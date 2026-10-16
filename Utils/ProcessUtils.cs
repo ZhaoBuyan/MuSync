@@ -8,27 +8,37 @@ namespace MuSync.Utils;
 internal static partial class ProcessUtils
 {
     private static readonly Dictionary<(int, string), nint> ModuleAddressCache = new();
-    internal static int ModuleAddressCacheCount => ModuleAddressCache.Count;
+    /// <summary>同 Memory.ModuleCache：缓存操作与整表清空必须互斥（见那里的说明）。</summary>
+    private static readonly object CacheLock = new();
+        internal static int ModuleAddressCacheCount
+    {
+        get { lock (CacheLock) { return ModuleAddressCache.Count; } }
+    }
     private static int _lastPid = -1;
     private static DateTime _lastCleanupTime = DateTime.Now;
     public static nint GetModuleBaseAddress(int pid, string moduleName)
     {
-        if (pid != _lastPid)
+        // 缓存读写整体互斥：看门狗重启会让两代主循环并存一个 await 窗口，
+        // 无锁时 Clear/TryGetValue/写入交错会让 Dictionary 抛异常或读到不一致状态
+        lock (CacheLock)
         {
-            ModuleAddressCache.Clear();
-            _lastPid = pid;
-        }
-        var now = DateTime.Now;
-        if ((now - _lastCleanupTime) > PerformanceConfig.ProcessModuleCacheCleanupInterval ||
-            ModuleAddressCache.Count > PerformanceConfig.ProcessModuleCacheMaxSize)
-        {
-            CleanupCache();
-            _lastCleanupTime = now;
-        }
-        var cacheKey = (pid, moduleName);
-        if (ModuleAddressCache.TryGetValue(cacheKey, out var cachedAddress))
-        {
-            return cachedAddress;
+            if (pid != _lastPid)
+            {
+                ModuleAddressCache.Clear();
+                _lastPid = pid;
+            }
+            var now = DateTime.Now;
+            if ((now - _lastCleanupTime) > PerformanceConfig.ProcessModuleCacheCleanupInterval ||
+                ModuleAddressCache.Count > PerformanceConfig.ProcessModuleCacheMaxSize)
+            {
+                CleanupCache();
+                _lastCleanupTime = now;
+            }
+            var cacheKey = (pid, moduleName);
+            if (ModuleAddressCache.TryGetValue(cacheKey, out var cachedAddress))
+            {
+                return cachedAddress;
+            }
         }
         try
         {
@@ -37,7 +47,10 @@ internal static partial class ProcessUtils
             {
                 if (!module.ModuleName.Equals(moduleName, StringComparison.OrdinalIgnoreCase)) continue;
                 var baseAddress = module.BaseAddress;
-                ModuleAddressCache[cacheKey] = baseAddress;
+                lock (CacheLock)
+                {
+                    ModuleAddressCache[(pid, moduleName)] = baseAddress;
+                }
                 return baseAddress;
             }
         }
@@ -68,7 +81,10 @@ internal static partial class ProcessUtils
                             if (GetModuleInformation(fallbackHandle, modules[i], out var moduleInfo, (uint)Marshal.SizeOf<MODULEINFO>()))
                             {
                                 var baseAddress = moduleInfo.lpBaseOfDll;
-                                ModuleAddressCache[cacheKey] = baseAddress;
+                                lock (CacheLock)
+                                {
+                                    ModuleAddressCache[(pid, moduleName)] = baseAddress;
+                                }
                                 return baseAddress;
                             }
                         }

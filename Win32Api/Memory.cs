@@ -9,24 +9,40 @@ namespace MuSync.Win32Api;
 internal static class Memory
 {
     private static readonly Dictionary<(int, nint), (nint pStart, byte[] memory)> ModuleCache = new();
-    internal static int ModuleCacheCount => ModuleCache.Count;
+    /// <summary>
+    /// 缓存与"pid 变了就整表清空"的互斥锁。
+    /// ⚠️ 看门狗重启会让新旧两代主循环并存一个 await 窗口，两线程同时 Clear/TryGetValue
+    /// 会让 Dictionary 抛 InvalidOperationException 或读到不一致状态。
+    /// </summary>
+    private static readonly object CacheLock = new();
+        internal static int ModuleCacheCount
+    {
+        get { lock (CacheLock) { return ModuleCache.Count; } }
+    }
     private static int _lastProcessId = -1;
     private static DateTime _lastCleanupTime = DateTime.Now;
     public static bool FindPattern(string pattern, int processId, nint moduleBaseAddress, out nint pointer)
     {
-        if (processId != _lastProcessId)
+        // 缓存读写整体互斥（同 ProcessUtils 的说明）：看门狗重启会让两代主循环并存一个 await 窗口
+        bool cacheHit;
+        var cacheEntry = (pStart: nint.Zero, memoryBlock: (byte[])null!);
+        lock (CacheLock)
         {
-            ModuleCache.Clear();
-            _lastProcessId = processId;
+            if (processId != _lastProcessId)
+            {
+                ModuleCache.Clear();
+                _lastProcessId = processId;
+            }
+            var now = DateTime.Now;
+            if ((now - _lastCleanupTime) > PerformanceConfig.ModuleCacheCleanupInterval ||
+                ModuleCache.Count > PerformanceConfig.ModuleCacheMaxSize)
+            {
+                CleanupCache();
+                _lastCleanupTime = now;
+            }
+            cacheHit = ModuleCache.TryGetValue((processId, moduleBaseAddress), out cacheEntry);
         }
-        var now = DateTime.Now;
-        if ((now - _lastCleanupTime) > PerformanceConfig.ModuleCacheCleanupInterval ||
-            ModuleCache.Count > PerformanceConfig.ModuleCacheMaxSize)
-        {
-            CleanupCache();
-            _lastCleanupTime = now;
-        }
-        if (!ModuleCache.TryGetValue((processId, moduleBaseAddress), out (nint pStart, byte[] memoryBlock) cacheEntry))
+        if (!cacheHit)
         {
             using var memory = new ProcessMemory(processId);
             try
@@ -47,7 +63,10 @@ internal static class Memory
                         var pSize = memory.ReadInt32(cursor, 8);
                         cacheEntry.pStart = moduleBaseAddress + pOffset;
                         cacheEntry.memoryBlock = memory.ReadBytes(cacheEntry.pStart, pSize);
-                        ModuleCache[(processId, moduleBaseAddress)] = cacheEntry;
+                        lock (CacheLock)
+                        {
+                            ModuleCache[(processId, moduleBaseAddress)] = cacheEntry;
+                        }
                         break;
                     }
                     cursor += 40;
