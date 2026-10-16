@@ -270,24 +270,27 @@ internal static class ImageCacheManager
                         var itemsToCleanup = Math.Min(cleanupCount, LruList.Count);
                         for (var i = 0; i < itemsToCleanup && LruList.Last != null; i++)
                         {
-                            var lruNode = LruList.Last;
-                            var evictedItem = lruNode.Value;
-                            var evictedSize = MemoryPressureMonitor.EstimateImageSize(evictedItem.Image);
-                            RemoveFromCacheInternal(evictedItem.Key);
-                            MemoryPressureMonitor.UnregisterImageSize(evictedSize);
-                            Logger.Diagnose(
-                                $"Proactive cleanup evicted item with key: {evictedItem.Key}, freed: {evictedSize} bytes");
+                            var evictedItem = LruList.Last.Value;
+                            // ⚠️ 不要在这里再 UnregisterImageSize：RemoveFromCacheInternal 内部已经扣减过，
+                            // 重复扣减会让追踪值越来越低于真实占用，最终内存压力阈值再也触发不了（实测过的记账缺陷）。
+                            // 返回 false 表示该项被 ActiveKeys 挡住（正在显示）而未能移除 —— 必须跳出，否则死循环。
+                            if (!RemoveFromCacheInternal(evictedItem.Key)) break;
+                            Logger.Diagnose($"Proactive cleanup evicted item with key: {evictedItem.Key}");
                         }
                     }
                     while (MemoryPressureMonitor.ShouldEvictItems(imageSize) && LruList.Last != null)
                     {
-                        var lruNode = LruList.Last;
-                        var evictedItem = lruNode.Value;
-                        var evictedSize = MemoryPressureMonitor.EstimateImageSize(evictedItem.Image);
-                        RemoveFromCacheInternal(evictedItem.Key);
-                        MemoryPressureMonitor.UnregisterImageSize(evictedSize);
-                        Logger.Diagnose(
-                            $"Memory pressure evicted item with key: {evictedItem.Key}, freed: {evictedSize} bytes");
+                        var evictedItem = LruList.Last.Value;
+                        // 同第一个循环：不重复扣减计数，且被 ActiveKeys 挡住时跳出
+                        if (!RemoveFromCacheInternal(evictedItem.Key)) break;
+                        Logger.Diagnose($"Memory pressure evicted item with key: {evictedItem.Key}");
+                    }
+                    // 硬上限：内存阈值只管"占了多少字节"，条数无上限时大量小图仍会堆积
+                    // （PerformanceConfig.ImageCacheMaxSize 此前在主项目里没有任何引用，等于没有这道闸）
+                    var maxItems = PerformanceConfig.ImageCacheMaxSize;
+                    while (maxItems > 0 && LruList.Count > maxItems && LruList.Last != null)
+                    {
+                        if (!RemoveFromCacheInternal(LruList.Last.Value.Key)) break;
                     }
                     var newItem = new CacheItem(cacheKey, image);
                     var newNode = new LinkedListNode<CacheItem>(newItem);
@@ -343,12 +346,14 @@ internal static class ImageCacheManager
                 $"Force cleanup removed {keysToRemove.Count} cache items, kept {keepCount} most recent items.");
         }
     }
-    private static void RemoveFromCacheInternal(string cacheKey)
+    /// <summary>移除一个缓存项。返回 false 表示未移除（不存在，或正在显示被 ActiveKeys 挡住）。</summary>
+    private static bool RemoveFromCacheInternal(string cacheKey)
     {
-        if (!Cache.TryGetValue(cacheKey, out var node)) return;
+        if (!Cache.TryGetValue(cacheKey, out var node)) return false;
         if (ActiveKeys.Contains(cacheKey))
         {
-            return;
+            // 正在显示的封面不能移除，否则 PictureBox 会引用到已释放的位图
+            return false;
         }
         LruList.Remove(node);
         Cache.Remove(cacheKey);
@@ -366,5 +371,6 @@ internal static class ImageCacheManager
         {
             Logger.Diagnose($"[WARNING] Failed to dispose image for key {cacheKey}: {ex.Message}");
         }
+        return true;
     }
 }

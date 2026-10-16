@@ -45,8 +45,15 @@ internal static class Smtc
     }
 
     /// <summary>
-    /// 把当前所有会话压成纯数据快照，**并顺手把封面缩略图的引用一并取出**。
+    /// 把会话压成纯数据快照，**并顺手把封面缩略图的引用一并取出**。
     /// 读取失败的单个会话跳过，不影响其它。
+    /// </summary>
+    /// <param name="appIdFilter">
+    /// 可选过滤器：只对<c>可能命中</c>的会话读取元数据。
+    /// <c>SourceAppUserModelId</c> 是同步且廉价的属性，而 <c>TryGetMediaPropertiesAsync()</c> 是跨进程异步调用 ——
+    /// 每拍对<b>所有</b>会话都读一遍既浪费，也会让同一个会话在同一拍被读两次
+    /// （千千静听与浏览器媒体各自都要读它自己的会话）；先过滤再读可以避开这两点。
+    /// </param>
     /// <para>
     /// ⚠️ 为什么必须"一次读取、同时拿到元数据与缩略图"：
     /// <c>TryGetMediaPropertiesAsync()</c> 在连续快速调用时**会失败或返回空**
@@ -54,9 +61,9 @@ internal static class Smtc
     /// （一次取标题、一次取封面），于是标题随机会变空、会话被判成"没有媒体信息"
     /// → 整个来源时有时无。合并成一次调用根治。
     /// </para>
-    /// </summary>
     public static async Task<List<SessionSnapshot>> DescribeAsync(
-        GlobalSystemMediaTransportControlsSessionManager manager)
+        GlobalSystemMediaTransportControlsSessionManager manager,
+        Func<string, bool>? appIdFilter = null)
     {
         var list = new List<SessionSnapshot>();
         IReadOnlyList<GlobalSystemMediaTransportControlsSession> sessions;
@@ -73,12 +80,15 @@ internal static class Smtc
         {
             try
             {
+                var appId = session.SourceAppUserModelId ?? "";
+                // 先按 AppId 过滤（同步廉价），命中才付异步读元数据的代价
+                if (appIdFilter != null && !appIdFilter(appId)) continue;
                 var playing = session.GetPlaybackInfo()?.PlaybackStatus ==
                               GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
                 var props = await session.TryGetMediaPropertiesAsync().AsTask().ConfigureAwait(false);
                 var timeline = session.GetTimelineProperties();
                 list.Add(new SessionSnapshot(
-                    session.SourceAppUserModelId ?? "",
+                    appId,
                     playing,
                     props?.Title ?? "",
                     props?.Artist,
@@ -115,10 +125,22 @@ internal static class Smtc
         try
         {
             using var stream = await reference.OpenReadAsync().AsTask().ConfigureAwait(false);
-            if (stream.Size == 0 || stream.Size > int.MaxValue) return null;
+            // 上界取 8 MB：封面缩略图远小于此，而只挡 int.MaxValue 的话，
+            // 一个异常读数会让程序尝试分配 2 GB（OOM 虽被 catch，但白付一次分配）。
+            if (stream.Size == 0 || stream.Size > MaxThumbnailBytes) return null;
             var bytes = new byte[stream.Size];
             using var reader = new DataReader(stream);
-            await reader.LoadAsync((uint)stream.Size).AsTask().ConfigureAwait(false);
+            // ⚠️ LoadAsync 允许只交付**少于**请求量的字节，必须循环补齐：
+            // 只调一次就 ReadBytes(全长) 会在短读时抛异常 → 被下面的 catch 吞掉 →
+            // 表现为"封面时有时无"（与本功能其它注释描述的症状同类，难查）。
+            var loaded = 0u;
+            while (loaded < stream.Size)
+            {
+                var got = await reader.LoadAsync((uint)(stream.Size - loaded)).AsTask().ConfigureAwait(false);
+                if (got == 0) break;
+                loaded += got;
+            }
+            if (loaded < stream.Size) return null;
             reader.ReadBytes(bytes);
             return bytes;
         }
@@ -128,6 +150,9 @@ internal static class Smtc
             return null;
         }
     }
+
+    /// <summary>封面缩略图允许的最大字节数（见 TryReadThumbnailAsync 的上界说明）。</summary>
+    private const long MaxThumbnailBytes = 8L * 1024 * 1024;
 
     /// <summary>在快照里按 AppId 前缀找出第一个匹配项的下标；没有则 -1（大小写不敏感）。</summary>
     public static int IndexOfApp(IReadOnlyList<SessionSnapshot> sessions, string appIdPrefix)

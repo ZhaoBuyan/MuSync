@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 using MuSync;
 using MuSync.Models;
@@ -177,5 +178,31 @@ public class SteamStatusManagerTests
     public void FormatClockTime_NegativeBecomesZero()
     {
         Assert.Equal("0:00", SteamStatusManager.FormatClockTime(-5));
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    [InlineData(1e18)]                          // 超大有限值：同样会把时长算爆
+    [InlineData(double.MaxValue)]
+    [InlineData(999999.0)]                      // 超出合理范围，按"时长未知"处理
+    public void FormatClockTime_NonFiniteOrAbsurd_DoesNotThrow(double seconds)
+    {
+        // 时长来自外部（SMTC 有源用哨兵值表示"未知"、LX 的 HTTP JSON），
+        // 若不夹取则 TimeSpan.FromSeconds 会抛（NaN → ArgumentException；±Infinity / 超大值 → OverflowException），
+        // 一路冒到主循环兜底 → 每拍重建全部播放器并清空状态，等于该媒体存在期间同步彻底失效。
+        Assert.Equal("0:00", SteamStatusManager.FormatClockTime(seconds));
+    }
+
+    [Fact]
+    public void TimeSpan_FromSeconds_ThrowsOnNonFiniteAndAbsurdValues()
+    {
+        // 反向验证：确认"夹取之前确实会抛"，证明上面那条是有意义的回归测试。
+        // 实测的类型不同，所以分开断言（ArgumentException 与 OverflowException 之间没有继承关系）；
+        // 注：TimeSpan.MaxValue.TotalSeconds 实测**不抛**，所以不用它。
+        Assert.Throws<ArgumentException>(() => TimeSpan.FromSeconds(double.NaN));
+        Assert.Throws<OverflowException>(() => TimeSpan.FromSeconds(double.PositiveInfinity));
+        Assert.Throws<OverflowException>(() => TimeSpan.FromSeconds(1e18));
     }
 }

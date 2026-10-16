@@ -136,7 +136,7 @@ internal static class DiagnosticsReport
             _ => Loc.L("标准 0.5s", "Standard 0.5s")
         };
         sb.AppendLine(
-            Loc.L($"音乐同步：{(config.MusicSyncEnabled ? "开启" : "关闭")} ｜ 暂停时隐藏：{(config.HideMusicWhenPaused ? "开" : "关")} ｜ 频率：{speed}", $"Music sync: {(config.MusicSyncEnabled ? "on" : "off")} | hide when paused: {(config.HideMusicWhenPaused ? "on" : "off")} | rate: {speed}"));
+            Loc.L($"音乐同步：{(config.MusicSyncEnabled ? "开启" : "关闭")} ｜ 暂停时隐藏：{(config.HideMusicWhenPaused ? "开" : "关")} ｜ 浏览器媒体：{(config.BrowserMediaSyncEnabled ? "开" : "关")} ｜ 频率：{speed}", $"Music sync: {(config.MusicSyncEnabled ? "on" : "off")} | hide when paused: {(config.HideMusicWhenPaused ? "on" : "off")} | browser media: {(config.BrowserMediaSyncEnabled ? "on" : "off")} | rate: {speed}"));
         sb.AppendLine(
             Loc.L($"启动：开机自启 {(config.AutoStart ? "开" : "关")} ｜ 关闭最小化到托盘 {(config.CloseToTray ? "开" : "关")} ｜ 静默启动 {(config.StartInTray ? "开" : "关")}", $"Startup: auto-start {(config.AutoStart ? "on" : "off")} | minimize to tray on close {(config.CloseToTray ? "on" : "off")} | start minimized {(config.StartInTray ? "on" : "off")}"));
         var appearance = new List<string>();

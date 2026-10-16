@@ -105,4 +105,20 @@ public class TransientNullToleranceTests
 
         Assert.Null(result);
     }
+
+    [Fact]
+    public void CleanupPlayerState_ClearsTheHoldCache()
+    {
+        // 播放器消失后不能靠宽限窗口把旧内容复活（否则会有最长 1 秒的陈旧显示）
+        var state = new RpcManager.PlayerState();
+        RpcManager.HoldThroughTransientNull(state, Info("歌一"), T0);
+
+        RpcManager.CleanupPlayerState(state, "测试");
+
+        Assert.Null(state.LastGoodInfo);
+        Assert.Equal(DateTime.MinValue, state.LastGoodInfoTime);
+        Assert.Null(state.LastPolledInfo);
+        // 清理之后紧接一次失败读取，不应再拿旧内容
+        Assert.Null(RpcManager.HoldThroughTransientNull(state, null, T0.AddMilliseconds(100)));
+    }
 }

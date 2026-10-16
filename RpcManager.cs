@@ -946,19 +946,32 @@ internal class RpcManager(SteamStatusManager steamManager)
 
     private static bool IsAnyBrowserRunningCore()
     {
+        System.Diagnostics.Process[] processes;
         try
         {
-            foreach (var process in System.Diagnostics.Process.GetProcesses())
+            processes = System.Diagnostics.Process.GetProcesses();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Browser] 取进程列表失败: {ex.Message}");
+            return false;
+        }
+        // ⚠️ try/catch 必须在循环**内部**：单个进程在枚举后恰好退出（或受保护）会让 ProcessName 抛异常，
+        // 若 catch 在外层，一次异常就终止整个扫描并得出"没有浏览器在运行"的错误结论 ——
+        // 而该结论还会被缓存若干秒，进而把浏览器媒体实例整个拆掉。单个失败跳过即可。
+        foreach (var process in processes)
+        {
+            try
             {
                 using (process)
                 {
                     if (BrowserProcessNames.Contains(process.ProcessName)) return true;
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[Browser] 枚举进程失败: {ex.Message}");
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Browser] 读取单个进程名失败（已跳过）: {ex.Message}");
+            }
         }
         return false;
     }
@@ -1118,15 +1131,26 @@ internal class RpcManager(SteamStatusManager steamManager)
         return true;
     }
 
-    private void CleanupPlayerState(PlayerState state, string playerName)
+    /// <summary>
+    /// 清理某个播放器的运行时状态（进程消失 / 兜底清空时调用）。
+    /// static 且 internal：它不依赖任何实例成员，测试可直接验证"读数缓存也被清掉"。
+    /// </summary>
+    internal static void CleanupPlayerState(PlayerState state, string playerName)
     {
-        if (state.Player is null) return;
-        Debug.WriteLine($"[{playerName}] Player process lost. Clearing local state (active source re-evaluated).");
-        // 释放播放器持有的进程句柄等资源（如网易云/QQ音乐的 ProcessMemory）
-        state.Player.Dispose();
-        state.Player = null;
+        // 实例可能还没建（首轮就失败 / 已清理过）：此时也要保证下面的状态被清干净，不能提前返回
+        if (state.Player is not null)
+        {
+            Debug.WriteLine($"[{playerName}] Player process lost. Clearing local state (active source re-evaluated).");
+            // 释放播放器持有的进程句柄等资源（如网易云/QQ音乐的 ProcessMemory）
+            state.Player.Dispose();
+            state.Player = null;
+        }
         state.LastPolledInfo = null;
         state.PendingUpdateInfo = null;
+        // ⚠️ 读数缓存也要清：它是"读取失败宽限窗口"的基准，留着的话下次首读为 null 时
+        // 会拿旧内容把已经消失的播放器复活（最长 1 秒的陈旧显示）。
+        state.LastGoodInfo = null;
+        state.LastGoodInfoTime = DateTime.MinValue;
     }
 
     private void ClearAllPlayers()
@@ -1136,6 +1160,10 @@ internal class RpcManager(SteamStatusManager steamManager)
         CleanupPlayerState(_lxMusicState, "LX Music");
         CleanupPlayerState(_kuGouState, "KuGou");
         CleanupPlayerState(_ttPlayerState, "TTPlayer");
+        // ⚠️ 必须一起清：漏掉它的话，主循环异常兜底清空其余源之后，
+        // _browserState.LastPolledInfo 仍然非 null，于是下一拍立刻把浏览器的陈旧标题
+        // 当作活跃源又推上去，把这次"兜底清除"当场撤销；实例与其缓存的封面也不会释放。
+        CleanupPlayerState(_browserState, "Browser");
         _lastActiveState = null;
         _lastActiveInfoNull = true;
         _lastPushedAppDisplay = null;

@@ -399,7 +399,7 @@ internal class MainForm : Form
             ForeColor = Color.DarkGray,
             Location = new Point(350, 65),
             Size = new Size(100, 12),
-            Text = "00:00 / 00:00"
+            Text = "0:00 / 0:00"
         };
         panel.Controls.AddRange(coverPictureBox, playerNameLabel, textFlowPanel, statusLabel, progressBar,
             progressLabel);
@@ -539,6 +539,17 @@ internal class MainForm : Form
         }
     }
     /// <summary>首页音乐面板：跟随当前活跃源（受播放器优先级与"正在播放优先"规则影响）。</summary>
+    /// <summary>
+    /// 字节封面的"变化指纹"（用于提前返回时的比较）。
+    /// <para>
+    /// ⚠️ 必须把字节封面纳入比较：SMTC 类来源的 <c>Cover</c> 恒为空串、封面走 <c>CoverImage</c> 字节，
+    /// 漏比就会出现"标题/歌手/专辑都没变、只有封面变了"时整段被跳过、封面不刷新 ——
+    /// RpcManager.DetectStateChange 曾为同一类问题专门补过 Cover 比较，这里必须对齐。
+    /// 用长度作指纹：换封面时长度几乎必然不同，且不必逐字节比较（省开销）。
+    /// </para>
+    /// </summary>
+    private static int CoverImageLengthOf(PlayerInfo info) => info.CoverImage?.Length ?? -1;
+
     private void UpdateMusicPanel(PlayerInfo? playerInfo, string playerName, bool forceRefresh)
     {
         if (!string.IsNullOrEmpty(playerName) && _lastMusicSourceName != playerName)
@@ -563,6 +574,7 @@ internal class MainForm : Form
                 lastInfo.Value.Artists == playerInfo.Value.Artists &&
                 lastInfo.Value.Album == playerInfo.Value.Album &&
                 lastInfo.Value.Cover == playerInfo.Value.Cover &&
+                CoverImageLengthOf(lastInfo.Value) == CoverImageLengthOf(playerInfo.Value) &&
                 lastInfo.Value.Pause == playerInfo.Value.Pause &&
                 Math.Abs(lastInfo.Value.Schedule - playerInfo.Value.Schedule) < 0.5 && 
                 Math.Abs(lastInfo.Value.Duration - playerInfo.Value.Duration) < 0.5) 
@@ -616,7 +628,7 @@ internal class MainForm : Form
             else
             {
                 if (_progressBars[index].Value != 0) _progressBars[index].Value = 0;
-                if (_progressLabels[index].Text != "00:00 / 00:00") _progressLabels[index].Text = "00:00 / 00:00";
+                if (_progressLabels[index].Text != "0:00 / 0:00") _progressLabels[index].Text = "0:00 / 0:00";
             }
             if (!string.IsNullOrEmpty(playerInfo.Value.Cover))
             {
@@ -646,8 +658,11 @@ internal class MainForm : Form
                     if (image != null)
                     {
                         _currentCacheKeys[index] = key;
+                        // ⚠️ 解码出的位图必须交给 _placeholderImages 托管：该数组在每条切换路径上都会被
+                        // Dispose，否则旧位图只能等终结器回收，GDI+ 句柄会在 GC 之间持续堆积
+                        // （URL 封面由 ImageCacheManager 托管，字节封面没有别人管）。
                         _placeholderImages[index]?.Dispose();
-                        _placeholderImages[index] = null;
+                        _placeholderImages[index] = image;
                         _placeholderIconPaths[index] = "";
                         _coverPictureBoxes[index].BackColor = Color.White;
                         _coverPictureBoxes[index].Image = image;
@@ -707,12 +722,17 @@ internal class MainForm : Form
                 _statusLabels[index].ForeColor = lastError != RpcManager.ErrorCode.None ? Color.Red : Color.Gray;
             }
             if (_progressBars[index].Value != 0) _progressBars[index].Value = 0;
-            if (_progressLabels[index].Text != "00:00 / 00:00") _progressLabels[index].Text = "00:00 / 00:00";
+            if (_progressLabels[index].Text != "0:00 / 0:00") _progressLabels[index].Text = "0:00 / 0:00";
             if (_coverPictureBoxes[index].Image != null)
             {
                 _coverPictureBoxes[index].Image = null;
                 _coverPictureBoxes[index].BackColor = Color.LightGray;
             }
+            // ⚠️ 记忆路径与托管图像也要清：否则下次这个播放器再播放时，
+            // ShowPlaceholderIcon 会因为"路径没变"直接返回，封面永久停在灰块。
+            _placeholderIconPaths[index] = "";
+            _placeholderImages[index]?.Dispose();
+            _placeholderImages[index] = null;
             if (_playerNameLabels[index].ForeColor != Color.Gray) _playerNameLabels[index].ForeColor = Color.Gray;
             _currentSongIds[index] = string.Empty;
             _currentCoverUrls[index] = string.Empty;
@@ -742,9 +762,22 @@ internal class MainForm : Form
         {
             "酷狗音乐" => KuGou.FindAppIconPath(),
             "千千静听" => GetProcessPathByName("TTPlayerRebuild"),
+            // 浏览器媒体拿不到缩略图时同样用浏览器自己的图标占位（文档与更新日志都是这么承诺的）
+            "浏览器媒体" => GetAnyBrowserPath(),
             _ => null
         };
         return path != null && System.IO.File.Exists(path) ? path : null;
+    }
+
+    /// <summary>常见浏览器的可执行文件路径（用于封面缺失时的占位图标），按白名单顺序取第一个可用的。</summary>
+    private static string? GetAnyBrowserPath()
+    {
+        foreach (var name in new[] { "msedge", "chrome", "brave", "vivaldi", "opera", "firefox" })
+        {
+            var path = GetProcessPathByName(name);
+            if (path != null) return path;
+        }
+        return null;
     }
 
     private static string? GetProcessPathByName(string processName)
@@ -803,7 +836,14 @@ internal class MainForm : Form
         var placeholderPath = GetPlaceholderIconSource(playerName);
         if (placeholderPath != null)
         {
-            if (_placeholderIconPaths[index] == placeholderPath) return;
+            // ⚠️ 不能只看"记住的路径"：记忆里还是这个路径、但 PictureBox 上现在挂的可能已经是别的图
+            // （例如中间切到有 URL 封面的播放器、或切到无活跃源被清成灰块）。
+            // 只比路径就会出现：封面清空后再也恢复不了、或一直显示上一个播放器的封面。
+            if (_placeholderIconPaths[index] == placeholderPath &&
+                ReferenceEquals(_coverPictureBoxes[index].Image, _placeholderImages[index]))
+            {
+                return;
+            }
             var icon = AppResource.LoadExecutableIcon(placeholderPath);
             if (icon == null) return;
             _placeholderIconPaths[index] = placeholderPath;
@@ -1105,6 +1145,12 @@ internal class MainForm : Form
                             pictureBox.Image = image;
                             _currentCacheKeys[index] = forceCacheKey;
                             pictureBox.BackColor = Color.White;
+                            // URL 封面接管显示后，必须清掉"占位图记忆"并释放托管的占位图：
+                            // 否则下次切回同一个用占位图的播放器时，ShowPlaceholderIcon 会因为
+                            // "路径没变"直接返回，PictureBox 上就一直留着这张 URL 封面（串图）。
+                            _placeholderIconPaths[index] = "";
+                            _placeholderImages[index]?.Dispose();
+                            _placeholderImages[index] = null;
                         }
                         catch (Exception ex)
                         {

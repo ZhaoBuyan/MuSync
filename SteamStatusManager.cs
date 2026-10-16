@@ -191,6 +191,9 @@ internal class SteamStatusManager
 
     private static string FormatTime(double totalSeconds) => FormatClockTime(totalSeconds);
 
+    /// <summary>可安全格式化的最大秒数（超出按"时长未知"处理）。见 <see cref="FormatClockTime"/> 的夹取说明。</summary>
+    private const double MaxFormattableSeconds = 359_999;   // 99:59:59，足够覆盖任何歌曲/视频
+
     /// <summary>
     /// 把秒数格式化成 <c>分:秒</c>；**超过一小时必须带上小时位**（<c>1:08:20</c>）。
     /// <para>
@@ -198,10 +201,20 @@ internal class SteamStatusManager
     /// 小时会被丢掉 —— 1 小时 8 分 20 秒会显示成 <c>08:20</c>（实测踩过：视频总时长正好差一小时）。
     /// 界面与 Steam 状态两处都必须走这个函数，避免口径不一致。
     /// </para>
+    /// <para>
+    /// ⚠️ 还必须做夹取（实测过 TimeSpan.FromSeconds 的行为）：<c>NaN</c> → <c>ArgumentException</c>，
+    /// <c>±Infinity</c> 与超大有限值（如 <c>1e18</c>、<c>double.MaxValue</c>）→ <c>OverflowException</c>；
+    /// 另有 <c>TimeSpan.MaxValue.TotalSeconds</c> 这类值虽不抛、却会把状态显示成荒谬的时长。
+    /// 时长来自外部（SMTC 的 EndTime 有拿哨兵值表示"未知"的源、LX 的 HTTP JSON），
+    /// 一旦抛出去会一路冒到主循环兜底 → <b>每拍</b>重建全部播放器并清空状态，
+    /// 等于该媒体存在期间同步彻底失效。超出合理范围时按"时长未知"处理。
+    /// </para>
     /// </summary>
     internal static string FormatClockTime(double totalSeconds)
     {
-        var ts = TimeSpan.FromSeconds(Math.Max(0, totalSeconds));
+        if (!double.IsFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
+        if (totalSeconds > MaxFormattableSeconds) return "0:00";
+        var ts = TimeSpan.FromSeconds(totalSeconds);
         return ts.TotalHours >= 1
             ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
             : $"{ts.Minutes}:{ts.Seconds:D2}";
