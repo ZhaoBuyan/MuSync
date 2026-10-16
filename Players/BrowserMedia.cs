@@ -43,7 +43,6 @@ internal sealed class BrowserMedia : IMusicPlayer
 
     private Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager? _manager;
     private DateTime _managerFailedAtUtc = DateTime.MinValue;
-    private string? _lastIdentity;
     /// <summary>
     /// 最近一次成功读到的信息与时刻。
     /// <para>
@@ -56,6 +55,9 @@ internal sealed class BrowserMedia : IMusicPlayer
     private PlayerInfo? _lastGoodInfo;
     private DateTime _lastGoodUtc = DateTime.MinValue;
     private static readonly TimeSpan StaleFallbackWindow = TimeSpan.FromSeconds(8);
+    /// <summary>会话管理器重建的最小间隔（见 DescribeWithRecoveryAsync 的限频说明）。</summary>
+    private static readonly TimeSpan RebuildMinInterval = TimeSpan.FromSeconds(5);
+    private DateTime _lastRebuildAttemptUtc = DateTime.MinValue;
 
     /// <summary>
     /// 取会话快照；为空时**重建会话管理器再取一次**。
@@ -71,7 +73,13 @@ internal sealed class BrowserMedia : IMusicPlayer
         var sessions = await Smtc.DescribeAsync(_manager!).ConfigureAwait(false);
         if (sessions.Count > 0) return sessions;
 
-        // 会话列表为空：可能确实是没人在放，也可能是管理器失效了 —— 重建一次再判定
+        // 会话列表为空：可能确实是没人在放，也可能是管理器失效了 —— 重建一次再判定。
+        // ⚠️ 重建必须限频：全速档下本方法每 233ms 走一次，若"确实没人在放"时不限频，
+        // 就会变成每秒重建约 4 次会话管理器（白白开销）。这里 5 秒最多重建一次。
+        var now = DateTime.UtcNow;
+        if (now - _lastRebuildAttemptUtc < RebuildMinInterval) return sessions;
+        _lastRebuildAttemptUtc = now;
+
         _manager = await Smtc.RequestManagerAsync().ConfigureAwait(false);
         if (_manager == null)
         {
@@ -104,7 +112,6 @@ internal sealed class BrowserMedia : IMusicPlayer
 
             var snapshot = sessions[index];
             var identity = $"{snapshot.AppId}|{snapshot.Title}";
-            if (_lastIdentity != identity) _lastIdentity = identity;
 
             // 封面字节取自快照里**已经拿到**的缩略图引用：
             // 绝不能再拿会话去 TryGetMediaPropertiesAsync() —— 那是导致"来源时有时无"的重复读取坑

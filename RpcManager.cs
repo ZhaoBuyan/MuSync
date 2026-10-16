@@ -919,8 +919,28 @@ internal class RpcManager(SteamStatusManager steamManager)
         return true;
     }
 
-    /// <summary>是否有任一常见浏览器在运行（无则不必去查 SMTC）。</summary>
+    /// <summary>
+    /// 是否有任一常见浏览器在运行（无则不必去查 SMTC）。
+    /// <para>
+    /// ⚠️ 结果按 <see cref="BrowserCheckInterval"/> 缓存：本方法要枚举系统里全部进程，
+    /// 而轮询在全速档下每 233ms 走一次 —— 不缓存就等于每秒枚举 4 次进程表。
+    /// 浏览器是否运行不需要秒级精度（真启动了，下一轮 SMTC 读取自然会看到会话）。
+    /// </para>
+    /// </summary>
     private static bool IsAnyBrowserRunning()
+    {
+        var now = DateTime.UtcNow;
+        if (now - _lastBrowserCheckUtc < BrowserCheckInterval) return _lastBrowserRunning;
+        _lastBrowserCheckUtc = now;
+        _lastBrowserRunning = IsAnyBrowserRunningCore();
+        return _lastBrowserRunning;
+    }
+
+    private static DateTime _lastBrowserCheckUtc = DateTime.MinValue;
+    private static bool _lastBrowserRunning;
+    private static readonly TimeSpan BrowserCheckInterval = TimeSpan.FromSeconds(5);
+
+    private static bool IsAnyBrowserRunningCore()
     {
         try
         {
