@@ -151,7 +151,7 @@ internal sealed class SettingsForm : Form
             UpdateAccountStatus();
         };
         _perfTimer.Start();
-        _previewTimer.Tick += (_, _) => UpdatePreview();
+        _previewTimer.Tick += (_, _) => { UpdatePreview(); RefreshDataSourceRuntimeStatus(); };
         _previewTimer.Start();
 
         FormClosed += (_, _) =>
@@ -971,6 +971,7 @@ internal sealed class SettingsForm : Form
     private readonly List<DataSourceRowControls> _dataSourceRows = [];
     private Panel _dataSourcesPanel = null!;
     private Label _dataSourceHint = null!;
+    private Button _dataSourceTestButton = null!;
 
     private TabPage CreateDataSourcesPage()
     {
@@ -1013,6 +1014,7 @@ internal sealed class SettingsForm : Form
             Location = new Point(128, 74),
             Size = new Size(120, 28)
         };
+        _dataSourceTestButton = testButton;
         testButton.Click += async (_, _) => await TestDataSourcesAsync();
 
         _dataSourceHint = new Label
@@ -1117,6 +1119,44 @@ internal sealed class SettingsForm : Form
         }
     }
 
+    /// <summary>
+    /// 把数据源的**运行期**状态刷到每一行上（区别于「测试」按钮的一次性结果）：
+    /// 用户需要看到"上次成功是什么时候 / 现在为什么是空的"，否则配错了只能靠猜。
+    /// 复用界面已有的 2 秒预览定时器，不额外起线程；页面不可见时直接跳过。
+    /// </summary>
+    private void RefreshDataSourceRuntimeStatus()
+    {
+        if (_dataSourceRows.Count == 0 || !_dataSourcesPanel.Visible) return;
+        var rpc = Program.GetRpcManager();
+        if (rpc is null) return;
+        foreach (var row in _dataSourceRows)
+        {
+            var name = row.Name.Text.Trim();
+            if (name.Length == 0) continue;
+            var (display, error, lastSuccessUtc) = rpc.DataSourceStatus(name);
+            var enabled = row.Enabled.Checked;
+            if (!enabled)
+            {
+                row.Status.ForeColor = Color.DimGray;
+                row.Status.Text = Loc.L("状态：已停用", "Status: disabled");
+                continue;
+            }
+            if (lastSuccessUtc == DateTime.MinValue || display is null)
+            {
+                row.Status.ForeColor = Color.Firebrick;
+                row.Status.Text = Loc.L(
+                    $"状态：暂无数据{(error is null ? "（等待首次读取）" : $"（{error}）")}",
+                    $"Status: no data yet{(error is null ? " (waiting for first read)" : $" ({error})")}");
+                continue;
+            }
+            var ago = (int)(DateTime.UtcNow - lastSuccessUtc).TotalSeconds;
+            row.Status.ForeColor = Color.ForestGreen;
+            row.Status.Text = Loc.L(
+                $"状态：正常 · 当前 \"{display}\" · 上次成功 {ago} 秒前",
+                $"Status: OK · \"{display}\" · last success {ago}s ago");
+        }
+    }
+
     /// <summary>按当前界面上的填写读回数据源列表（保存设置时用）。</summary>
     private List<DataSourceConfig> CollectDataSources()
     {
@@ -1131,6 +1171,14 @@ internal sealed class SettingsForm : Form
             {
                 row.Status.ForeColor = Color.Firebrick;
                 row.Status.Text = Loc.L("名称不能包含大括号 { }", "Name cannot contain { }");
+                continue;
+            }
+            // 与模板正则的上界保持一致：超出的话模板永远认不出这个名字，只会静默展开为空
+            if (name.Length > SteamStatusManager.MaxBlockNameLength)
+            {
+                row.Status.ForeColor = Color.Firebrick;
+                row.Status.Text = Loc.L($"名称太长（最多 {SteamStatusManager.MaxBlockNameLength} 个字符）",
+                    $"Name too long (max {SteamStatusManager.MaxBlockNameLength} characters)");
                 continue;
             }
             if (!seen.Add(name))
@@ -1165,30 +1213,40 @@ internal sealed class SettingsForm : Form
             _dataSourceHint.Text = Loc.L("还没有添加数据源。", "No data sources yet.");
             return;
         }
+        // 防重入：连点会让多轮探测交错写同一组状态行，显示随机
+        if (!_dataSourceTestButton.Enabled) return;
+        _dataSourceTestButton.Enabled = false;
         _dataSourceHint.ForeColor = Color.DimGray;
         _dataSourceHint.Text = Loc.L("正在测试…", "Testing…");
-        var okCount = 0;
-        foreach (var row in rows)
+        try
         {
-            var source = new DataSourceConfig
+            var okCount = 0;
+            foreach (var row in rows)
             {
-                Enabled = true,          // 测试时忽略"启用"开关：没启用也想验证配置对不对
-                Name = row.Name.Text.Trim(),
-                Url = row.Url.Text.Trim(),
-                ValuePath = row.ValuePath.Text.Trim(),
-                Format = row.Format.Text,
-                RefreshSeconds = 1
-            };
-            var result = await Utils.HttpDataSource.ProbeAsync(source);
-            if (result.Ok) okCount++;
-            row.Status.ForeColor = result.Ok ? Color.ForestGreen : Color.Firebrick;
-            row.Status.Text = result.Ok
-                ? Loc.L($"成功：{result.RawBody}  →  {result.Value}  →  积木展开为 \"{result.Display}\"",
-                        $"OK: {result.RawBody}  →  {result.Value}  →  block renders \"{result.Display}\"")
-                : Loc.L($"失败：{result.Error}", $"Failed: {result.Error}");
+                var source = new DataSourceConfig
+                {
+                    Enabled = true,          // 测试时忽略"启用"开关：没启用也想验证配置对不对
+                    Name = row.Name.Text.Trim(),
+                    Url = row.Url.Text.Trim(),
+                    ValuePath = row.ValuePath.Text.Trim(),
+                    Format = row.Format.Text,
+                    RefreshSeconds = 1
+                };
+                var result = await Utils.HttpDataSource.ProbeAsync(source);
+                if (result.Ok) okCount++;
+                row.Status.ForeColor = result.Ok ? Color.ForestGreen : Color.Firebrick;
+                row.Status.Text = result.Ok
+                    ? Loc.L($"成功：{result.RawBody}  →  {result.Value}  →  积木展开为 \"{result.Display}\"",
+                            $"OK: {result.RawBody}  →  {result.Value}  →  block renders \"{result.Display}\"")
+                    : Loc.L($"失败：{result.Error}", $"Failed: {result.Error}");
+            }
+            _dataSourceHint.ForeColor = okCount == rows.Length ? Color.ForestGreen : Color.Firebrick;
+            _dataSourceHint.Text = Loc.L($"{okCount}/{rows.Length} 个可用", $"{okCount}/{rows.Length} reachable");
         }
-        _dataSourceHint.ForeColor = okCount == rows.Length ? Color.ForestGreen : Color.Firebrick;
-        _dataSourceHint.Text = Loc.L($"{okCount}/{rows.Length} 个可用", $"{okCount}/{rows.Length} reachable");
+        finally
+        {
+            _dataSourceTestButton.Enabled = true;
+        }
     }
 
 

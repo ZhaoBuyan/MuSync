@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using MuSync;
 using MuSync.Models;
 using Xunit;
@@ -120,5 +122,38 @@ public class TransientNullToleranceTests
         Assert.Null(state.LastPolledInfo);
         // 清理之后紧接一次失败读取，不应再拿旧内容
         Assert.Null(RpcManager.HoldThroughTransientNull(state, null, T0.AddMilliseconds(100)));
+    }
+
+    // ---- 数据源实例集合的对齐（改名/删除后旧积木必须消失）----
+
+    [Fact]
+    public void PruneDataSourceInstances_RemovesNamesNoLongerConfigured()
+    {
+        // 用户把「心率」改名为「心跳」：旧名字若留在集合里，它会因为再也不被刷新而永远不被过期判定清空，
+        // 于是模板里手写的旧积木 {心率} 会一直取到几分钟前的陈旧读数。
+        var installed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["心率"] = "❤92",
+            ["天气"] = "晴"
+        };
+        var configuredNames = new[] { "心跳", "天气" };
+
+        var removed = RpcManager.PruneDataSourceInstancesForTest(installed, configuredNames);
+
+        Assert.Equal(["心率"], removed);
+        Assert.False(installed.ContainsKey("心率"));
+        Assert.True(installed.ContainsKey("天气"));   // 仍然配置着的不许误伤
+        Assert.True(installed.ContainsKey("心跳") == false);  // 只做清理，不负责新建
+    }
+
+    [Fact]
+    public void PruneDataSourceInstances_KeepsEverythingWhenAllConfigured()
+    {
+        var installed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["心率"] = "❤92" };
+
+        var removed = RpcManager.PruneDataSourceInstancesForTest(installed, ["心率"]);
+
+        Assert.Empty(removed);
+        Assert.True(installed.ContainsKey("心率"));
     }
 }

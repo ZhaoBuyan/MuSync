@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
@@ -36,9 +37,26 @@ internal sealed class HttpDataSource
     /// <summary>成功读到值之间的最大间隔；超过即视为"数据已过期"（对端停了）。</summary>
     private static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(10);
 
-    private static readonly HttpClient Client = new()
+    /// <summary>
+    /// 共用的 HTTP 客户端。
+    /// <para>
+    /// ⚠️ 必须显式 <c>UseProxy = false</c>：数据源绝大多数是**本机**服务（心率、OBS 叠加等），
+    /// 而 .NET 默认遵循系统代理 —— 用户开着 Clash / v2ray 这类工具时，对本机地址的请求会被送到代理，
+    /// 结果要么 502 要么超时，用户只看到"积木永远是空的"，日志里也只有一句读取失败，根本查不到原因。
+    /// </para>
+    /// <para>
+    /// <c>ConnectTimeout</c> 收紧到 1 秒：连不上就该尽快放弃，别把节拍拖住。
+    /// <c>AutomaticDecompression</c> 与仓库里其它 HTTP 客户端保持一致 ——
+    /// 对端返回 gzip 压缩的 JSON 时不自动解压会解不出内容（同样表现为积木静默为空）。
+    /// </para>
+    /// </summary>
+    private static readonly HttpClient Client = new(new SocketsHttpHandler
     {
-        // 本地服务也要走代理是很常见的事故来源，显式绕过
+        UseProxy = false,
+        ConnectTimeout = TimeSpan.FromSeconds(1),
+        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+    })
+    {
         Timeout = RequestTimeout
     };
 
@@ -56,12 +74,18 @@ internal sealed class HttpDataSource
 
     private DateTime _nextAttemptUtc = DateTime.MinValue;
     private bool _loggedFailure;
+    private int _refreshInFlight;
 
     /// <summary>
-    /// 按需刷新一次（到期才发请求）；返回当前可用的显示文本（没有值时为 null）。
-    /// 调用方每个节拍调用一次即可，内部的到期判断与退避都在这里处理。
+    /// 到期就**在后台**发一次请求，**绝不阻塞调用方**；返回当前可用的显示文本（没有值时为 null）。
+    /// <para>
+    /// ⚠️ 为什么不能在这里 await：本方法由 233ms 的主循环节拍调用。若在这里等网络，
+    /// 每个卡住的对端都会把整拍拖满客户端超时（实测单个 1.5 秒、三个串行 3 秒）——
+    /// 音乐进度推送与程序检测都排在这之后，表现为"状态卡顿"，而且因为看门狗阈值是 30 秒，
+    /// 这种退化**不会**被任何日志或告警暴露出来。所以：请求放后台，节拍只读缓存值。
+    /// </para>
     /// </summary>
-    internal async Task<string?> RefreshIfDueAsync(DataSourceConfig source, CancellationToken token)
+    internal string? RefreshIfDue(DataSourceConfig source, CancellationToken token)
     {
         if (!source.Enabled || string.IsNullOrWhiteSpace(source.Url) || string.IsNullOrWhiteSpace(source.Name))
         {
@@ -76,9 +100,38 @@ internal sealed class HttpDataSource
             Display = null;
         }
 
+        // 未到期，或上一轮还没回来（对端慢）：直接给当前值，不排队、不叠加请求
         if (now < _nextAttemptUtc) return Display;
+        if (Interlocked.CompareExchange(ref _refreshInFlight, 1, 0) != 0) return Display;
 
-        var interval = source.RefreshSeconds > 0 ? source.RefreshSeconds : 1;
+        _nextAttemptUtc = now.AddSeconds(SourceIntervalSeconds(source));
+        var snapshot = source;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await FetchOnceAsync(snapshot, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Task.Run 里的异常绝不能逃逸（会变成未观察任务异常）
+                Debug.WriteLine($"[数据源] 后台刷新异常: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _refreshInFlight, 0);
+            }
+        }, CancellationToken.None);
+
+        return Display;
+    }
+
+    private static int SourceIntervalSeconds(DataSourceConfig source) =>
+        source.RefreshSeconds > 0 ? source.RefreshSeconds : 1;
+
+    /// <summary>真正的网络请求（只在后台任务里跑）。</summary>
+    private async Task FetchOnceAsync(DataSourceConfig source, CancellationToken token)
+    {
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, source.Url);
@@ -89,36 +142,32 @@ internal sealed class HttpDataSource
 
             if (!response.IsSuccessStatusCode)
             {
-                Fail($"HTTP {(int)response.StatusCode}", interval);
-                return Display;
+                Fail($"HTTP {(int)response.StatusCode}");
+                return;
             }
 
             var value = ExtractValue(body, source.ValuePath);
             if (value == null)
             {
                 Fail(string.IsNullOrWhiteSpace(source.ValuePath)
-                        ? "响应里没有取到值"
-                        : $"按表达式 \"{source.ValuePath}\" 没有取到值",
-                    interval);
-                return Display;
+                    ? "响应里没有取到值"
+                    : $"按表达式 \"{source.ValuePath}\" 没有取到值");
+                return;
             }
 
             Display = ApplyDisplayFormat(source.Format, value);
             LastSuccessUtc = DateTime.UtcNow;
             LastError = null;
             _loggedFailure = false;
-            _nextAttemptUtc = DateTime.UtcNow.AddSeconds(interval);
-            return Display;
+            _nextAttemptUtc = DateTime.UtcNow.AddSeconds(SourceIntervalSeconds(source));
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             // 程序正在退出：保留当前值，不算失败
-            return Display;
         }
         catch (Exception ex)
         {
-            Fail(ex is TaskCanceledException ? "请求超时" : ex.Message, interval);
-            return Display;
+            Fail(ex is TaskCanceledException ? "请求超时" : ex.Message);
         }
     }
 
@@ -138,6 +187,13 @@ internal sealed class HttpDataSource
         if (string.IsNullOrWhiteSpace(source.Url))
         {
             return new ProbeResult(false, null, null, null, "地址为空");
+        }
+        // 先校验 URL：坏地址（"http://"、缺 scheme、含空格）会让 HttpRequestMessage 抛框架异常，
+        // 那种错误文案对用户没有意义
+        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return new ProbeResult(false, null, null, null, "地址格式不正确（需要以 http:// 或 https:// 开头）");
         }
         try
         {
@@ -165,7 +221,7 @@ internal sealed class HttpDataSource
         }
     }
 
-    private void Fail(string reason, int intervalSeconds)
+    private void Fail(string reason)
     {
         LastError = reason;
         // 只在"从成功转为失败"时记一条日志，避免对端长期关着时刷屏
@@ -176,7 +232,6 @@ internal sealed class HttpDataSource
         }
         Display = null;
         _nextAttemptUtc = DateTime.UtcNow + FailureBackoff;
-        _ = intervalSeconds;   // 节流/退避时长由 FailureBackoff 决定，与刷新间隔无关
     }
 
     /// <summary>

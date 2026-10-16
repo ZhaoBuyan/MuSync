@@ -336,11 +336,16 @@ internal class Configurations
             {
                 root.Remove(nameof(ConfigData.Apps));
                 root.Remove(nameof(ConfigData.PlayerPriority));
+                // ⚠️ 必须连 DataSources 一起去掉：它是"用户手改过的自由结构"里最容易写错类型的一块
+                // （例如把 RefreshSeconds 写成字符串 "1"）。只去 Apps/PlayerPriority 的话，
+                // 降级解析会**再抛一次**，于是整份配置被判损坏 → 备份 → 用默认值覆盖写盘，
+                // 用户的令牌、模板、程序规则全部丢失。少恢复一项，远好过整份重置。
+                root.Remove(nameof(ConfigData.DataSources));
                 var config = root.Deserialize<ConfigData>(ConfigJson.Options);
                 if (config != null)
                 {
                     DecryptSecrets(config);
-                    Logger.Warn("配置已部分恢复：程序同步列表/播放器优先级被重置，其余设置保留");
+                    Logger.Warn("配置已部分恢复：程序同步列表 / 播放器优先级 / 自定义数据源被重置，其余设置保留");
                 }
                 return config;
             }

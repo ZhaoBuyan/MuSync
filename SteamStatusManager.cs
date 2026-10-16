@@ -134,8 +134,11 @@ internal class SteamStatusManager
     /// <summary>
     /// 自定义积木的取值回调：由 RpcManager 在启动时注册，返回"积木名 → 当前显示文本"。
     /// <para>
-    /// 为什么用回调而不是直接引用：<see cref="ComposeStatus"/> 是静态的（格式编辑器的预览也用它），
-    /// 而数据源的运行实例归 RpcManager 所有。注册一次即可让两边拿到同一份实时值。
+    /// 为什么用回调而不是直接引用：<see cref="ComposeStatus"/> 是静态的，而数据源的运行实例归 RpcManager 所有。
+    /// </para>
+    /// <para>
+    /// ⚠️ 只有真正推送状态的那条路径（<see cref="UpdateStatusAsync"/>）会调用它；
+    /// 设置页与格式编辑器的**预览不调用**（预览不该发网络请求），因此预览里自定义积木显示为空。
     /// 未注册（或取不到值）时所有自定义积木展开为空，不影响任何既有行为。
     /// </para>
     /// </summary>
@@ -199,10 +202,17 @@ internal class SteamStatusManager
     /// ⚠️ 匹配范围放宽到"任意无括号的名字"，但**仍然是单趟扫描**：认不出的名字展开为空，
     /// 且替换进去的文本不会被再次扫描 —— 这是"外部文本不被当成模板解释"的保证。
     /// </para>
+    /// <para>
+    /// ⚠️ 名字长度上界 <see cref="MaxBlockNameLength"/> 必须与设置页的校验一致：
+    /// 正则认不下的名字会**永远静默展开为空**（用户看不出哪里错了）。
+    /// </para>
     /// </summary>
     private static readonly System.Text.RegularExpressions.Regex PlaceholderPattern =
-        new(@"\{[^{}\r\n]{1,32}\}",
+        new($@"\{{[^{{}}\r\n]{{1,{MaxBlockNameLength}}}\}}",
             System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>自定义积木名的最大长度（模板正则与设置页校验共用同一口径）。</summary>
+    internal const int MaxBlockNameLength = 32;
 
     private static string BuildProgressPart(PlayerInfo music, ConfigData config)
     {

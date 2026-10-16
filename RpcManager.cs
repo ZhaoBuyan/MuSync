@@ -528,8 +528,8 @@ internal class RpcManager(SteamStatusManager steamManager)
                 }
                 if ((currentTime - _lastProgressUpdateTime).TotalSeconds >= ProgressUpdateIntervalSeconds)
                 {
-                    // 自定义数据源与音乐同频刷新（值变了会经下面的进度推送带到状态里）
-                    await RefreshDataSourcesAsync(token);
+                    // 自定义数据源与音乐同频刷新（同步方法，网络请求在后台，不阻塞本拍）
+                    RefreshDataSources(token);
                     await UpdateProgressForActivePlayers(currentTime);
                     _lastProgressUpdateTime = currentTime;
                 }
@@ -629,13 +629,19 @@ internal class RpcManager(SteamStatusManager steamManager)
     private sealed class LoopSupersededException : Exception;
 
     /// <summary>
-    /// 刷新自定义数据源（每个源自己判断是否到期，未到期直接返回上次的值）。
+    /// <summary>
+    /// 刷新自定义数据源（每个源自己判断是否到期；到期就在**后台**发请求）。
     /// <para>
-    /// ⚠️ 调用点放在进度推送那一段（与音乐同频），不额外增加节拍开销；
+    /// ⚠️ 本方法**不能有 await**，必须在常数时间内返回：它由 233ms 的主循环节拍调用，
+    /// 若在这里等网络，每个卡住的对端都会把整拍拖满客户端超时（实测单个 1.5 秒、三个串行 3 秒），
+    /// 音乐进度推送与程序检测都排在其后 —— 表现为状态卡顿，而且看门狗阈值 30 秒，
+    /// 这种退化不会被任何日志暴露。
+    /// </para>
+    /// <para>
     /// 且这里**不允许任何异常冒出去**：一个配错的地址绝不能影响音乐与程序的同步。
     /// </para>
     /// </summary>
-    private async Task RefreshDataSourcesAsync(CancellationToken token)
+    private void RefreshDataSources(CancellationToken token)
     {
         try
         {
@@ -646,21 +652,27 @@ internal class RpcManager(SteamStatusManager steamManager)
                 return;
             }
 
-            // 配置增删后同步实例集合（按名字对齐；禁用的源也会保留实例，重新启用即继续用）
+            // 收集本轮配置里的有效名字（同时用于清理与刷新）
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var source in configured)
             {
-                if (string.IsNullOrWhiteSpace(source.Name)) continue;
-                if (!_dataSources.ContainsKey(source.Name))
-                {
-                    _dataSources[source.Name] = new Utils.HttpDataSource();
-                }
+                if (!string.IsNullOrWhiteSpace(source.Name)) names.Add(source.Name);
             }
+
+            // ⚠️ 必须清掉配置里已不存在的名字：否则"改名/删除数据源"在模板层不生效 ——
+            // 旧实例再也不会被刷新，因此永远不会被过期判定清空，模板里的旧积木会一直取到陈旧值。
+            PruneDataSourceInstances(_dataSources, names);
 
             foreach (var source in configured)
             {
                 if (string.IsNullOrWhiteSpace(source.Name)) continue;
-                if (!_dataSources.TryGetValue(source.Name, out var instance)) continue;
-                await instance.RefreshIfDueAsync(source, token).ConfigureAwait(false);
+                if (!_dataSources.TryGetValue(source.Name, out var instance))
+                {
+                    instance = new Utils.HttpDataSource();
+                    _dataSources[source.Name] = instance;
+                }
+                // 同步方法：内部把请求丢到后台，只返回当前缓存值
+                instance.RefreshIfDue(source, token);
             }
         }
         catch (OperationCanceledException)
@@ -669,19 +681,48 @@ internal class RpcManager(SteamStatusManager steamManager)
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[数据源] 刷新异常（已忽略）: {ex.Message}");
+            // 这条以前只写 Debug 输出，出问题时现场什么都没留下；升级为节流日志
+            Logger.Warn($"[数据源] 刷新异常（已忽略，不影响其它同步）: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// 清掉"配置里已不存在"的数据源实例，返回被移除的名字（纯函数，便于单测）。
+    /// <para>
+    /// 泛型是为了单测能用一个简单字典验证同一段逻辑；生产路径传的是 <c>Dictionary&lt;string, HttpDataSource&gt;</c>。
+    /// </para>
+    /// </summary>
+    internal static List<string> PruneDataSourceInstances<T>(
+        Dictionary<string, T> installed, IEnumerable<string> configuredNames)
+    {
+        var keep = new HashSet<string>(configuredNames, StringComparer.OrdinalIgnoreCase);
+        var removed = new List<string>();
+        foreach (var name in installed.Keys.Where(k => !keep.Contains(k)).ToArray())
+        {
+            installed.Remove(name);
+            removed.Add(name);
+        }
+        return removed;
+    }
+
+    /// <summary>供测试直接验证清理逻辑。</summary>
+    internal static List<string> PruneDataSourceInstancesForTest<T>(
+        Dictionary<string, T> installed, IEnumerable<string> configuredNames) =>
+        PruneDataSourceInstances(installed, configuredNames);
 
     /// <summary>当前可用的积木值（积木名 → 已按显示格式展开的文本）。供状态合成与设置页预览取用。</summary>
     internal IReadOnlyDictionary<string, string> CurrentDynamicBlocks()
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, instance) in _dataSources)
+        // 只输出当前配置里存在的名字：已删除/改名的源不该继续作为积木存在
+        var configured = Configurations.Instance.Settings.DataSources;
+        if (configured is null || configured.Count == 0) return result;
+        foreach (var source in configured)
         {
-            var display = instance.Display;
+            if (string.IsNullOrWhiteSpace(source.Name)) continue;
+            var display = _dataSources.TryGetValue(source.Name, out var instance) ? instance.Display : null;
             // 展开为空串（而不是不放进字典）也是对的：效果同为"这块积木当前没有内容"
-            result[name] = display ?? "";
+            result[source.Name] = display ?? "";
         }
         return result;
     }
