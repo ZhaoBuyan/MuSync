@@ -18,7 +18,8 @@ namespace MuSync;
 internal class RpcManager(SteamStatusManager steamManager)
 {
     /// <summary>单个播放器的轮询状态：最近信息、时间戳、错误码与降频控制。</summary>
-    private class PlayerState
+    /// <summary>单个播放器的运行时状态。internal 供测试直接验证"读取失败容忍"等逻辑。</summary>
+    internal class PlayerState
     {
         public IMusicPlayer? Player { get; set; }
         public PlayerInfo? LastPolledInfo { get; set; }
@@ -36,6 +37,9 @@ internal class RpcManager(SteamStatusManager steamManager)
         /// </para>
         /// </summary>
         public DateTime PositionSampleTime { get; set; } = DateTime.MinValue;
+        /// <summary>最近一次**读到内容**的时刻与其内容（用于容忍单次读取失败，见 PollAndUpdatePlayer）。</summary>
+        public DateTime LastGoodInfoTime { get; set; } = DateTime.MinValue;
+        public PlayerInfo? LastGoodInfo { get; set; }
         public ErrorCode LastError { get; set; } = ErrorCode.None;
         /// <summary>DLL 未就绪（播放器启动竞态）的起始时间，宽限期内不报错。</summary>
         public DateTime DllNotFoundSinceUtc { get; set; } = DateTime.MinValue;
@@ -990,6 +994,12 @@ internal class RpcManager(SteamStatusManager steamManager)
         }
         // 单次读取加超时：某个播放器卡住时本轮跳过、下一轮继续（LX Music 走 HTTP，其余为内存读取）
         var currentInfo = await state.Player.GetPlayerInfoAsync().WaitAsync(StabilityConfig.PlayerPollTimeout);
+        // 容忍单次读取失败：SMTC 一类来源会偶发读不到（元数据掉一拍）。
+        // 若让 null 直接覆盖 LastPolledInfo，会连锁造成两种可见问题：
+        //   ① 活跃源在两三拍内掉回上一个播放器、下一拍又切回来（界面与状态来回跳）
+        //   ② 即使内容没变，状态也会被反复重推
+        // 因此在宽限窗口内沿用最近一次有效内容；超过窗口才认为"真的没有内容"。
+        currentInfo = HoldThroughTransientNull(state, currentInfo, currentTime);
         var isStateChanged = DetectStateChange(currentInfo, state.LastPolledInfo, currentTime, state.LastPollTime,
             JumpToleranceSeconds);
         if (isStateChanged)
@@ -1021,6 +1031,33 @@ internal class RpcManager(SteamStatusManager steamManager)
         state.LastPolledInfo = currentInfo;
         state.LastPollTime = currentTime;
     }
+
+    /// <summary>
+    /// 单次读取失败（返回 null）时，在宽限窗口内沿用最近一次有效内容，避免状态抖动。
+    /// <para>
+    /// 窗口刻意取得很短（<see cref="TransientNullGraceSeconds"/> 秒）：它只用于吸收"偶发掉一拍"，
+    /// 而正常的换歌间隙、暂停、关闭播放器都会超过它 —— 那些情况仍应如实清空，不能靠它掩盖。
+    /// </para>
+    /// </summary>
+    internal static PlayerInfo? HoldThroughTransientNull(PlayerState state, PlayerInfo? current, DateTime currentTime)
+    {
+        if (current.HasValue)
+        {
+            state.LastGoodInfo = current;
+            state.LastGoodInfoTime = currentTime;
+            return current;
+        }
+        if (state.LastGoodInfo is { } last &&
+            state.LastGoodInfoTime != DateTime.MinValue &&
+            (currentTime - state.LastGoodInfoTime).TotalSeconds <= TransientNullGraceSeconds)
+        {
+            return last;
+        }
+        return null;
+    }
+
+    /// <summary>容忍单次读取失败的宽限窗口（秒）。见 <see cref="HoldThroughTransientNull"/>。</summary>
+    private const double TransientNullGraceSeconds = 1.0;
 
     /// <summary>更新当前生效的程序（前台匹配 / 运行即显示），返回显示名是否变化。</summary>
     private bool UpdateActiveApp(DateTime currentTime)
