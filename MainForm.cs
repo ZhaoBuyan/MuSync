@@ -774,45 +774,27 @@ internal class MainForm : Form
         return path != null && System.IO.File.Exists(path) ? path : null;
     }
 
-    /// <summary>常见浏览器的可执行文件路径（用于封面缺失时的占位图标），按白名单顺序取第一个可用的。</summary>
+    /// <summary>
+    /// 常见浏览器的可执行文件路径（用于封面缺失时的占位图标）。
+    /// <para>
+    /// ⚠️ 优先用"**正在播放的那个**浏览器"的路径（由 BrowserMedia 在成功读取时记下），
+    /// 而不是按白名单取"第一个在运行的" —— 浏览器常年挂在后台，按顺序取会张冠李戴
+    /// （Firefox 在放歌却显示 Edge 图标）。取不到才退回白名单顺序。
+    /// </para>
+    /// </summary>
     private static string? GetAnyBrowserPath()
     {
+        var playing = Players.BrowserMedia.LastActiveBrowserPath;
+        if (!string.IsNullOrEmpty(playing) && System.IO.File.Exists(playing)) return playing;
         foreach (var name in new[] { "msedge", "chrome", "brave", "vivaldi", "opera", "firefox" })
         {
-            var path = GetProcessPathByName(name);
+            var path = AppResource.TryGetProcessPath(name);
             if (path != null) return path;
         }
         return null;
     }
 
-    private static string? GetProcessPathByName(string processName)
-    {
-        try
-        {
-            foreach (var process in Process.GetProcessesByName(processName))
-            {
-                // using：读 MainModule 会打开进程句柄，用完必须归还
-                // （封面占位路径每拍都可能走这里，不释放就是持续的句柄 churn）
-                using (process)
-                {
-                    try
-                    {
-                        var path = process.MainModule?.FileName;
-                        if (!string.IsNullOrEmpty(path)) return path;
-                    }
-                    catch
-                    {
-                        // 提权 / 受保护进程读不到路径：跳过
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Diagnose($"获取 {processName} 路径失败: {ex.Message}");
-        }
-        return null;
-    }
+    private static string? GetProcessPathByName(string processName) => AppResource.TryGetProcessPath(processName);
 
     /// <summary>
     /// 把封面图片字节解码成独立位图；失败返回 null（调用方退回图标占位，不留空）。
@@ -1073,6 +1055,8 @@ internal class MainForm : Form
                     ? (Font?.FontFamily.Name ?? "Microsoft YaHei")
                     : settings.AppearanceFontFamily;
                 var size = settings.AppearanceFontSize > 0 ? settings.AppearanceFontSize : (Font?.Size ?? 9f);
+                // ⚠️ 交给 ApplyFontRecursive 的 Font 由它负责释放（它会 Dispose 被替换下来的旧字体）——
+                // 每次设置窗关闭都会走这里，不释放就是每次泄漏一个 Font（GDI 对象）。
                 ApplyFontRecursive(this, new Font(family, size));
             }
 
@@ -1117,12 +1101,33 @@ internal class MainForm : Form
         }
     }
 
-    private static void ApplyFontRecursive(Control parent, Font font)
+    /// <summary>
+    /// 当前应用到界面的自定义字体（由本类持有并负责释放）。
+    /// <para>
+    /// ⚠️ 必须记住它：ApplyFontRecursive 只是把同一个 Font 赋给所有控件，控件不会替你释放；
+    /// 每次设置窗关闭都会重新应用一次外观，不记就是每次泄漏一个 Font（GDI 对象）。
+    /// </para>
+    /// </summary>
+    private Font? _appliedFont;
+
+    private void ApplyFontRecursive(Control parent, Font font)
+    {
+        // 释放上一份（它已从所有控件上被替换下来）
+        var previous = _appliedFont;
+        _appliedFont = font;
+        if (previous != null && !ReferenceEquals(previous, font))
+        {
+            try { previous.Dispose(); } catch { /* 已释放或正在绘制：忽略 */ }
+        }
+        ApplyFontRecursiveCore(parent, font);
+    }
+
+    private static void ApplyFontRecursiveCore(Control parent, Font font)
     {
         foreach (Control child in parent.Controls)
         {
             child.Font = font;
-            if (child.HasChildren) ApplyFontRecursive(child, font);
+            if (child.HasChildren) ApplyFontRecursiveCore(child, font);
         }
     }
 
@@ -1231,6 +1236,8 @@ internal class MainForm : Form
         if (disposing)
         {
             _updateTimer.Dispose();
+            _appliedFont?.Dispose();
+            _appliedFont = null;
         }
         base.Dispose(disposing);
     }

@@ -255,7 +255,9 @@ internal sealed class SteamLoginForm : Form
 
     private string InputBox(string title, string prompt, bool isMobile)
     {
-        Form promptForm = new Form()
+        // using：ShowDialog 只是模态显示，窗体与其中的控件（含 HWND）必须显式释放，
+        // 否则每次输入验证码都泄漏一整个窗体，要等 GC 终结器才回收
+        using Form promptForm = new Form()
         {
             Width = 330,
             Height = 160,
@@ -270,6 +272,9 @@ internal sealed class SteamLoginForm : Form
         Button confirmation = new Button() { Text = Loc.L("确定", "OK"), Left = 210, Width = 80, Top = 85, DialogResult = DialogResult.OK };
         promptForm.Controls.AddRange(new Control[] { textLabel, textBox, confirmation });
         promptForm.AcceptButton = confirmation;
-        return promptForm.ShowDialog(this) == DialogResult.OK ? textBox.Text : null;
+        // 先把文本取出来：窗体释放后 textBox 不可再访问
+        var confirmed = promptForm.ShowDialog(this) == DialogResult.OK;
+        var text = textBox.Text;
+        return confirmed ? text : null;
     }
 }

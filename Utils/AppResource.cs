@@ -24,6 +24,41 @@ internal static class AppResource
     }
 
     /// <summary>
+    /// 按进程名取第一个匹配进程的可执行文件路径；取不到返回 null。
+    /// <para>
+    /// ⚠️ 读 <c>MainModule</c> 会打开进程句柄，因此这里对每个 Process 都 <c>using</c> ——
+    /// 该路径会被封面占位逻辑反复调用，不释放就是持续的句柄 churn。
+    /// 受保护 / 提权进程读不到路径时跳过，不抛异常。
+    /// </para>
+    /// </summary>
+    public static string? TryGetProcessPath(string processName)
+    {
+        try
+        {
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                using (process)
+                {
+                    try
+                    {
+                        var path = process.MainModule?.FileName;
+                        if (!string.IsNullOrEmpty(path)) return path;
+                    }
+                    catch
+                    {
+                        // 受保护 / 提权进程：跳过
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AppResource] 获取 {processName} 路径失败: {ex.Message}");
+        }
+        return null;
+    }
+
+    /// <summary>
     /// 提取可执行文件的关联图标并转成位图。
     /// <para>
     /// 用途：某些播放器不提供专辑封面（酷狗、千千静听），主界面用播放器自己的图标当占位图，

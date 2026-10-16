@@ -406,7 +406,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                 var activeSnapshot = ResolveActiveState().State;
                 // 每个耗时步骤前刷新"还活着"的时刻：单拍要顺序 await 多个播放器（每个上限 5 秒），
                 // 只在整拍结束打心跳会让看门狗把"慢一拍"误判成停摆（见 MarkStepAlive 的说明）
-                MarkStepAlive();
+                MarkStepAndCheckSuperseded(generation);
 
                 if (ShouldCheckPlayer(_netEaseState, activeSnapshot, currentTime))
                 {
@@ -414,7 +414,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollNetEaseAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_netEaseState);
-                    MarkStepAlive();
+                    MarkStepAndCheckSuperseded(generation);
                 }
 
                 if (ShouldCheckPlayer(_tencentState, activeSnapshot, currentTime))
@@ -423,7 +423,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollTencentAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_tencentState);
-                    MarkStepAlive();
+                    MarkStepAndCheckSuperseded(generation);
                 }
 
                 if (ShouldCheckPlayer(_lxMusicState, activeSnapshot, currentTime))
@@ -432,7 +432,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollLxMusicAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_lxMusicState);
-                    MarkStepAlive();
+                    MarkStepAndCheckSuperseded(generation);
                 }
 
                 if (ShouldCheckPlayer(_kuGouState, activeSnapshot, currentTime))
@@ -441,7 +441,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollKuGouAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_kuGouState);
-                    MarkStepAlive();
+                    MarkStepAndCheckSuperseded(generation);
                 }
 
                 if (ShouldCheckPlayer(_ttPlayerState, activeSnapshot, currentTime))
@@ -450,7 +450,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollTTPlayerAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_ttPlayerState);
-                    MarkStepAlive();
+                    MarkStepAndCheckSuperseded(generation);
                 }
 
                 if (ShouldCheckPlayer(_browserState, activeSnapshot, currentTime))
@@ -459,7 +459,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollBrowserAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_browserState);
-                    MarkStepAlive();
+                    MarkStepAndCheckSuperseded(generation);
                 }
 
                 // 内存快照：每 10 分钟记一次（用于排查内存增长趋势）
@@ -525,6 +525,13 @@ internal class RpcManager(SteamStatusManager steamManager)
                     _lastTrayStatusUpdateTime = currentTime;
                 }
             }
+            catch (LoopSupersededException)
+            {
+                // 不是错误：本份循环已被看门狗取代（新循环已在跑），本份立刻收工。
+                // 这里绝不能走下面的通用兜底（那会记 ERROR 并 ClearAllPlayers，
+                // 把刚接手的新循环刚建立的状态清掉）。
+                superseded = true;
+            }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[FATAL ERROR] An exception occurred in the main poll loop: {ex.Message}");
@@ -589,6 +596,23 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// </para>
     /// </summary>
     private void MarkStepAlive() => Interlocked.Exchange(ref _lastTickMs, Environment.TickCount64);
+
+    /// <summary>
+    /// 每个耗时步骤之后调用：刷新心跳，并在本份循环已被看门狗取代时立刻退出 tick。
+    /// <para>
+    /// ⚠️ 只在本圈开始/结束核对代际号是不够的：tick 内部要顺序 await 多个播放器
+    /// （每个上限 5 秒），旧循环仍会跑完整拍才退出，"并存窗口"并没有被缩短。
+    /// 把核对放进每个步骤之后，才能真正把窗口压到一个 await。
+    /// </para>
+    /// </summary>
+    private void MarkStepAndCheckSuperseded(int generation)
+    {
+        MarkStepAlive();
+        if (Volatile.Read(ref _loopGeneration) != generation) throw new LoopSupersededException();
+    }
+
+    /// <summary>本份主循环已被看门狗取代（控制流信号，只用于跳出 tick，不表示错误）。</summary>
+    private sealed class LoopSupersededException : Exception;
 
     /// <summary>距上一拍的时长（单调时钟，不受系统时间调整影响）。</summary>
     private TimeSpan SinceLastTick() =>

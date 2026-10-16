@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Text;
 using System.Threading.Tasks;
+using MuSync.Utils;
 using MuSync.Models;
 using MuSync.Players.Interfaces;
 namespace MuSync.Players;
@@ -58,32 +59,9 @@ internal sealed class KuGou : IMusicPlayer
     /// </summary>
     public static string? FindAppIconPath()
     {
-        try
-        {
-            foreach (var process in Process.GetProcessesByName("KuGou"))
-            {
-                // using：读 MainModule 会打开进程句柄，用完必须归还
-                // （封面占位路径会走这里，不释放就是持续的句柄 churn）
-                using (process)
-                {
-                    try
-                    {
-                        var path = process.MainModule?.FileName;
-                        if (string.IsNullOrEmpty(path) || !File.Exists(path)) continue;
-                        return path;
-                    }
-                    catch
-                    {
-                        // 跳过访问失败的进程
-                    }
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.WriteLine($"[KuGou] 查找应用图标路径失败: {e.Message}");
-        }
-        return null;
+        // 统一走 AppResource（内部对每个 Process 都 using，避免句柄 churn；失败不抛）
+        var path = AppResource.TryGetProcessPath("KuGou");
+        return path != null && File.Exists(path) ? path : null;
     }
 
     /// <summary>酷狗主进程：全部 KuGou.exe 中能读到「酷狗音乐」标题窗口的那个。</summary>

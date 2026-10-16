@@ -363,6 +363,16 @@ internal class SteamSessionManager : IDisposable
         }
         Username = username;
         LoginError = null;
+        // ⚠️ 与 LoginWithTokenAsync 共用同一把登录锁：断线重连时 OnConnected 会自动走令牌登录，
+        // 用户此刻若在登录窗输密码，两条路径会并发 LogOn 同一 LoginID ——
+        // 服务器回 LogonSessionReplaced，表现为"刚登录成功又立刻断开"（本类注释早已写明该机理，
+        // 但此前只有令牌路径拿了锁）。
+        if (!await _loginGate.WaitAsync(0).ConfigureAwait(false))
+        {
+            LoginError = "已有登录流程在进行，请稍候重试";
+            Logger.Info("[SteamSession] 已有登录流程在跑，本次账号密码登录未发起");
+            return false;
+        }
         try
         {
             var authSession = await _steamClient.Authentication.BeginAuthSessionViaCredentialsAsync(
@@ -433,6 +443,10 @@ internal class SteamSessionManager : IDisposable
             Debug.WriteLine($"[SteamSession] {LoginError}");
             Logger.Error($"[SteamSession] {LoginError}");
             return false;
+        }
+        finally
+        {
+            _loginGate.Release();
         }
     }
 

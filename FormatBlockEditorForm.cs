@@ -138,7 +138,18 @@ internal sealed class FormatBlockEditorForm : Form
     private void RebuildRows()
     {
         _rowsPanel.SuspendLayout();
+        // ⚠️ Controls.Clear() 只解除父子关系、**不释放**控件：每行 5 个控件（含 HWND）会一直留到
+        // GC 终结器回收。每次改类型 / 增删 / 上下移都会重建行，所以必须显式释放。
+        var stale = new List<Control>();
+        foreach (Control control in _rowsPanel.Controls)
+        {
+            stale.Add(control);
+        }
         _rowsPanel.Controls.Clear();
+        foreach (var control in stale)
+        {
+            control.Dispose();
+        }
         var y = 6;
         for (var i = 0; i < _blocks.Count; i++)
         {

@@ -63,6 +63,37 @@ internal sealed class BrowserMedia : IMusicPlayer
     private byte[]? _cachedCover;
 
     /// <summary>
+    /// 最近一次成功读取所属浏览器的可执行文件路径（供"封面缺失时用浏览器自身图标占位"）。
+    /// <para>
+    /// ⚠️ 必须记"**正在播放的那个**浏览器"，而不是"第一个在运行的浏览器"：
+    /// 浏览器常年挂在后台，按白名单顺序取会张冠李戴（Firefox 在放歌却显示 Edge 图标）。
+    /// 静态字段：占位图标在 UI 侧取用，那里拿不到读取器实例。
+    /// </para>
+    /// </summary>
+    internal static string? LastActiveBrowserPath { get; private set; }
+
+    /// <summary>把会话的 AppId 映射成该浏览器可执行文件的路径；取不到返回 null。</summary>
+    private static string? ResolveBrowserExecutablePath(string appId)
+    {
+        if (string.IsNullOrWhiteSpace(appId)) return null;
+        // AppId 形如 "MSEdge" / "chrome"，与进程名并不总是一致（Edge 的进程名是 msedge），
+        // 所以按白名单逐项比对前缀，命中后取该进程的可执行文件路径
+        foreach (var name in BrowserProcessNamesForPath)
+        {
+            if (appId.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+            {
+                var path = AppResource.TryGetProcessPath(name);
+                if (path != null) return path;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>AppId 前缀 → 进程名（用于取可执行文件路径）。</summary>
+    private static readonly string[] BrowserProcessNamesForPath =
+        ["MSEdge", "msedge", "chrome", "brave", "vivaldi", "opera", "firefox", "librewolf", "waterfox"];
+
+    /// <summary>
     /// 取会话快照；为空时**重建会话管理器再取一次**。
     /// <para>
     /// 为什么需要它（实测）：会话管理器对象在被反复快速调用后会失效 ——
@@ -139,6 +170,12 @@ internal sealed class BrowserMedia : IMusicPlayer
             var info = BuildInfo(snapshot, identity, cover);
             _lastGoodInfo = info;
             _lastGoodUtc = DateTime.UtcNow;
+            // 记下"正在播放的这个浏览器"的可执行文件路径：主界面在拿不到封面时
+            // 用浏览器自身图标占位，不能按白名单取"第一个在运行的"（会张冠李戴）
+            if (LastActiveBrowserPath is null && snapshot.AppId.Length > 0)
+            {
+                LastActiveBrowserPath = ResolveBrowserExecutablePath(snapshot.AppId);
+            }
             return info;
         }
         catch (Exception ex)
