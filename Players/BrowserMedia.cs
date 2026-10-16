@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using MuSync.Models;
 using MuSync.Players.Interfaces;
@@ -56,6 +57,31 @@ internal sealed class BrowserMedia : IMusicPlayer
     private DateTime _lastGoodUtc = DateTime.MinValue;
     private static readonly TimeSpan StaleFallbackWindow = TimeSpan.FromSeconds(8);
 
+    /// <summary>
+    /// 取会话快照；为空时**重建会话管理器再取一次**。
+    /// <para>
+    /// 为什么需要它（实测）：会话管理器对象在被反复快速调用后会失效 ——
+    /// 同一个管理器第一次 <c>GetSessions()</c> 正常返回 2 个会话，
+    /// 0.3 秒后再调就持续返回 0 个（而重新 RequestAsync 拿到的管理器又是好的）。
+    /// 主循环每 233ms 读一次，正好踩中这个失效。
+    /// </para>
+    /// </summary>
+    private async Task<List<Smtc.SessionSnapshot>> DescribeWithRecoveryAsync()
+    {
+        var sessions = await Smtc.DescribeAsync(_manager!).ConfigureAwait(false);
+        if (sessions.Count > 0) return sessions;
+
+        // 会话列表为空：可能确实是没人在放，也可能是管理器失效了 —— 重建一次再判定
+        _manager = await Smtc.RequestManagerAsync().ConfigureAwait(false);
+        if (_manager == null)
+        {
+            _managerFailedAtUtc = DateTime.UtcNow;
+            return sessions;
+        }
+        _managerFailedAtUtc = DateTime.MinValue;
+        return await Smtc.DescribeAsync(_manager).ConfigureAwait(false);
+    }
+
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
         // 管理器失败后先退避，别每轮都撞同一个失败点
@@ -72,7 +98,7 @@ internal sealed class BrowserMedia : IMusicPlayer
                 _managerFailedAtUtc = DateTime.UtcNow;
                 return StaleFallback();
             }
-            var sessions = await Smtc.DescribeAsync(_manager).ConfigureAwait(false);
+            var sessions = await DescribeWithRecoveryAsync().ConfigureAwait(false);
             var index = PickBrowserSession(sessions);
             if (index < 0) return StaleFallback();
 
