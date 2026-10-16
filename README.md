@@ -44,8 +44,41 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or s
 ### Music sync
 
 - Supports NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer (community rebuild)
-- Multiple players running at once are arbitrated automatically: whatever is playing wins; player priority is adjustable in Settings and takes effect immediately
+- **Also syncs media playing in your browser** (Edge / Chrome / Brave / Vivaldi / Opera / Firefox …):
+  when you play a video or audio in a browser, its title is synced. This goes through the Windows
+  system media controls — no browser memory reads, no injection, no admin rights; the title is
+  shown verbatim. **Off by default**, enable it in Settings → Sync
+- All six sources share **one priority list** (NetEase / QQ Music / LX / KuGou / TTPlayer / browser media)
+  which you can reorder in Settings → Sync with immediate effect
+- Multiple players running at once are arbitrated automatically: **whatever is playing wins**;
+  when several are playing, your priority order decides
 - Music and app sync have independent switches; with "Hide music status when paused" enabled, a paused player never shows up in your friends list
+
+### Custom data sources (blocks)
+
+Plug any HTTP endpoint that returns JSON into the status text as a **template block**.
+Heart rate is the typical use case — Settings → Data sources → Add source:
+
+| Field | Example | Meaning |
+|---|---|---|
+| Name | `Heart` | The block name used in templates, e.g. `{Heart}` |
+| URL | `http://127.0.0.1:9000/heartrate` | Any HTTP URL (local services: just use 127.0.0.1) |
+| Value | `heart_rate` | Which JSON field to read; nested paths like `a.b.c` work; leave empty for the root value |
+| Format | `❤{v}` | `{v}` is replaced by the value; leave empty to show the raw value |
+| Every | `1` | How often to poll, in seconds; pushes still follow your sync speed setting |
+
+Then use it in Settings → Display's format template:
+
+```
+{song} {Heart}              →  稻香 ❤92
+{app} {sep} {song} {Heart}  →  Strinova ‖ 稻香 ❤92
+```
+
+- The value may be a **number or text**, so viewer counts, download speed, weather and similar all work
+- When the value can't be fetched the block **expands to nothing** and never affects music or app sync;
+  unreachable addresses are retried every 5 seconds
+- Each row shows its live state (time since last success / current value / failure reason), and the
+  "Test as filled" button prints the response and the extracted value so a misconfiguration is obvious
 
 ### App sync
 
@@ -65,7 +98,10 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or s
 - Template presets: one click to switch between "Simple / With prefix (Playing·Listening) / Name only"
 - Progress bar style: presets plus any characters you like, length 1–50; emoji work out of the box, e.g. `[❤️❤️❤️❤️❤️❤️💕💕💕💕] 1:59/3:32`
 - Appearance: title / song colors, font, background color, background image (stretch / fit / tile / center) — all customizable with one-click reset
-- Album art: NetEase / QQ Music show the cover provided by the player; **KuGou** provides none, so its app icon is used as a placeholder; the **TTPlayer** community rebuild only exposes a thumbnail stream through the System Media Transport Controls, so no cover is shown there and a colour placeholder is used instead
+- Album art: NetEase / QQ Music show the cover provided by the player; **browser media** shows the video's
+  artwork (the page poster); the **TTPlayer** community rebuild shows the album art it publishes through the
+  system media controls; **KuGou** provides none, so its app icon is used as a placeholder. Whenever no cover
+  is available, the app's own icon is used instead — never a blank box
 - Crop the background image by dragging a frame after picking it (no frame = use the whole image); the main window scales to the image's aspect ratio, keeping its center and staying on screen
 - Combined display and separator are configurable; text over Steam's limit is truncated intelligently at 128 bytes
 - Persistent status: when nothing is playing and no app is being synced, show a custom line instead of clearing your status (emoji supported) — toggle it in Settings → Display
@@ -77,6 +113,7 @@ Listening to: Rice Field - Jay Chou [#####-----] 2:30/4:15      ← while listen
 Listening to: Rice Field - Jay Chou [❤️❤️❤️❤️❤️❤️💕💕💕💕] 2:30/4:15   ← any progress-bar style / length, paste emoji freely
 VS Code ‖ Listening to: Rice Field - Jay Chou                    ← coding while listening (combined template)
 Strinova                                                         ← playing a non-Steam-launched game
+Rice Field ❤92                                                   ← plus a custom data source (heart rate here)
 ```
 
 ### Steam connection
@@ -113,6 +150,23 @@ Upgrading: the app checks for updates automatically — for the full/lite editio
 
 - **LX Music is not detected**
   Please enable "Open API service" under LX Music → Settings → Open API, and allow LAN access.
+
+- **Browser media sync isn't working**
+  It's off by default — turn on "Sync media playing in your browser" in Settings → Sync. It relies on the
+  browser's system-media-controls support and only appears while media is actually playing (not while paused).
+  A browser session can outlive the video; MuSync then treats it as opened/paused. To make video win over music,
+  move "browser media" higher in the priority list.
+
+- **A data source (e.g. heart rate) can't be read**
+  First open that address in a browser to confirm it really returns JSON, then use "Test as filled" in
+  Settings → Data sources: it shows the HTTP status, the raw response, and the value extracted by your
+  expression. Usual causes: the service isn't running, the port differs, a wrong value expression
+  (it should be a JSON field name such as `heart_rate`; use `data.bpm` for nesting), or a system proxy
+  redirecting requests (MuSync bypasses proxies explicitly, but the service itself may have its own rules).
+
+- **Does a data source send my local data anywhere?**
+  No. A data source only **fetches** the address you configured; MuSync forwards those values nowhere.
+  They're used solely inside your own Steam status text. The feature is off by default.
 
 - **TTPlayer is not detected / which build do I need**
   You need the **community rebuild** ([Sonic853/TTPlayer](https://github.com/Sonic853/TTPlayer)). MuSync reads it through the Windows **System Media Transport Controls (SMTC)**, and the original 2011 TTPlayer 5.7.9 does not implement that interface, so it cannot be read or detected. Detection is based on the app identity (`Sonic853.TTPlayerRebuild`), so changing the build or renaming the executable does not affect it.
