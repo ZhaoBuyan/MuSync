@@ -17,9 +17,14 @@ namespace MuSync.Utils;
 /// </summary>
 internal static class Smtc
 {
-    /// <summary>会话快照：只抽出挑选与展示需要的字段，便于脱离 WinRT 单测。</summary>
+    /// <summary>
+    /// 会话快照：只抽出挑选与展示需要的字段，便于脱离 WinRT 单测。
+    /// <paramref name="Thumbnail"/> 是封面缩略图的**引用**（不是字节），
+    /// 由调用方在需要时再用 <see cref="TryReadThumbnailAsync"/> 读成字节。
+    /// </summary>
     internal readonly record struct SessionSnapshot(
-        string AppId, bool IsPlaying, string Title, string? Artist, string? Album, double Position, double Duration);
+        string AppId, bool IsPlaying, string Title, string? Artist, string? Album, double Position, double Duration,
+        IRandomAccessStreamReference? Thumbnail = null);
 
     /// <summary>取会话管理器；失败返回 null（调用方自行决定退避）。</summary>
     public static async Task<GlobalSystemMediaTransportControlsSessionManager?> RequestManagerAsync()
@@ -36,7 +41,17 @@ internal static class Smtc
         }
     }
 
-    /// <summary>把当前所有会话压成纯数据快照（读取失败的单个会话跳过，不影响其它）。</summary>
+    /// <summary>
+    /// 把当前所有会话压成纯数据快照，**并顺手把封面缩略图的引用一并取出**。
+    /// 读取失败的单个会话跳过，不影响其它。
+    /// <para>
+    /// ⚠️ 为什么必须"一次读取、同时拿到元数据与缩略图"：
+    /// <c>TryGetMediaPropertiesAsync()</c> 在连续快速调用时**会失败或返回空**
+    /// （实测：同一会话连读三次，中间那次标题是空的）。早先的实现一次轮询里调了两次
+    /// （一次取标题、一次取封面），于是标题随机会变空、会话被判成"没有媒体信息"
+    /// → 整个来源时有时无。合并成一次调用根治。
+    /// </para>
+    /// </summary>
     public static async Task<List<SessionSnapshot>> DescribeAsync(
         GlobalSystemMediaTransportControlsSessionManager manager)
     {
@@ -66,7 +81,8 @@ internal static class Smtc
                     props?.Artist,
                     props?.AlbumTitle,
                     timeline?.Position.TotalSeconds ?? 0,
-                    timeline?.EndTime.TotalSeconds ?? 0));
+                    timeline?.EndTime.TotalSeconds ?? 0,
+                    props?.Thumbnail));
             }
             catch (Exception ex)
             {
@@ -78,20 +94,22 @@ internal static class Smtc
     }
 
     /// <summary>
-    /// 把会话的封面缩略图读成图片字节（PNG / JPEG 原样）。
-    /// 返回 null 表示该会话没有封面或读取失败。
+    /// 把**已经取到的**缩略图引用读成图片字节（PNG / JPEG 原样）。
+    /// 返回 null 表示没有封面或读取失败。
     /// <para>
     /// 实测：系统给的就是媒体自身的封面 —— 浏览器播视频时是视频海报（实测 150×93 PNG），
     /// 音乐播放器是专辑封面（实测 300×300 JPEG）。它不是网页的 favicon。
     /// </para>
+    /// <para>
+    /// ⚠️ 参数是 <see cref="SessionSnapshot.Thumbnail"/>，不是会话本身：
+    /// 不要再拿会话去 <c>TryGetMediaPropertiesAsync()</c> —— 那正是上面注释里说的重复读取坑。
+    /// </para>
     /// </summary>
-    public static async Task<byte[]?> TryReadThumbnailAsync(GlobalSystemMediaTransportControlsSession session)
+    public static async Task<byte[]?> TryReadThumbnailAsync(IRandomAccessStreamReference? reference)
     {
+        if (reference is null) return null;
         try
         {
-            var props = await session.TryGetMediaPropertiesAsync().AsTask().ConfigureAwait(false);
-            var reference = props?.Thumbnail;
-            if (reference is null) return null;
             using var stream = await reference.OpenReadAsync().AsTask().ConfigureAwait(false);
             if (stream.Size == 0 || stream.Size > int.MaxValue) return null;
             var bytes = new byte[stream.Size];

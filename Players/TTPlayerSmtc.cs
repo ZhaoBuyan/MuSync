@@ -111,9 +111,9 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
             var playback = session.GetPlaybackInfo();
             var timeline = session.GetTimelineProperties();
             var status = playback?.PlaybackStatus;
-            // 封面：SMTC 给的是图片流（实测专辑封面 300×300 JPEG）。读出字节直接交给界面解码，
-            // 不走 URL 下载链路 —— 切换更快，也不需要临时文件。
-            var cover = await Smtc.TryReadThumbnailAsync(session).ConfigureAwait(false);
+            // 封面字节取自**这一次**读取里的缩略图引用：
+            // 不要再调一次 TryGetMediaPropertiesAsync（连续快速调用会返回空，导致来源时有时无）
+            var cover = await Smtc.TryReadThumbnailAsync(props?.Thumbnail).ConfigureAwait(false);
             return BuildInfo(
                 title,
                 props?.Artist,

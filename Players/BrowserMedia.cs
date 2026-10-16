@@ -43,6 +43,18 @@ internal sealed class BrowserMedia : IMusicPlayer
     private Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager? _manager;
     private DateTime _managerFailedAtUtc = DateTime.MinValue;
     private string? _lastIdentity;
+    /// <summary>
+    /// 最近一次成功读到的信息与时刻。
+    /// <para>
+    /// 用途：系统媒体控件的元数据读取会**偶发失败**（实测同一会话连读多次，中间某次拿不到标题）。
+    /// 若失败就直接返回 null，活跃源会在两三拍内掉回上一个播放器、下一拍又切回来 ——
+    /// 表现为界面与 Steam 状态来回跳。因此失败时短暂沿用最近一次成功读数，
+    /// 超过 <see cref="StaleFallbackWindow"/> 才真正视为没有媒体在放。
+    /// </para>
+    /// </summary>
+    private PlayerInfo? _lastGoodInfo;
+    private DateTime _lastGoodUtc = DateTime.MinValue;
+    private static readonly TimeSpan StaleFallbackWindow = TimeSpan.FromSeconds(8);
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
@@ -50,7 +62,7 @@ internal sealed class BrowserMedia : IMusicPlayer
         if (_manager == null && _managerFailedAtUtc != DateTime.MinValue &&
             DateTime.UtcNow - _managerFailedAtUtc < ManagerRetryDelay)
         {
-            return null;
+            return StaleFallback();
         }
         try
         {
@@ -58,36 +70,45 @@ internal sealed class BrowserMedia : IMusicPlayer
             if (_manager == null)
             {
                 _managerFailedAtUtc = DateTime.UtcNow;
-                return null;
+                return StaleFallback();
             }
             var sessions = await Smtc.DescribeAsync(_manager).ConfigureAwait(false);
             var index = PickBrowserSession(sessions);
-            if (index < 0) return null;
+            if (index < 0) return StaleFallback();
 
             var snapshot = sessions[index];
             var identity = $"{snapshot.AppId}|{snapshot.Title}";
             if (_lastIdentity != identity) _lastIdentity = identity;
 
-            byte[]? cover = null;
-            try
-            {
-                var raw = _manager.GetSessions();
-                if (index < raw.Count) cover = await Smtc.TryReadThumbnailAsync(raw[index]).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[Browser] 读取封面失败: {ex.Message}");
-            }
+            // 封面字节取自快照里**已经拿到**的缩略图引用：
+            // 绝不能再拿会话去 TryGetMediaPropertiesAsync() —— 那是导致"来源时有时无"的重复读取坑
+            var cover = await Smtc.TryReadThumbnailAsync(snapshot.Thumbnail).ConfigureAwait(false);
 
-            return BuildInfo(snapshot, identity, cover);
+            var info = BuildInfo(snapshot, identity, cover);
+            _lastGoodInfo = info;
+            _lastGoodUtc = DateTime.UtcNow;
+            return info;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[Browser] 读取会话失败: {ex.Message}");
             _manager = null;
             _managerFailedAtUtc = DateTime.UtcNow;
-            return null;
+            return StaleFallback();
         }
+    }
+
+    /// <summary>
+    /// 读取失败时的兜底：沿用最近一次成功读数（短期），避免活跃源在两三拍内来回切换。
+    /// 超过窗口则返回 null（真的没有媒体在放了）。
+    /// </summary>
+    private PlayerInfo? StaleFallback()
+    {
+        if (_lastGoodInfo is { } info && DateTime.UtcNow - _lastGoodUtc <= StaleFallbackWindow)
+        {
+            return info;
+        }
+        return null;
     }
 
     /// <summary>
