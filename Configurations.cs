@@ -365,8 +365,30 @@ internal class Configurations
 
     private static void DecryptSecrets(ConfigData config)
     {
-        config.SteamRefreshToken = TokenProtector.Unprotect(config.SteamRefreshToken);
-        config.SteamGuardData = TokenProtector.Unprotect(config.SteamGuardData);
+        // ⚠️ 这一步必须"永远不抛"。实测踩过：某个承载环境里
+        // System.Security.Cryptography.ProtectedData 程序集加载失败，异常在
+        // TokenProtector.Unprotect 的**调用点**抛出（方法内部的 try/catch 抓不到），
+        // 一路冒到配置解析 → 整份配置被判为"不可解析" → 走降级、降级也抛 → 用默认值替换。
+        // 也就是说：**一个令牌字段解密失败，会连带把用户的全部设置判死**。
+        // 令牌读不出来最多让用户重新登录一次，绝不能因此丢掉配置。
+        try
+        {
+            config.SteamRefreshToken = TokenProtector.Unprotect(config.SteamRefreshToken);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"刷新令牌解密失败（按无令牌处理，其余设置保留）: {ex.GetType().Name}");
+            config.SteamRefreshToken = "";
+        }
+        try
+        {
+            config.SteamGuardData = TokenProtector.Unprotect(config.SteamGuardData);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Steam Guard 数据解密失败（按无数据处理，其余设置保留）: {ex.GetType().Name}");
+            config.SteamGuardData = "";
+        }
     }
 
     private static void ProtectField(JsonObject root, string name)
