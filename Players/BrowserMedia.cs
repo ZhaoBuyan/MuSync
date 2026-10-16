@@ -213,7 +213,10 @@ internal sealed class BrowserMedia : IMusicPlayer
             if (elapsed > TimeSpan.Zero) position += elapsed.TotalSeconds;
         }
 
-        if (duration > 0 && position > duration) position = duration;
+        // ⚠️ 位置已经超过总长时，说明**总长不可信**（实测：B 站换到长视频后仍报上一个视频的 8:20，
+        // 而位置已经 47:22），此时应当把总长当作"未知"（置 0 → 不显示进度条），
+        // 绝不能用不可信的总长去砍可信的位置 —— 那会让进度永远停在满格。
+        if (duration > 0 && position > duration) duration = 0;
         return new PlayerInfo
         {
             Identity = identity,

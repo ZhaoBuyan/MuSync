@@ -61,11 +61,13 @@ public class TTPlayerSmtcTests
     }
 
     [Fact]
-    public void BuildInfo_PositionBeyondDurationIsClamped()
+    public void BuildInfo_PositionBeyondDuration_TreatsDurationAsUnknown()
     {
+        // 位置超过总长时说明总长不可信：置为未知，而不是用不可信的总长去砍可信的位置
         var info = TTPlayerSmtc.BuildInfo("Song", "A", "B", pause: false, position: 999, duration: 100);
 
-        Assert.Equal(100, info.Schedule);
+        Assert.Equal(999, info.Schedule);
+        Assert.Equal(0, info.Duration);
     }
 
     [Fact]

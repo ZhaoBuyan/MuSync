@@ -76,15 +76,30 @@ public class BrowserMediaTests
     }
 
     [Fact]
-    public void BuildInfo_Extrapolation_IsClampedToDuration()
+    public void BuildInfo_PositionBeyondDuration_DurationIsTreatedAsUnknown()
     {
-        // 源长时间不上报时推算会越界，必须收敛在总时长内
+        // 实测场景：B 站换到长视频后，总长仍是上一个视频的 8:20，而位置已经 47:22。
+        // 此时**总长不可信**，应置为未知（0 → 不显示进度条），
+        // 而不是用不可信的总长去砍可信的位置（那会让进度永远停在满格）。
+        var session = Session("MSEdge", "比赛回放", position: 2842, duration: 500);
+
+        var info = BrowserMedia.BuildInfo(session, "k", null);
+
+        Assert.Equal(2842, info.Schedule, 3);
+        Assert.Equal(0, info.Duration, 3);
+    }
+
+    [Fact]
+    public void BuildInfo_Extrapolation_ProducesPositionBeyondStaleDuration_AndClearsIt()
+    {
+        // 源长时间不上报时推算会越界：位置确实可以超过那个陈旧的总长，此时同样按"总长未知"处理
         var sampled = new DateTimeOffset(2026, 10, 16, 16, 0, 0, TimeSpan.FromHours(8));
         var session = Session("MSEdge", "比赛回放", position: 100, duration: 120, lastUpdated: sampled);
 
         var info = BrowserMedia.BuildInfo(session, "k", null, sampled.AddMinutes(10));
 
-        Assert.Equal(120, info.Schedule, 3);
+        Assert.Equal(700, info.Schedule, 3);   // 100 + 600 秒
+        Assert.Equal(0, info.Duration, 3);
     }
 
     // ---- AppId 识别 ----
@@ -218,14 +233,6 @@ public class BrowserMediaTests
 
         Assert.Same(bytes, info.CoverImage);
         Assert.Equal("", info.Cover);             // 字节封面不走 URL
-    }
-
-    [Fact]
-    public void BuildInfo_PositionBeyondDuration_IsClamped()
-    {
-        var info = BrowserMedia.BuildInfo(Session("MSEdge", "v", position: 999, duration: 100), "k", null);
-
-        Assert.Equal(100, info.Schedule, 3);
     }
 
     [Fact]

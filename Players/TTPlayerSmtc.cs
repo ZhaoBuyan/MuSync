@@ -170,7 +170,9 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
             var elapsed = (now ?? DateTimeOffset.Now) - lastUpdated;
             if (elapsed > TimeSpan.Zero) safePosition += elapsed.TotalSeconds;
         }
-        if (safeDuration > 0 && safePosition > safeDuration) safePosition = safeDuration;   // 进度不越过总时长
+        // ⚠️ 位置已超过总长时说明**总长不可信**（播放器换了媒体但没刷新时长），
+        // 应把总长当"未知"（置 0），而不是用不可信的总长去砍可信的位置（否则进度永远停在满格）
+        if (safeDuration > 0 && safePosition > safeDuration) safeDuration = 0;
         var artistText = string.IsNullOrWhiteSpace(artist) ? "" : artist.Trim();
         return new PlayerInfo
         {
