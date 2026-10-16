@@ -607,9 +607,10 @@ internal class MainForm : Form
                 var progressPercentage = (int)((playerInfo.Value.Schedule / playerInfo.Value.Duration) * 100);
                 var newValue = Math.Max(0, Math.Min(100, progressPercentage));
                 if (_progressBars[index].Value != newValue) _progressBars[index].Value = newValue;
-                var currentTime = TimeSpan.FromSeconds(playerInfo.Value.Schedule);
-                var totalTime = TimeSpan.FromSeconds(playerInfo.Value.Duration);
-                var progressText = $@"{currentTime:mm\:ss} / {totalTime:mm\:ss}";
+                // ⚠️ 不能写成 TimeSpan 的 mm\:ss：那只输出分与秒、丢掉小时位，
+                // 超过一小时的曲目/视频总时长会显示成 08:20 而不是 1:08:20（实测踩过）
+                var progressText = $"{SteamStatusManager.FormatClockTime(playerInfo.Value.Schedule)} / " +
+                                   $"{SteamStatusManager.FormatClockTime(playerInfo.Value.Duration)}";
                 if (_progressLabels[index].Text != progressText) _progressLabels[index].Text = progressText;
             }
             else

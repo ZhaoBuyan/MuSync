@@ -156,4 +156,26 @@ public class SteamStatusManagerTests
         Assert.InRange(Utf8ByteCount(preview), 1, 128);
         Assert.DoesNotContain('\uFFFD', preview);
     }
+    // ---- 时间格式化：超过一小时必须带小时位 ----
+
+    [Theory]
+    [InlineData(0, "0:00")]
+    [InlineData(9, "0:09")]
+    [InlineData(59, "0:59")]
+    [InlineData(60, "1:00")]
+    [InlineData(1352, "22:32")]
+    [InlineData(3599, "59:59")]
+    [InlineData(3600, "1:00:00")]
+    [InlineData(4100, "1:08:20")]      // 实测踩过的值：1 小时 8 分 20 秒
+    [InlineData(7325, "2:02:05")]
+    public void FormatClockTime_UsesHoursWhenNeeded(double seconds, string expected)
+    {
+        Assert.Equal(expected, SteamStatusManager.FormatClockTime(seconds));
+    }
+
+    [Fact]
+    public void FormatClockTime_NegativeBecomesZero()
+    {
+        Assert.Equal("0:00", SteamStatusManager.FormatClockTime(-5));
+    }
 }

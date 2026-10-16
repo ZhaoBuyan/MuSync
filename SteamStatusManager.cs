@@ -189,10 +189,20 @@ internal class SteamStatusManager
         return charIndex >= str.Length ? str : str[..charIndex];
     }
 
-    private static string FormatTime(double totalSeconds)
+    private static string FormatTime(double totalSeconds) => FormatClockTime(totalSeconds);
+
+    /// <summary>
+    /// 把秒数格式化成 <c>分:秒</c>；**超过一小时必须带上小时位**（<c>1:08:20</c>）。
+    /// <para>
+    /// ⚠️ 不能直接用 <c>TimeSpan</c> 的 <c>mm\:ss</c> 自定义格式：那只输出"分"与"秒"两个分量，
+    /// 小时会被丢掉 —— 1 小时 8 分 20 秒会显示成 <c>08:20</c>（实测踩过：视频总时长正好差一小时）。
+    /// 界面与 Steam 状态两处都必须走这个函数，避免口径不一致。
+    /// </para>
+    /// </summary>
+    internal static string FormatClockTime(double totalSeconds)
     {
         var ts = TimeSpan.FromSeconds(Math.Max(0, totalSeconds));
-        return ts.Hours > 0
+        return ts.TotalHours >= 1
             ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
             : $"{ts.Minutes}:{ts.Seconds:D2}";
     }
