@@ -353,7 +353,7 @@ internal sealed class SettingsForm : Form
         _templatePresetCombo.SelectedIndexChanged += (_, _) => ApplyTemplatePreset(_templatePresetCombo.SelectedIndex);
 
         var musicFormatLabel = new Label { Text = Loc.L("音乐格式:", "Music format:"), Location = new Point(20, 70), AutoSize = true };
-        _musicFormatBox = new TextBox { Location = new Point(118, 66), Width = 417 };
+        _musicFormatBox = new TextBox { Name = "MusicFormatBox", Location = new Point(118, 66), Width = 417 };
         var musicBlocksButton = new Button
         {
             Text = Loc.L("积木", "Blocks"),
@@ -364,7 +364,7 @@ internal sealed class SettingsForm : Form
         musicBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Music, _musicFormatBox);
 
         var programFormatLabel = new Label { Text = Loc.L("程序格式:", "App format:"), Location = new Point(20, 102), AutoSize = true };
-        _programFormatBox = new TextBox { Location = new Point(118, 98), Width = 417 };
+        _programFormatBox = new TextBox { Name = "ProgramFormatBox", Location = new Point(118, 98), Width = 417 };
         var programBlocksButton = new Button
         {
             Text = Loc.L("积木", "Blocks"),
@@ -375,7 +375,7 @@ internal sealed class SettingsForm : Form
         programBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Program, _programFormatBox);
 
         var combinedFormatLabel = new Label { Text = Loc.L("组合格式:", "Combined format:"), Location = new Point(20, 134), AutoSize = true };
-        _combinedFormatBox = new TextBox { Location = new Point(118, 130), Width = 417 };
+        _combinedFormatBox = new TextBox { Name = "CombinedFormatBox", Location = new Point(118, 130), Width = 417 };
         var combinedBlocksButton = new Button
         {
             Text = Loc.L("积木", "Blocks"),
@@ -1053,14 +1053,14 @@ internal sealed class SettingsForm : Form
             Checked = source.Enabled
         };
         var nameLabel = new Label { Text = Loc.L("名称", "Name"), Location = new Point(70, 6), AutoSize = true };
-        var name = new TextBox { Location = new Point(110, 3), Size = new Size(110, 23), Text = source.Name };
+        var name = new TextBox { Name = "DataSourceNameBox", Location = new Point(110, 3), Size = new Size(110, 23), Text = source.Name };
         var urlLabel = new Label { Text = Loc.L("地址", "URL"), Location = new Point(228, 6), AutoSize = true };
         var url = new TextBox { Location = new Point(268, 3), Size = new Size(360, 23), Text = source.Url };
 
         var pathLabel = new Label { Text = Loc.L("取值", "Value path"), Location = new Point(70, 36), AutoSize = true };
         var path = new TextBox { Location = new Point(110, 33), Size = new Size(150, 23), Text = source.ValuePath };
         var formatLabel = new Label { Text = Loc.L("显示", "Format"), Location = new Point(268, 36), AutoSize = true };
-        var format = new TextBox { Location = new Point(308, 33), Size = new Size(120, 23), Text = source.Format };
+        var format = new TextBox { Name = "DataSourceFormatBox", Location = new Point(308, 33), Size = new Size(120, 23), Text = source.Format };
         var refreshLabel = new Label { Text = Loc.L("间隔(秒)", "Every (s)"), Location = new Point(436, 36), AutoSize = true };
         var refresh = new NumericUpDown
         {

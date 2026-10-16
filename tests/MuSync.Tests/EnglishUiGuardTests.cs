@@ -50,7 +50,14 @@ public class EnglishUiGuardTests : IDisposable
         return false;
     }
 
-    /// <summary>收集一棵控件树的全部可见文案（含 MenuStrip / ContextMenuStrip 菜单项与 TabPage / GroupBox）。</summary>
+    /// <summary>
+    /// 收集一棵控件树的全部可见文案（含 MenuStrip / ContextMenuStrip 菜单项与 TabPage / GroupBox）。
+    /// <para>
+    /// ⚠️ 跳过"承载用户内容的输入框"：格式模板与数据源名是**用户自己写的**（模板里当然可以出现
+    /// 中文积木名，比如 <c>{心率}</c>），它们不是界面文案，不该由漏译守卫来判。
+    /// 只跳过这几类输入控件，Label / 按钮 / 页签等界面文案照常检查。
+    /// </para>
+    /// </summary>
     private static List<string> CollectVisibleText(Control root)
     {
         var found = new List<string>();
@@ -59,7 +66,7 @@ public class EnglishUiGuardTests : IDisposable
         while (pending.Count > 0)
         {
             var control = pending.Pop();
-            if (!string.IsNullOrWhiteSpace(control.Text)) found.Add(control.Text);
+            if (!IsUserContentInput(control) && !string.IsNullOrWhiteSpace(control.Text)) found.Add(control.Text);
             if (control is DataGridView grid)
             {
                 found.AddRange(grid.Columns.Cast<DataGridViewColumn>().Select(c => c.HeaderText));
@@ -71,6 +78,17 @@ public class EnglishUiGuardTests : IDisposable
             foreach (Control child in control.Controls) pending.Push(child);
         }
         return found.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+    }
+
+    /// <summary>
+    /// 是否是"承载用户自由内容"的输入框（格式模板 / 数据源名）。
+    /// 判据用**控件名**（SettingsForm 里这几个字段是具名赋值的），而不是猜文本内容。
+    /// </summary>
+    private static bool IsUserContentInput(Control control)
+    {
+        if (control is not TextBox && control is not ComboBox) return false;
+        return control.Name is "MusicFormatBox" or "ProgramFormatBox" or "CombinedFormatBox"
+            or "DataSourceNameBox" or "DataSourceFormatBox" or "PersistentStatusTextBox";
     }
 
     private static void AssertNoChinese(IEnumerable<string> texts, string source)
