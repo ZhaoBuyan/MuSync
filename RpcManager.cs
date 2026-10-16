@@ -59,6 +59,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     private readonly PlayerState _kuGouState = new();
     /// <summary>千千静听（TTPlayer 社区重制版）：走 SMTC，不读进程内存。</summary>
     private readonly PlayerState _ttPlayerState = new();
+    /// <summary>浏览器媒体（Edge / Chrome 等网页播放）：走 SMTC，需在设置里开启（默认关）。</summary>
+    private readonly PlayerState _browserState = new();
     private DateTime _lastMemoryLogTime = DateTime.MinValue;
     private volatile bool _stateRefreshRequested;
     private bool _realGameActivePreviously;
@@ -73,7 +75,10 @@ internal class RpcManager(SteamStatusManager steamManager)
     private List<string>? _cachedPlayerOrder;
     private string _cachedPlayerOrderSignature = "";
     /// <summary>
-    /// 内置播放器优先级顺序。internal 供测试核对「每个播放器在数据层、默认配置、界面键表里都不缺角色」
+    /// 内置播放器优先级顺序（**不含**浏览器媒体）。
+    /// internal 供测试核对「每个播放器在数据层、默认配置、界面键表里都不缺角色」。
+    /// 浏览器媒体刻意不在这里：它在 ResolveActiveState 里固定排最后，也不出现在设置页的优先级列表中
+    /// （放进来会与 SettingsForm.PlayerOrderKeys 的口径冲突）。
     /// </summary>
     internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
     private const double JumpToleranceSeconds = 0.4;
@@ -198,7 +203,8 @@ internal class RpcManager(SteamStatusManager steamManager)
             SnapshotOf(_tencentState, "QQ音乐", active),
             SnapshotOf(_lxMusicState, "洛雪音乐", active),
             SnapshotOf(_kuGouState, "酷狗音乐", active),
-            SnapshotOf(_ttPlayerState, "千千静听", active)
+            SnapshotOf(_ttPlayerState, "千千静听", active),
+            SnapshotOf(_browserState, "浏览器媒体", active)
         ];
 
         static PlayerStatus SnapshotOf(PlayerState state, string name, PlayerState? activeState)
@@ -235,7 +241,8 @@ internal class RpcManager(SteamStatusManager steamManager)
         if (_cachedPlayerOrder is null || signature != _cachedPlayerOrderSignature)
         {
             _cachedPlayerOrderSignature = signature;
-            _cachedPlayerOrder = priority.Concat(DefaultPlayerOrder).Distinct().ToList();
+            // 浏览器媒体固定排在最后，且不参与设置页的优先级列表
+            _cachedPlayerOrder = priority.Concat(DefaultPlayerOrder).Distinct().Append("Browser").ToList();
         }
         return _cachedPlayerOrder;
     }
@@ -260,6 +267,8 @@ internal class RpcManager(SteamStatusManager steamManager)
         "LxMusic" => (_lxMusicState, "洛雪音乐"),
         "KuGou" => (_kuGouState, "酷狗音乐"),
         "TTPlayer" => (_ttPlayerState, "千千静听"),
+        // 浏览器媒体不进用户优先级列表：它排最后，且只有设置里开启时才参与
+        "Browser" => (_browserState, "浏览器媒体"),
         _ => null
     };
 
@@ -386,6 +395,14 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollTTPlayerAsync(currentTime);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_ttPlayerState);
+                }
+
+                if (ShouldCheckPlayer(_browserState, activeSnapshot, currentTime))
+                {
+                    _browserState.LastCheckTime = currentTime;
+                    var detected = await PollBrowserAsync(currentTime);
+                    anyPlayerActive |= detected;
+                    anyPlayerPlaying |= detected && IsPlaying(_browserState);
                 }
 
                 // 内存快照：每 10 分钟记一次（用于排查内存增长趋势）
@@ -873,6 +890,61 @@ internal class RpcManager(SteamStatusManager steamManager)
         }
         return true;
     }
+
+    /// <summary>
+    /// 浏览器媒体：读 SMTC 会话里浏览器正在播放的网页媒体。
+    /// 与千千静听的区别：浏览器进程基本一直开着，所以"有没有在放"完全由 SMTC 会话决定；
+    /// 另外它受设置开关控制（默认关），关掉时连 SMTC 都不查。
+    /// </summary>
+    private async Task<bool> PollBrowserAsync(DateTime currentTime)
+    {
+        if (!Configurations.Instance.Settings.BrowserMediaSyncEnabled || !IsAnyBrowserRunning())
+        {
+            CleanupPlayerState(_browserState, "Browser");
+            RecordPollSuccess(_browserState);
+            return false;
+        }
+        try
+        {
+            // SMTC 与进程无关，PID 传 0 占位（PollAndUpdatePlayer 只把它转给工厂）
+            await PollAndUpdatePlayer(_browserState, "Browser", 0,
+                _ => new BrowserMedia(), currentTime);
+            RecordPollSuccess(_browserState);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Browser] Error: {ex.Message}");
+            _browserState.LastError = ErrorCode.None;
+        }
+        return true;
+    }
+
+    /// <summary>是否有任一常见浏览器在运行（无则不必去查 SMTC）。</summary>
+    private static bool IsAnyBrowserRunning()
+    {
+        try
+        {
+            foreach (var process in System.Diagnostics.Process.GetProcesses())
+            {
+                using (process)
+                {
+                    if (BrowserProcessNames.Contains(process.ProcessName)) return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Browser] 枚举进程失败: {ex.Message}");
+        }
+        return false;
+    }
+
+    /// <summary>浏览器进程名（不含 .exe，与 Process.ProcessName 口径一致）。</summary>
+    private static readonly System.Collections.Generic.HashSet<string> BrowserProcessNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "msedge", "chrome", "brave", "vivaldi", "opera", "firefox", "librewolf", "waterfox"
+        };
 
     /// <summary>千千静听（重制版）主进程是否在运行。</summary>
     private static bool IsTTPlayerRunning()

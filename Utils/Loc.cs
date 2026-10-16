@@ -11,7 +11,7 @@ internal static class Loc
 
     /// <summary>
     /// 播放器显示名（数据层用中文名，界面按语言映射）。
-    /// 同时兼容数据层 key（NetEase / Tencent / LxMusic / KuGou / TTPlayer）与中文名两种写法：
+    /// 同时兼容数据层 key（NetEase / Tencent / LxMusic / KuGou / TTPlayer / Browser）与中文名两种写法：
     /// 两套写法都出现过（诊断快照曾用 key 口径），漏认哪个都会让该名字原样漏出去、英文界面下露中文。
     /// </summary>
     public static string PlayerName(string name) => name switch
@@ -21,6 +21,7 @@ internal static class Loc
         "洛雪音乐" or "LX Music" or "LxMusic" => L("洛雪音乐", "LX Music"),
         "酷狗音乐" or "KuGou" => L("酷狗音乐", "KuGou Music"),
         "千千静听" or "TTPlayer" => L("千千静听", "TTPlayer"),
+        "浏览器媒体" or "Browser" => L("浏览器媒体", "Browser media"),
         _ => name
     };
 }

@@ -96,6 +96,13 @@ internal class ConfigData
     /// <summary>音乐暂停时不在 Steam 状态中显示。</summary>
     public bool HideMusicWhenPaused { get; set; } = true;
     /// <summary>
+    /// 同步浏览器里正在播放的网页媒体（视频 / 音频），走 Windows 系统媒体控件读取。
+    /// 默认**关闭**：浏览器经常挂着后台页面在放，不希望它自动顶掉当前状态。
+    /// 注意：系统接口不区分网页里放的是视频还是音频（实测视频也被标成 Music），
+    /// 因此开启后两者都会同步 —— 这也是它默认关闭的原因。
+    /// </summary>
+    public bool BrowserMediaSyncEnabled { get; set; }
+    /// <summary>
     /// 音乐播放器优先级顺序（NetEase/Tencent/LxMusic/KuGou/TTPlayer；正在播放的始终优先于暂停的）。
     /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsForm.PlayerOrderKeys</c> 一致：
     /// 三处口径不同时运行期靠 Concat(Distinct) 补齐不会出错，但读代码的人会被绊住。

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using MuSync.Models;
 using MuSync.Players.Interfaces;
+using MuSync.Utils;
 using Windows.Media.Control;
 
 namespace MuSync.Players;
@@ -110,13 +111,17 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
             var playback = session.GetPlaybackInfo();
             var timeline = session.GetTimelineProperties();
             var status = playback?.PlaybackStatus;
+            // 封面：SMTC 给的是图片流（实测专辑封面 300×300 JPEG）。读出字节直接交给界面解码，
+            // 不走 URL 下载链路 —— 切换更快，也不需要临时文件。
+            var cover = await Smtc.TryReadThumbnailAsync(session).ConfigureAwait(false);
             return BuildInfo(
                 title,
                 props?.Artist,
                 props?.AlbumTitle,
                 pause: status != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing,
                 position: timeline?.Position.TotalSeconds ?? 0,
-                duration: timeline?.EndTime.TotalSeconds ?? 0);
+                duration: timeline?.EndTime.TotalSeconds ?? 0,
+                coverImage: cover);
         }
         catch (Exception ex)
         {
@@ -128,10 +133,10 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
     /// <summary>
     /// 把 SMTC 的原始字段映射成 MuSync 的统一模型（纯函数，便于单测）。
     /// 进度/时长单位是秒，与其它播放器一致（它们把毫秒乘 0.001）。
-    /// 封面暂留空：SMTC 给的是缩略图流，而现有封面链路只认 URL —— 见本次交付说明。
     /// </summary>
     internal static PlayerInfo BuildInfo(
-        string title, string? artist, string? album, bool pause, double position, double duration)
+        string title, string? artist, string? album, bool pause, double position, double duration,
+        byte[]? coverImage = null)
     {
         var safeDuration = duration > 0 ? duration : 0;
         var safePosition = position > 0 ? position : 0;
@@ -144,6 +149,7 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
             Artists = artistText,
             Album = string.IsNullOrWhiteSpace(album) ? "" : album.Trim(),
             Cover = "",
+            CoverImage = coverImage,
             Schedule = safePosition,
             Duration = safeDuration,
             Url = "",

@@ -57,6 +57,11 @@ public class TestAssemblyPackagingGuardTests
         return false;
     }
 
+    /// <summary>
+    /// ⚠️ 如果本测试在"构建正常、单独跑却通过"的情况下偶发失败，先怀疑**构建中途被打断**：
+    /// 若杀软在编译写盘时删除了测试程序集，测试宿主会拿到残缺/陈旧的程序集（曾实测到这种假失败）。
+    /// 先确认 <c>bin</c> 与 <c>obj</c> 下的 MuSync.Tests.dll 是否与本次构建时间一致，再判断是不是真回归。
+    /// </summary>
     [Fact]
     public void TestAssembly_DoesNotEmbedDefaultWin32Manifest()
     {

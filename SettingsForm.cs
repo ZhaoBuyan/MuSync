@@ -32,6 +32,7 @@ internal sealed class SettingsForm : Form
     private CheckBox _enableSteamSyncCheckBox = null!;
     private CheckBox _musicSyncCheckBox = null!;
     private CheckBox _hidePausedMusicCheckBox = null!;
+    private CheckBox _browserMediaCheckBox = null!;
     private CheckBox _enableAppSyncCheckBox = null!;
     private CheckBox _syncNonGameCheckBox = null!;
     private CheckBox _pauseWhenPlayingGameCheckBox = null!;
@@ -248,11 +249,13 @@ internal sealed class SettingsForm : Form
         _enableSteamSyncCheckBox = CreateCheckBox(Loc.L("启用 Steam 同步（总开关）", "Enable Steam sync (master switch)"), 20, 32);
         _musicSyncCheckBox = CreateCheckBox(Loc.L("启用音乐同步", "Enable music sync"), 20, 66);
         _hidePausedMusicCheckBox = CreateCheckBox(Loc.L("音乐暂停时不在状态中显示", "Hide music status when paused"), 20, 100);
+        _browserMediaCheckBox = CreateCheckBox(
+            Loc.L("同步浏览器里正在播放的媒体（视频 / 音频）", "Sync media playing in your browser (video / audio)"), 20, 134);
         _enableAppSyncCheckBox = CreateCheckBox(Loc.L("启用程序同步", "Enable app sync"), 340, 32);
         _syncNonGameCheckBox = CreateCheckBox(Loc.L("同步非游戏应用", "Sync non-game apps"), 340, 66);
         _pauseWhenPlayingGameCheckBox = CreateCheckBox(Loc.L("玩真实 Steam 游戏时自动暂停", "Auto-pause while playing a real Steam game"), 340, 100);
         switchGroup.Controls.AddRange([
-            _enableSteamSyncCheckBox, _musicSyncCheckBox, _hidePausedMusicCheckBox,
+            _enableSteamSyncCheckBox, _musicSyncCheckBox, _hidePausedMusicCheckBox, _browserMediaCheckBox,
             _enableAppSyncCheckBox, _syncNonGameCheckBox, _pauseWhenPlayingGameCheckBox
         ]);
 
@@ -1373,6 +1376,7 @@ internal sealed class SettingsForm : Form
         _enableSteamSyncCheckBox.Checked = settings.EnableSteamSync;
         _musicSyncCheckBox.Checked = settings.MusicSyncEnabled;
         _hidePausedMusicCheckBox.Checked = settings.HideMusicWhenPaused;
+        _browserMediaCheckBox.Checked = settings.BrowserMediaSyncEnabled;
         _enableAppSyncCheckBox.Checked = settings.AppSyncEnabled;
         _syncNonGameCheckBox.Checked = settings.SyncNonGameApps;
         _pauseWhenPlayingGameCheckBox.Checked = settings.PauseWhenPlayingGame;
@@ -1450,6 +1454,7 @@ internal sealed class SettingsForm : Form
         settings.EnableSteamSync = _enableSteamSyncCheckBox.Checked;
         settings.MusicSyncEnabled = _musicSyncCheckBox.Checked;
         settings.HideMusicWhenPaused = _hidePausedMusicCheckBox.Checked;
+        settings.BrowserMediaSyncEnabled = _browserMediaCheckBox.Checked;
         settings.AppSyncEnabled = _enableAppSyncCheckBox.Checked;
         settings.SyncNonGameApps = _syncNonGameCheckBox.Checked;
         settings.PauseWhenPlayingGame = _pauseWhenPlayingGameCheckBox.Checked;

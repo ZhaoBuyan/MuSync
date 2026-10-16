@@ -43,9 +43,9 @@ internal class MainForm : Form
     /// internal 供测试核对「每个键都有品牌色、都能被 Loc.PlayerName 翻译」——
     /// 千千静听接入时就漏了这两处（名字有、颜色与面板文案没有）。
     /// </summary>
-    internal static readonly string[] _playerKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer"];
+    internal static readonly string[] _playerKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
     /// <summary>
-    /// 播放器品牌色（标题、歌名与面板图标共用）：网易云红 / QQ音乐绿 / 洛雪青绿 / 酷狗蓝 / 千千静听品牌蓝。
+    /// 播放器品牌色（标题、歌名与面板图标共用）：网易云红 / QQ音乐绿 / 洛雪青绿 / 酷狗蓝 / 千千静听品牌蓝 / 浏览器媒体蓝。
     /// 与 <see cref="_playerKeys"/> **一一对应**；千千静听原先只在 GetPlayerAccentColor 里硬编码，
     /// 现收进这张表，并由测试保证两者不脱节（曾出现"改了名字忘了颜色"）。
     /// </summary>
@@ -55,7 +55,9 @@ internal class MainForm : Form
         Color.FromArgb(49, 194, 124),
         Color.FromArgb(0, 179, 134),
         Color.FromArgb(47, 110, 224),
-        Color.FromArgb(38, 132, 214)
+        Color.FromArgb(38, 132, 214),
+        // 浏览器媒体：Edge 品牌蓝偏青，与酷狗蓝区分得开
+        Color.FromArgb(0, 120, 212)
     ];
     /// <summary>
     /// 主界面标题用的播放器显示名（按 <see cref="_playerKeys"/> 顺序）。
@@ -631,38 +633,37 @@ internal class MainForm : Form
                     LoadCoverAsyncWithUniqueKey(index, playerInfo.Value.Cover, uniqueCacheKey);
                 }
             }
+            else if (playerInfo.Value.CoverImage is { Length: > 0 } coverBytes)
+            {
+                // SMTC 类来源（浏览器媒体 / 千千静听）给的是封面**图片字节**，不是 URL：
+                // 直接解码显示，不走下载与磁盘缓存 —— 切换最快，也不需要临时文件。
+                // 变化判定用"标题 + 字节长度"（同一视频封面不会变；换标题或换图即视为要换）。
+                var key = $"smtc|{playerName}|{playerInfo.Value.Title}|{coverBytes.Length}";
+                if (_currentCacheKeys[index] != key)
+                {
+                    var image = DecodeImageOrNull(coverBytes);
+                    if (image != null)
+                    {
+                        _currentCacheKeys[index] = key;
+                        _placeholderImages[index]?.Dispose();
+                        _placeholderImages[index] = null;
+                        _placeholderIconPaths[index] = "";
+                        _coverPictureBoxes[index].BackColor = Color.White;
+                        _coverPictureBoxes[index].Image = image;
+                        _currentCoverUrls[index] = "";
+                        Logger.Diagnose($"[封面] SMTC 图片已显示（{coverBytes.Length} 字节，{playerInfo.Value.Title}）");
+                    }
+                    else
+                    {
+                        // 解码失败：不空着，退回图标占位
+                        ShowPlaceholderIcon(index, playerName);
+                    }
+                }
+            }
             else
             {
                 _currentCacheKeys[index] = "";
-                // 播放器不提供封面（酷狗、千千静听）时，用**它自己的图标**当占位图，比空白灰块可读。
-                // 图标每次现取（LoadExecutableIcon 每次都返回新对象，见其注释），
-                // 因此这里按"占位图来源路径是否变化"决定要不要换，而不是比引用 —— 否则每秒都会换一次图。
-                var placeholderPath = GetPlaceholderIconSource(playerName);
-                if (placeholderPath != null)
-                {
-                    if (_placeholderIconPaths[index] != placeholderPath)
-                    {
-                        var icon = AppResource.LoadExecutableIcon(placeholderPath);
-                        if (icon != null)
-                        {
-                            _placeholderIconPaths[index] = placeholderPath;
-                            _placeholderImages[index]?.Dispose();
-                            _placeholderImages[index] = icon;
-                            _coverPictureBoxes[index].BackColor = Color.White;
-                            _coverPictureBoxes[index].Image = icon;
-                            _currentCoverUrls[index] = "";
-                        }
-                    }
-                }
-                else if (_coverPictureBoxes[index].Image != null)
-                {
-                    _coverPictureBoxes[index].Image = null;
-                    _coverPictureBoxes[index].BackColor = Color.LightGray;
-                    _currentCoverUrls[index] = "";
-                    _placeholderIconPaths[index] = "";
-                    _placeholderImages[index]?.Dispose();
-                    _placeholderImages[index] = null;
-                }
+                ShowPlaceholderIcon(index, playerName);
             }
             // 标题与歌名颜色：默认跟随播放器品牌色，可在设置→显示→外观中自定义
             var appearance = Configurations.Instance.Settings;
@@ -725,6 +726,7 @@ internal class MainForm : Form
         "LxMusic" => "洛雪音乐",
         "KuGou" => "酷狗音乐",
         "TTPlayer" => "千千静听",
+        "Browser" => "浏览器媒体",
         _ => ""
     };
 
@@ -766,6 +768,58 @@ internal class MainForm : Form
             Logger.Diagnose($"获取 {processName} 路径失败: {ex.Message}");
         }
         return null;
+    }
+
+    /// <summary>
+    /// 把封面图片字节解码成独立位图；失败返回 null（调用方退回图标占位，不留空）。
+    /// <para>
+    /// ⚠️ 必须复制成新位图：<see cref="Image.FromStream"/> 解码出的 Image **依赖流存活**，
+    /// 直接返回它会在流释放后抛异常（表现为封面时有时无）。
+    /// </para>
+    /// </summary>
+    private static Image? DecodeImageOrNull(byte[] bytes)
+    {
+        try
+        {
+            using var stream = new MemoryStream(bytes);
+            using var decoded = Image.FromStream(stream);
+            return new Bitmap(decoded);
+        }
+        catch (Exception ex)
+        {
+            Logger.Diagnose($"[封面] 图片字节解码失败（{bytes.Length} 字节）: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 用播放器自身的程序图标占位（酷狗 / 千千静听 / 浏览器媒体这些没有封面 URL 的来源）。
+    /// 图标每次现取（LoadExecutableIcon 每次返回新对象），所以按"来源路径是否变化"决定要不要换，
+    /// 而不是比引用 —— 否则每秒都会重设一次图片。取不到图标时退回空白灰块。
+    /// </summary>
+    private void ShowPlaceholderIcon(int index, string playerName)
+    {
+        var placeholderPath = GetPlaceholderIconSource(playerName);
+        if (placeholderPath != null)
+        {
+            if (_placeholderIconPaths[index] == placeholderPath) return;
+            var icon = AppResource.LoadExecutableIcon(placeholderPath);
+            if (icon == null) return;
+            _placeholderIconPaths[index] = placeholderPath;
+            _placeholderImages[index]?.Dispose();
+            _placeholderImages[index] = icon;
+            _coverPictureBoxes[index].BackColor = Color.White;
+            _coverPictureBoxes[index].Image = icon;
+            _currentCoverUrls[index] = "";
+            return;
+        }
+        if (_coverPictureBoxes[index].Image == null) return;
+        _coverPictureBoxes[index].Image = null;
+        _coverPictureBoxes[index].BackColor = Color.LightGray;
+        _currentCoverUrls[index] = "";
+        _placeholderIconPaths[index] = "";
+        _placeholderImages[index]?.Dispose();
+        _placeholderImages[index] = null;
     }
 
     /// <summary>
