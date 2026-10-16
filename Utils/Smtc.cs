@@ -21,10 +21,13 @@ internal static class Smtc
     /// 会话快照：只抽出挑选与展示需要的字段，便于脱离 WinRT 单测。
     /// <paramref name="Thumbnail"/> 是封面缩略图的**引用**（不是字节），
     /// 由调用方在需要时再用 <see cref="TryReadThumbnailAsync"/> 读成字节。
+    /// <paramref name="LastUpdatedTime"/> 是该位置读数的**采样时刻**（系统提供）：
+    /// 网页播放器可能十几分钟才上报一次位置（实测 B 站），必须靠它把位置推算到"现在"，
+    /// 否则显示的进度会比实际播放位置小一大截。
     /// </summary>
     internal readonly record struct SessionSnapshot(
         string AppId, bool IsPlaying, string Title, string? Artist, string? Album, double Position, double Duration,
-        IRandomAccessStreamReference? Thumbnail = null);
+        IRandomAccessStreamReference? Thumbnail = null, DateTimeOffset LastUpdatedTime = default);
 
     /// <summary>取会话管理器；失败返回 null（调用方自行决定退避）。</summary>
     public static async Task<GlobalSystemMediaTransportControlsSessionManager?> RequestManagerAsync()
@@ -82,7 +85,8 @@ internal static class Smtc
                     props?.AlbumTitle,
                     timeline?.Position.TotalSeconds ?? 0,
                     timeline?.EndTime.TotalSeconds ?? 0,
-                    props?.Thumbnail));
+                    props?.Thumbnail,
+                    timeline?.LastUpdatedTime ?? default));
             }
             catch (Exception ex)
             {

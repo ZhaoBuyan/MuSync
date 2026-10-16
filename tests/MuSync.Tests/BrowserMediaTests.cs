@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using MuSync;
 using MuSync.Players;
@@ -19,8 +20,72 @@ public class BrowserMediaTests
 {
     private static Smtc.SessionSnapshot Session(
         string appId, string title, bool playing = true, double position = 0, double duration = 0,
-        string? artist = null, string? album = null) =>
-        new(appId, playing, title, artist, album, position, duration);
+        string? artist = null, string? album = null,
+        DateTimeOffset lastUpdated = default) =>
+        new(appId, playing, title, artist, album, position, duration, null, lastUpdated);
+
+    // ---- 进度必须按采样时刻推算到当下 ----
+
+    [Fact]
+    public void BuildInfo_StalePosition_IsExtrapolatedToNow()
+    {
+        // 实测场景：B 站 9 分钟前上报了 4:18（258 秒），系统读数一直冻在 258。
+        // 直接当当前位置用会少显示一大截，必须加上"采样到现在的时长"。
+        var sampled = new DateTimeOffset(2026, 10, 16, 16, 37, 45, TimeSpan.FromHours(8));
+        var session = Session("MSEdge", "比赛回放", position: 258, duration: 4100, lastUpdated: sampled);
+
+        var info = BrowserMedia.BuildInfo(session, "k", null, sampled.AddMinutes(9));
+
+        Assert.Equal(258 + 540, info.Schedule, 3);
+    }
+
+    [Fact]
+    public void BuildInfo_FreshPosition_IsNotShifted()
+    {
+        var sampled = new DateTimeOffset(2026, 10, 16, 16, 37, 45, TimeSpan.FromHours(8));
+        var session = Session("MSEdge", "比赛回放", position: 258, duration: 4100, lastUpdated: sampled);
+
+        var info = BrowserMedia.BuildInfo(session, "k", null, sampled);
+
+        Assert.Equal(258, info.Schedule, 3);
+    }
+
+    [Fact]
+    public void BuildInfo_Paused_DoesNotExtrapolate()
+    {
+        // 暂停时位置不该继续往前走
+        var sampled = new DateTimeOffset(2026, 10, 16, 16, 37, 45, TimeSpan.FromHours(8));
+        var session = Session("MSEdge", "比赛回放", playing: false, position: 258, duration: 4100, lastUpdated: sampled);
+
+        var info = BrowserMedia.BuildInfo(session, "k", null, sampled.AddMinutes(9));
+
+        Assert.Equal(258, info.Schedule, 3);
+        Assert.True(info.Pause);
+    }
+
+    [Fact]
+    public void BuildInfo_MissingSampleTime_KeepsRawPosition()
+    {
+        // 部分源不给采样时刻：退回原始读数，不能凭空加时间
+        var session = Session("MSEdge", "比赛回放", position: 258, duration: 4100);
+
+        var info = BrowserMedia.BuildInfo(session, "k", null,
+            new DateTimeOffset(2026, 10, 16, 17, 0, 0, TimeSpan.FromHours(8)));
+
+        Assert.Equal(258, info.Schedule, 3);
+    }
+
+    [Fact]
+    public void BuildInfo_Extrapolation_IsClampedToDuration()
+    {
+        // 源长时间不上报时推算会越界，必须收敛在总时长内
+        var sampled = new DateTimeOffset(2026, 10, 16, 16, 0, 0, TimeSpan.FromHours(8));
+        var session = Session("MSEdge", "比赛回放", position: 100, duration: 120, lastUpdated: sampled);
+
+        var info = BrowserMedia.BuildInfo(session, "k", null, sampled.AddMinutes(10));
+
+        Assert.Equal(120, info.Schedule, 3);
+    }
 
     // ---- AppId 识别 ----
 

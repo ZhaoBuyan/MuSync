@@ -172,12 +172,27 @@ internal sealed class BrowserMedia : IMusicPlayer
     /// <summary>
     /// 把会话快照映射成统一模型（纯函数，便于单测）。
     /// 标题**原样使用**、不做清洗：网页给的标题就是它的标题（可能带站名后缀或 #标签）。
-    /// 进度为 0 时（网页未上报时间线）不影响同步，进度条会按"可见但不动"显示。
+    /// <para>
+    /// ⚠️ 进度必须按"采样时刻"推算到当下：网页播放器可能十几分钟才向系统上报一次位置
+    /// （实测 B 站，<c>LastUpdatedTime</c> 停了 9 分钟），直接把上报值当当前位置用，
+    /// 显示的进度会比实际播放位置小一大截。真实位置 = 上报位置 + (现在 − 采样时刻)。
+    /// </para>
     /// </summary>
-    internal static PlayerInfo BuildInfo(Smtc.SessionSnapshot session, string identity, byte[]? cover)
+    /// <param name="now">当前时刻；默认取系统时间，单测可传入固定值。</param>
+    internal static PlayerInfo BuildInfo(
+        Smtc.SessionSnapshot session, string identity, byte[]? cover, DateTimeOffset? now = null)
     {
         var duration = session.Duration > 0 ? session.Duration : 0;
         var position = session.Position > 0 ? session.Position : 0;
+
+        // 把位置从"采样时刻"推算到当下。采样时刻缺失时（部分源不给）退回原始读数，
+        // 由主循环的通用推算逻辑接管，不会比原来更差。
+        if (session.IsPlaying && session.LastUpdatedTime != default)
+        {
+            var elapsed = (now ?? DateTimeOffset.Now) - session.LastUpdatedTime;
+            if (elapsed > TimeSpan.Zero) position += elapsed.TotalSeconds;
+        }
+
         if (duration > 0 && position > duration) position = duration;
         return new PlayerInfo
         {

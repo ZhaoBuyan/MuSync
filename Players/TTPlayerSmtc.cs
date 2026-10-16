@@ -121,7 +121,8 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
                 pause: status != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing,
                 position: timeline?.Position.TotalSeconds ?? 0,
                 duration: timeline?.EndTime.TotalSeconds ?? 0,
-                coverImage: cover);
+                coverImage: cover,
+                lastUpdated: timeline?.LastUpdatedTime ?? default);
         }
         catch (Exception ex)
         {
@@ -136,10 +137,17 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
     /// </summary>
     internal static PlayerInfo BuildInfo(
         string title, string? artist, string? album, bool pause, double position, double duration,
-        byte[]? coverImage = null)
+        byte[]? coverImage = null, DateTimeOffset lastUpdated = default, DateTimeOffset? now = null)
     {
         var safeDuration = duration > 0 ? duration : 0;
         var safePosition = position > 0 ? position : 0;
+        // 同浏览器媒体：位置读数可能很久才更新一次，按系统的采样时刻推算到当下，
+        // 否则显示的进度会比实际播放位置小一大截（暂停时不推算）
+        if (!pause && lastUpdated != default)
+        {
+            var elapsed = (now ?? DateTimeOffset.Now) - lastUpdated;
+            if (elapsed > TimeSpan.Zero) safePosition += elapsed.TotalSeconds;
+        }
         if (safeDuration > 0 && safePosition > safeDuration) safePosition = safeDuration;   // 进度不越过总时长
         var artistText = string.IsNullOrWhiteSpace(artist) ? "" : artist.Trim();
         return new PlayerInfo
