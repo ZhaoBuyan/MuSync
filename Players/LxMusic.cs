@@ -101,18 +101,22 @@ internal sealed class LxMusic : IMusicPlayer
                 _lastInfoCache = null;
                 return null;
             }
-            if (status.Name != _lastSongTitle || status.Singer != _lastSongArtist)
+            // ⚠️ singer/albumName 是外部 JSON：字段缺失时 STJ 会传 null（标称非空也不校验），
+            // 直接透传会让 PlayerInfo.Artists/Album 为 null（标称非空），下游拼字符串就可能抛
+            var singer = status.Singer ?? "";
+            var album = status.AlbumName ?? "";
+            if (status.Name != _lastSongTitle || singer != _lastSongArtist)
             {
                 _currentSongId = Guid.NewGuid().ToString();
                 _lastSongTitle = status.Name;
-                _lastSongArtist = status.Singer;
+                _lastSongArtist = singer;
             }
             var info = new PlayerInfo
             {
                 Identity = _currentSongId,
                 Title = status.Name,
-                Artists = status.Singer,
-                Album = status.AlbumName,
+                Artists = singer,
+                Album = album,
                 Cover = status.PicUrl,
                 Schedule = status.Progress,
                 Duration = status.Duration,

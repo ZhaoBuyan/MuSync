@@ -246,4 +246,30 @@ public class KuGouParsingTests
         // 秒必须是两位（"02:3x" 这种只可能是误匹配）
         Assert.False(KuGou.TryParseTime(Pair("02:3/05:10"), 0, out _, out _));
     }
+    // ---- 3 位分钟（超过 99 分钟的曲目/视频）----
+
+    [Fact]
+    public void TryParseProgressPair_ThreeDigitMinutes_AreParsed()
+    {
+        // 时长上限写的是 3 小时，原先解析器只收 1~2 位分钟（≤99:59）→
+        // 超过 99 分钟的媒体永远解析不出进度与时长，两个常量不自洽
+        var span = Pair("100:30/168:00");
+        Assert.True(KuGou.TryParseProgressPair(span, out var progress, out var duration));
+        Assert.Equal(6030, progress, 3);
+        Assert.Equal(10080, duration, 3);
+    }
+
+    [Fact]
+    public void TryParseProgressPair_FourDigitMinutes_AreRejected()
+    {
+        // 分钟位最多 3 位：4 位数字不该被当成时间
+        Assert.False(KuGou.TryParseProgressPair(Pair("1234:56/168:00"), out _, out _));
+    }
+
+    [Fact]
+    public void TryParseProgressPair_OverThreeHours_IsRejected()
+    {
+        // 仍受 MaxDurationSeconds = 3 小时约束
+        Assert.False(KuGou.TryParseProgressPair(Pair("10:00/200:00"), out _, out _));
+    }
 }

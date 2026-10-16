@@ -479,14 +479,21 @@ internal sealed class KuGou : IMusicPlayer
         return true;
     }
 
-    /// <summary>解析 UTF-16 的「MM:SS」文本（1~2 位分钟、2 位秒、秒 ≤ 59）。internal 便于单测。</summary>
+    /// <summary>
+    /// 解析 UTF-16 的「MM:SS」文本（1~3 位分钟、2 位秒、秒 ≤ 59）。internal 便于单测。
+    /// <para>
+    /// ⚠️ 分钟位必须允许 3 位：本类的时长上限写的是 3 小时（<see cref="MaxDurationSeconds"/>），
+    /// 而原先只收 1~2 位分钟（≤99:59），于是**超过 99 分钟的曲目/视频永远解析不出进度与时长** ——
+    /// 进度恒为 0，且因为 duration 恒为 0，暂停时也不会降频。两个常量原本不自洽。
+    /// </para>
+    /// </summary>
     internal static bool TryParseTime(ReadOnlySpan<byte> span, int pos, out int totalSeconds, out int endPos)
     {
         totalSeconds = 0;
         endPos = pos;
         var minutes = 0;
         var digits = 0;
-        while (digits < 2 && pos + 1 < span.Length && span[pos + 1] == 0x00 &&
+        while (digits < 3 && pos + 1 < span.Length && span[pos + 1] == 0x00 &&
                span[pos] >= 0x30 && span[pos] <= 0x39)
         {
             minutes = minutes * 10 + (span[pos] - 0x30);
@@ -494,6 +501,8 @@ internal sealed class KuGou : IMusicPlayer
             digits++;
         }
         if (digits < 1) return false;
+        // 分钟位后仍紧跟数字 ⇒ 这串数字更长（例如 1234:56），不是合法时间，别误判
+        if (minutes > 999) return false;
         if (pos + 1 >= span.Length || span[pos] != 0x3A || span[pos + 1] != 0x00) return false;
         pos += 2;
         if (pos + 3 >= span.Length) return false;

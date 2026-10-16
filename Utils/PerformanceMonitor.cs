@@ -61,7 +61,10 @@ internal record ProcessMemoryInfo
         string[] suffixes = ["B", "KB", "MB", "GB", "TB"];
         var counter = 0;
         decimal number = bytes;
-        while (Math.Round(number / 1024) >= 1)
+        // ⚠️ 必须带上界：没有 counter < suffixes.Length - 1 时，
+        // 极大的输入（long.MaxValue 级别）会在第 6 轮取 suffixes[6] 抛 IndexOutOfRangeException。
+        // 当前调用点只喂进程内存（几十 GB），暂时不可达，但这是明确的越界隐患。
+        while (counter < suffixes.Length - 1 && Math.Round(number / 1024) >= 1)
         {
             number /= 1024;
             counter++;
