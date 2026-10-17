@@ -88,7 +88,8 @@ public class EnglishUiGuardTests : IDisposable
     {
         if (control is not TextBox && control is not ComboBox) return false;
         return control.Name is "MusicFormatBox" or "ProgramFormatBox" or "CombinedFormatBox"
-            or "DataSourceNameBox" or "DataSourceFormatBox" or "PersistentStatusTextBox";
+            or "DataSourceNameBox" or "DataSourceFormatBox" or "BlockDataSourceBox"
+            or "PersistentStatusTextBox";
     }
 
     private static void AssertNoChinese(IEnumerable<string> texts, string source)

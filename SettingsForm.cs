@@ -800,11 +800,11 @@ internal sealed class SettingsForm : Form
         copyDiagButton.Click += (_, _) =>
         {
             if (CopyDiagnosticsInfo())
-            {
+          {
                 copyDiagButton.Text = Loc.L("已复制 ✓", "Copied ✓");
                 copyDiagResetTimer.Stop();
                 copyDiagResetTimer.Start();
-            }
+          }
         };
         copyDiagButton.Disposed += (_, _) => copyDiagResetTimer.Dispose();
         var copyDiagHint = new Label
@@ -1136,19 +1136,19 @@ internal sealed class SettingsForm : Form
             var (display, error, lastSuccessUtc) = rpc.DataSourceStatus(name);
             var enabled = row.Enabled.Checked;
             if (!enabled)
-            {
+          {
                 row.Status.ForeColor = Color.DimGray;
                 row.Status.Text = Loc.L("状态：已停用", "Status: disabled");
                 continue;
-            }
+          }
             if (lastSuccessUtc == DateTime.MinValue || display is null)
-            {
+          {
                 row.Status.ForeColor = Color.Firebrick;
                 row.Status.Text = Loc.L(
                     $"状态：暂无数据{(error is null ? "（等待首次读取）" : $"（{error}）")}",
                     $"Status: no data yet{(error is null ? " (waiting for first read)" : $" ({error})")}");
                 continue;
-            }
+          }
             var ago = (int)(DateTime.UtcNow - lastSuccessUtc).TotalSeconds;
             row.Status.ForeColor = Color.ForestGreen;
             row.Status.Text = Loc.L(
@@ -1168,27 +1168,27 @@ internal sealed class SettingsForm : Form
             if (name.Length == 0) continue;
             // ⚠️ 名称就是模板里的积木名：大括号会让积木边界出现歧义，直接拒收并提示
             if (name.Contains('{') || name.Contains('}'))
-            {
+          {
                 row.Status.ForeColor = Color.Firebrick;
                 row.Status.Text = Loc.L("名称不能包含大括号 { }", "Name cannot contain { }");
                 continue;
-            }
+          }
             // 与模板正则的上界保持一致：超出的话模板永远认不出这个名字，只会静默展开为空
             if (name.Length > SteamStatusManager.MaxBlockNameLength)
-            {
+          {
                 row.Status.ForeColor = Color.Firebrick;
                 row.Status.Text = Loc.L($"名称太长（最多 {SteamStatusManager.MaxBlockNameLength} 个字符）",
                     $"Name too long (max {SteamStatusManager.MaxBlockNameLength} characters)");
                 continue;
-            }
+          }
             if (!seen.Add(name))
-            {
+          {
                 row.Status.ForeColor = Color.Firebrick;
                 row.Status.Text = Loc.L("名称重复，已忽略这一条", "Duplicate name, ignored");
                 continue;
-            }
+          }
             list.Add(new DataSourceConfig
-            {
+          {
                 Enabled = row.Enabled.Checked,
                 Name = name,
                 Url = row.Url.Text.Trim(),
@@ -1222,7 +1222,7 @@ internal sealed class SettingsForm : Form
         {
             var okCount = 0;
             foreach (var row in rows)
-            {
+          {
                 var source = new DataSourceConfig
                 {
                     Enabled = true,          // 测试时忽略"启用"开关：没启用也想验证配置对不对
@@ -1239,7 +1239,7 @@ internal sealed class SettingsForm : Form
                     ? Loc.L($"成功：{result.RawBody}  →  {result.Value}  →  积木展开为 \"{result.Display}\"",
                             $"OK: {result.RawBody}  →  {result.Value}  →  block renders \"{result.Display}\"")
                     : Loc.L($"失败：{result.Error}", $"Failed: {result.Error}");
-            }
+          }
             _dataSourceHint.ForeColor = okCount == rows.Length ? Color.ForestGreen : Color.Firebrick;
             _dataSourceHint.Text = Loc.L($"{okCount}/{rows.Length} 个可用", $"{okCount}/{rows.Length} reachable");
         }
@@ -1303,9 +1303,9 @@ internal sealed class SettingsForm : Form
         _rulesGrid.CurrentCellDirtyStateChanged += (_, _) =>
         {
             if (_rulesGrid.IsCurrentCellDirty)
-            {
+          {
                 _rulesGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
-            }
+          }
         };
         _rulesGrid.CellValueChanged += RulesGrid_CellValueChanged;
         _rulesGrid.DataError += (_, e) => { e.ThrowException = false; };
@@ -1627,7 +1627,7 @@ internal sealed class SettingsForm : Form
         else
         {
             dummySong = new PlayerInfo
-            {
+          {
                 Identity = "preview",
                 Title = Loc.L("鳥の詩", "Sunflower"),
                 Artists = Loc.L("Lia", "Post Malone"),
@@ -1651,8 +1651,18 @@ internal sealed class SettingsForm : Form
             ProgressBarEmptyChar = barEmpty,
             ProgressBarLength = (int)_barLengthBox.Value
         };
-        var combined = SteamStatusManager.ComposeStatus(dummySong, Loc.L("卡拉彼丘", "Strinova"), previewConfig) ?? Loc.L("(无)", "(None)");
-        var musicOnly = SteamStatusManager.ComposeStatus(dummySong, null, previewConfig) ?? Loc.L("(无)", "(None)");
+          // 自定义数据源积木：用实时积木值预览（不发网络请求，主循环已经取过了）。
+          // 配置里存在但还没取到值的，给「‹名称›」占位，让用户能看见这块积木的位置。
+          var previewBlocks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+          var liveBlocks = Program.GetRpcManager()?.TryGetDynamicBlocksSnapshot();
+          foreach (var src in Configurations.Instance.Settings.DataSources ?? [])
+          {
+              if (string.IsNullOrWhiteSpace(src.Name)) continue;
+              var value = liveBlocks != null && liveBlocks.TryGetValue(src.Name, out var v) ? v : null;
+              previewBlocks[src.Name] = string.IsNullOrEmpty(value) ? $"‹{src.Name}›" : value;
+          }
+        var combined = SteamStatusManager.ComposeStatus(dummySong, Loc.L("卡拉彼丘", "Strinova"), previewConfig, previewBlocks) ?? Loc.L("(无)", "(None)");
+        var musicOnly = SteamStatusManager.ComposeStatus(dummySong, null, previewConfig, previewBlocks) ?? Loc.L("(无)", "(None)");
         var source = isLive ? Loc.L("（以下使用你当前正在播放的内容）", "(using what you're playing right now)") : Loc.L("（示例内容）", "(sample content)");
         _previewLabel.Text = Loc.L($"预览{source}{Environment.NewLine}程序+音乐：{combined}{Environment.NewLine}仅音乐：{musicOnly}", $"Preview{source}{Environment.NewLine}App + music: {combined}{Environment.NewLine}Music only: {musicOnly}");
     }
@@ -1818,11 +1828,11 @@ internal sealed class SettingsForm : Form
         {
             var success = Win32Api.AutoStart.Set(isAutoStartChecked);
             if (!success)
-            {
+          {
                 MessageBox.Show(
                     Loc.L($"无法 {(isAutoStartChecked ? "设置" : "取消")} 开机自启。\n请尝试以管理员权限运行本程序一次。", $"Couldn't {(isAutoStartChecked ? "enable" : "disable")} start with Windows.\nTry running the app as administrator once."),
                     Loc.L("操作失败", "Operation failed"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+          }
         }
     }
 

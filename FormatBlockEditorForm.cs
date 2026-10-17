@@ -30,13 +30,15 @@ internal sealed class FormatBlockEditorForm : Form
         Loc.L("歌名", "Song"), Loc.L("歌手", "Artist (auto separator)"),
         Loc.L("歌手（无连接符）", "Artist (no separator)"),
         Loc.L("进度条", "Progress bar"), Loc.L("程序名", "App name"),
-        Loc.L("分隔符", "Separator"), Loc.L("自定义文字", "Custom text")
+        Loc.L("分隔符", "Separator"), Loc.L("自定义文字", "Custom text"),
+        Loc.L("数据源", "Data source")
     ];
 
     private static readonly FormatBlockType[] TypeValues =
     [
         FormatBlockType.Song, FormatBlockType.ArtistPart, FormatBlockType.Artist,
-        FormatBlockType.Progress, FormatBlockType.App, FormatBlockType.Sep, FormatBlockType.Custom
+        FormatBlockType.Progress, FormatBlockType.App, FormatBlockType.Sep, FormatBlockType.Custom,
+        FormatBlockType.DataSource
     ];
 
     private readonly TemplateKind _kind;
@@ -44,6 +46,26 @@ internal sealed class FormatBlockEditorForm : Form
     private readonly List<FormatBlock> _blocks;
     private Panel _rowsPanel = null!;
     private Label _previewLabel = null!;
+
+    /// <summary>
+    /// 当前配置里的数据源名称（供"数据源"积木下拉选择）。
+    /// 只用于**列出候选**：手打一个配置里没有的名字同样有效（渲染时展开为空），所以这不是白名单。
+    /// </summary>
+    private static List<string> DataSourceNames
+    {
+        get
+        {
+            var names = new List<string>();
+            foreach (var source in Configurations.Instance.Settings.DataSources ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(source.Name) && !names.Contains(source.Name))
+                {
+                    names.Add(source.Name);
+                }
+            }
+            return names;
+        }
+    }
 
     public string ResultFormat { get; private set; } = "";
 
@@ -172,7 +194,15 @@ internal sealed class FormatBlockEditorForm : Form
             {
                 var newType = TypeValues[typeCombo.SelectedIndex];
                 block.Type = newType;
-                if (newType != FormatBlockType.Custom)
+                if (newType == FormatBlockType.DataSource)
+                {
+                    // 切到"数据源"时给个默认项，避免留下空名字导致编译出 "{}"
+                    if (string.IsNullOrWhiteSpace(block.Text) && DataSourceNames.Count > 0)
+                    {
+                        block.Text = DataSourceNames[0];
+                    }
+                }
+                else if (newType != FormatBlockType.Custom)
                 {
                     block.Text = "";
                 }
@@ -180,18 +210,42 @@ internal sealed class FormatBlockEditorForm : Form
                 UpdatePreview();
             };
 
-            var textBox = new TextBox
+            // 数据源块用可编辑下拉：列出你已配好的数据源，也能手打（未被本机配置的名字同样有效）
+            Control valueEditor;
+            if (block.Type == FormatBlockType.DataSource)
             {
-                Location = new Point(148, y),
-                Width = 232,
-                Text = block.Text,
-                Enabled = block.Type == FormatBlockType.Custom
-            };
-            textBox.TextChanged += (_, _) =>
+                var combo = new ComboBox
+                {
+                    Name = "BlockDataSourceBox",
+                    Location = new Point(148, y),
+                    Width = 232,
+                    DropDownStyle = ComboBoxStyle.DropDown,
+                    Text = block.Text
+                };
+                combo.Items.AddRange(DataSourceNames.ToArray());
+                combo.TextChanged += (_, _) =>
+                {
+                    block.Text = combo.Text;
+                    UpdatePreview();
+                };
+                valueEditor = combo;
+            }
+            else
             {
-                block.Text = textBox.Text;
-                UpdatePreview();
-            };
+                var textBox = new TextBox
+                {
+                    Location = new Point(148, y),
+                    Width = 232,
+                    Text = block.Text,
+                    Enabled = block.Type == FormatBlockType.Custom
+                };
+                textBox.TextChanged += (_, _) =>
+                {
+                    block.Text = textBox.Text;
+                    UpdatePreview();
+                };
+                valueEditor = textBox;
+            }
 
             var upButton = new Button
             {
@@ -224,7 +278,7 @@ internal sealed class FormatBlockEditorForm : Form
                 UpdatePreview();
             };
 
-            _rowsPanel.Controls.AddRange(typeCombo, textBox, upButton, downButton, delButton);
+            _rowsPanel.Controls.AddRange(typeCombo, valueEditor, upButton, downButton, delButton);
             y += 32;
         }
         _rowsPanel.ResumeLayout();
@@ -260,22 +314,41 @@ internal sealed class FormatBlockEditorForm : Form
             CombinedSeparator = _separator,
             HideMusicWhenPaused = false
         };
+        // 数据源积木在预览里给一个占位值：真实值要靠主循环去取，预览不该发网络请求。
+        // 有实时值就用实时值（设置页预览时通常已经有了），没有就显示「‹名称›」让人看出位置。
+        var previewBlocks = BuildPreviewBlocks();
         string? text;
         switch (_kind)
         {
             case TemplateKind.Music:
                 config.MusicFormat = compiled;
-                text = SteamStatusManager.ComposeStatus(dummySong, null, config);
+                text = SteamStatusManager.ComposeStatus(dummySong, null, config, previewBlocks);
                 break;
             case TemplateKind.Program:
                 config.ProgramFormat = compiled;
-                text = SteamStatusManager.ComposeStatus(null, Loc.L("卡拉彼丘", "Strinova"), config);
+                text = SteamStatusManager.ComposeStatus(null, Loc.L("卡拉彼丘", "Strinova"), config, previewBlocks);
                 break;
             default:
                 config.CombinedFormat = compiled;
-                text = SteamStatusManager.ComposeStatus(dummySong, Loc.L("卡拉彼丘", "Strinova"), config);
+                text = SteamStatusManager.ComposeStatus(dummySong, Loc.L("卡拉彼丘", "Strinova"), config, previewBlocks);
                 break;
         }
         _previewLabel.Text = Loc.L($"好友看到：{text ?? "(无内容)"}", $"Friends see: {text ?? "(None)"}");
+    }
+
+    /// <summary>
+    /// 预览用的积木取值：配置里有的数据源尽量用实时值，取不到就给「‹名称›」占位，
+    /// 这样用户在编辑器里能看见这块积木在句子里的位置，而不是一片空白。
+    /// </summary>
+    private Dictionary<string, string> BuildPreviewBlocks()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var live = Program.GetRpcManager()?.TryGetDynamicBlocksSnapshot();
+        foreach (var name in DataSourceNames)
+        {
+            var value = live != null && live.TryGetValue(name, out var v) ? v : null;
+            result[name] = string.IsNullOrEmpty(value) ? $"‹{name}›" : value;
+        }
+        return result;
     }
 }

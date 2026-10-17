@@ -73,8 +73,8 @@ Heart rate is the typical use case — Settings → Data sources → Add source:
 | Format | `❤{v}` | `{v}` is replaced by the value; leave empty to show the raw value |
 | Every | `1` | How often to poll, in seconds; pushes still follow your sync speed setting |
 
-Then use it in Settings → Display's format template:
-
+Then use it in Settings → Display's format template: click the "Blocks" button next to a format box —
+**"Data source" is now one of the block types**, and its dropdown lists the sources you configured
 ```
 {song} {Heart}              →  稻香 ❤92
 {app} {sep} {song} {Heart}  →  Strinova ‖ 稻香 ❤92

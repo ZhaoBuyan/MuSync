@@ -137,11 +137,16 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// 自定义数据源的运行实例（与配置列表一一对应）。
     /// <para>
     /// 每个"积木"一个实例，负责自己的到期判断、退避与过期判定；
-    /// 值由主循环每拍刷新一次（<see cref="RefreshDataSourcesAsync"/>），
+    /// 值由主循环每拍刷新一次（<see cref="RefreshDataSources"/>），
     /// 合成状态时通过 <see cref="SteamStatusManager.DynamicBlockResolver"/> 取用。
     /// </para>
     /// </summary>
     private readonly Dictionary<string, Utils.HttpDataSource> _dataSources = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// 保护 <see cref="_dataSources"/>：主循环线程写（增删实例），UI 线程读（编辑器预览、状态显示）。
+    /// 不加锁时 UI 侧可能在字典被改写的中途枚举，抛 <c>InvalidOperationException</c>。
+    /// </summary>
+    private readonly object _dataSourcesLock = new();
     // 非活跃源的探测/轮询间隔（秒）：只有当前活跃源保持全速，节省内存读取与进程枚举
     private const double InactiveCheckIntervalSeconds = 1.0;
     // 进度推算判定"同一首歌内位置跳变"所需的最小间隔（秒）：间隔太短时位置样本噪声大
@@ -641,7 +646,18 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// 且这里**不允许任何异常冒出去**：一个配错的地址绝不能影响音乐与程序的同步。
     /// </para>
     /// </summary>
+    /// <summary>
+    /// 刷新自定义数据源的入口：在锁内改实例集合，保证 UI 线程读快照时不会撞上字典改写。
+    /// </summary>
     private void RefreshDataSources(CancellationToken token)
+    {
+        lock (_dataSourcesLock)
+        {
+            RefreshDataSourcesCore(token);
+        }
+    }
+
+    private void RefreshDataSourcesCore(CancellationToken token)
     {
         try
         {
@@ -711,27 +727,48 @@ internal class RpcManager(SteamStatusManager steamManager)
         PruneDataSourceInstances(installed, configuredNames);
 
     /// <summary>当前可用的积木值（积木名 → 已按显示格式展开的文本）。供状态合成与设置页预览取用。</summary>
-    internal IReadOnlyDictionary<string, string> CurrentDynamicBlocks()
+    /// <summary>
+    /// 当前可用的积木值（积木名 → 已按显示格式展开的文本）。供状态合成取用。
+    /// <para>⚠️ 只能在主循环线程调用（不加锁，避免每拍都抢锁）。UI 侧请用
+    /// <see cref="TryGetDynamicBlocksSnapshot"/>。</para>
+    /// </summary>
+    internal IReadOnlyDictionary<string, string> CurrentDynamicBlocks() => BuildDynamicBlocks(snapshot: false);
+
+    /// <summary>
+    /// 线程安全的积木快照：设置页 / 积木编辑器（UI 线程）读它，不会撞上主循环改写字典。
+    /// </summary>
+    internal IReadOnlyDictionary<string, string> TryGetDynamicBlocksSnapshot() => BuildDynamicBlocks(snapshot: true);
+
+    private IReadOnlyDictionary<string, string> BuildDynamicBlocks(bool snapshot)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         // 只输出当前配置里存在的名字：已删除/改名的源不该继续作为积木存在
         var configured = Configurations.Instance.Settings.DataSources;
         if (configured is null || configured.Count == 0) return result;
-        foreach (var source in configured)
+        void Fill()
         {
-            if (string.IsNullOrWhiteSpace(source.Name)) continue;
-            var display = _dataSources.TryGetValue(source.Name, out var instance) ? instance.Display : null;
-            // 展开为空串（而不是不放进字典）也是对的：效果同为"这块积木当前没有内容"
-            result[source.Name] = display ?? "";
+            foreach (var source in configured)
+            {
+                if (string.IsNullOrWhiteSpace(source.Name)) continue;
+                var display = _dataSources.TryGetValue(source.Name, out var instance) ? instance.Display : null;
+                // 展开为空串（而不是不放进字典）也是对的：效果同为"这块积木当前没有内容"
+                result[source.Name] = display ?? "";
+            }
         }
+        if (snapshot) { lock (_dataSourcesLock) { Fill(); } } else { Fill(); }
         return result;
     }
 
     /// <summary>数据源的运行状态快照（供设置页显示连接状态 / 数据是否已停止）。</summary>
-    internal (string? Display, string? Error, DateTime LastSuccessUtc) DataSourceStatus(string name) =>
-        _dataSources.TryGetValue(name, out var instance)
-            ? (instance.Display, instance.LastError, instance.LastSuccessUtc)
-            : (null, null, DateTime.MinValue);
+    internal (string? Display, string? Error, DateTime LastSuccessUtc) DataSourceStatus(string name)
+    {
+        lock (_dataSourcesLock)
+        {
+            return _dataSources.TryGetValue(name, out var instance)
+                ? (instance.Display, instance.LastError, instance.LastSuccessUtc)
+                : (null, null, DateTime.MinValue);
+        }
+    }
 
     /// <summary>距上一拍的时长（单调时钟，不受系统时间调整影响）。</summary>
     private TimeSpan SinceLastTick() =>

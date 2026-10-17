@@ -11,10 +11,12 @@ internal enum FormatBlockType
     Progress,
     App,
     Sep,
-    Custom
+    Custom,
+    /// <summary>自定义数据源积木（如心率）：<see cref="FormatBlock.Text"/> 存数据源名称。</summary>
+    DataSource
 }
 
-/// <summary>模板积木块：类型 + 自定义文字。</summary>
+/// <summary>模板积木块：类型 + 自定义文字（DataSource 类型时存数据源名称）。</summary>
 internal sealed class FormatBlock
 {
     public FormatBlockType Type { get; set; }
@@ -24,7 +26,8 @@ internal sealed class FormatBlock
 /// <summary>
 /// 模板字符串与积木块列表互转。
 /// 模板字符串沿用 {song} {artist} {artistPart} {progress} {app} {sep} 占位符，
-/// 块编辑器负责把用户搭的积木编译回该格式，保持存储与渲染引擎不变。
+/// 以及自定义数据源的 {名称}；块编辑器负责把用户搭的积木编译回该格式，
+/// 保持存储与渲染引擎不变。
 /// </summary>
 internal static class FormatBlockCodec
 {
@@ -38,7 +41,15 @@ internal static class FormatBlockCodec
         ("{app}", FormatBlockType.App)
     ];
 
-    /// <summary>把模板字符串解析为积木块列表（连续普通文字合并为一个自定义块）。</summary>
+    /// <summary>
+    /// 把模板字符串解析为积木块列表（连续普通文字合并为一个自定义块）。
+    /// <para>
+    /// 认不出的 <c>{名字}</c> 一律解析成 <see cref="FormatBlockType.DataSource"/> 块 ——
+    /// 与渲染引擎"任意无括号名字都是积木"的规则保持一致，
+    /// 这样用户手打的 <c>{心率}</c> 在编辑器里也能作为积木被看见、被排序、被删除，
+    /// 而不是混在一段自定义文字里。
+    /// </para>
+    /// </summary>
     public static List<FormatBlock> Parse(string? format)
     {
         var blocks = new List<FormatBlock>();
@@ -64,17 +75,47 @@ internal static class FormatBlockCodec
                     break;
                 }
             }
-            if (!matched)
+            if (matched) continue;
+
+            // 非内建标记：看是不是一个 {名字} 形状的积木（与模板引擎的匹配范围一致）
+            if (text[i] == '{' && TryReadBlockName(text, i, out var name, out var length))
             {
-                buffer.Append(text[i]);
-                i++;
+                if (buffer.Length > 0)
+                {
+                    blocks.Add(new FormatBlock { Type = FormatBlockType.Custom, Text = buffer.ToString() });
+                    buffer.Clear();
+                }
+                blocks.Add(new FormatBlock { Type = FormatBlockType.DataSource, Text = name });
+                i += length;
+                continue;
             }
+
+            buffer.Append(text[i]);
+            i++;
         }
         if (buffer.Length > 0)
         {
             blocks.Add(new FormatBlock { Type = FormatBlockType.Custom, Text = buffer.ToString() });
         }
         return blocks;
+    }
+
+    /// <summary>
+    /// 从 <paramref name="start"/> 处的 <c>{</c> 读出一个积木名。
+    /// 规则与 <see cref="SteamStatusManager"/> 的占位符正则一致：名字 1~32 字符、不含大括号与换行。
+    /// </summary>
+    private static bool TryReadBlockName(string text, int start, out string name, out int length)
+    {
+        name = "";
+        length = 0;
+        var end = text.IndexOf('}', start + 1);
+        if (end < 0) return false;
+        var inner = text[(start + 1)..end];
+        if (inner.Length == 0 || inner.Length > SteamStatusManager.MaxBlockNameLength) return false;
+        if (inner.Contains('{') || inner.Contains('\n') || inner.Contains('\r')) return false;
+        name = inner;
+        length = end - start + 1;
+        return true;
     }
 
     /// <summary>把积木块列表编译回模板字符串。</summary>
@@ -91,6 +132,7 @@ internal static class FormatBlockCodec
                 FormatBlockType.Progress => "{progress}",
                 FormatBlockType.App => "{app}",
                 FormatBlockType.Sep => "{sep}",
+                FormatBlockType.DataSource => "{" + block.Text + "}",
                 _ => block.Text
             });
         }
