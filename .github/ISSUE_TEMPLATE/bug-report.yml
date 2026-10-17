@@ -1,0 +1,99 @@
+name: Bug 反馈
+description: 状态不对 / 程序报错 / 某个播放器识别不到
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **先做这一步，能省很多来回**：打开 设置 → 诊断 → 「复制诊断信息」，把内容贴到下面。
+        里面有版本号、系统版本、各来源的识别状态、程序库规模，这类问题九成靠它定位。
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 期望看到什么、实际看到什么。
+      placeholder: |
+        例如：网易云在放歌，但 Steam 状态一直是空的；换成 QQ 音乐就正常。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开网易云，播放任意歌曲
+        2. 打开 MuSync，等待 10 秒
+        3. 好友列表里看不到状态
+    validations:
+      required: false
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: 涉及哪个来源
+      options:
+        - 不确定
+        - 网易云音乐
+        - QQ 音乐
+        - LX Music（洛雪）
+        - 酷狗音乐
+        - 千千静听（社区重制版）
+        - 浏览器里的视频 / 音频
+        - 程序同步（非音乐类应用）
+        - 自定义数据源（心率等）
+        - Steam 登录 / 连接
+        - 界面本身
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: MuSync 版本
+      description: 设置 → 关于，或诊断信息里的第一行
+      placeholder: "0.4.9"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: edition
+    attributes:
+      label: 用的哪个版本
+      options:
+        - 完整版 MuSync.exe（免安装）
+        - 轻量版 MuSync-lite.exe
+        - 安装器版 MuSync-Setup.exe
+        - 自己编译的
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断信息
+      description: 设置 → 诊断 → 「复制诊断信息」，粘贴到这里
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: 相关日志（可选）
+      description: 设置 → 诊断 → 「打开日志文件夹」，把最近的日志里相关部分贴上来。日志可能含你的 SteamID 尾号与程序名，介意的话自行打码。
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 自查
+      options:
+        - label: 我已确认不是杀软把程序文件删了（程序能正常启动）
+          required: false
+        - label: 我已搜索过现有 Issue，没有重复
+          required: false

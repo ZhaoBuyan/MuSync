@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 我遇到了 Bug
+    url: https://github.com/ZhaoBuyan/MuSync/issues/new?template=bug-report.yml
+    about: 状态不对 / 报错 / 某个播放器识别不到
+  - name: 我想提界面改版建议
+    url: https://github.com/ZhaoBuyan/MuSync/issues/new?template=ui-proposal.yml
+    about: 贴一张改版图或布局意见就行，不用写代码
+  - name: 我想参与改代码
+    url: https://github.com/ZhaoBuyan/MuSync/blob/main/CONTRIBUTING.md
+    about: 构建、测试、约定与几个容易踩的坑

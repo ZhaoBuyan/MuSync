@@ -18,9 +18,9 @@ The interface works, but it is not good looking yet, and its **visual hierarchy*
 
 The direction we want: **use native Windows window chrome and controls**. No hand drawn borders, rounded corners or shadows. Instead, make the information readable through a left navigation pane, grouping, spacing and a clear type scale.
 
-Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or send a PR.
+Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) to discuss (there is a "UI proposal" template), or send a PR.
 
-## Quick Start
+**Planning to touch code? Read [CONTRIBUTING.md](CONTRIBUTING.md) first** — build/test commands, the UI constraints above, and a few pitfalls that will otherwise cost you an afternoon (antivirus deleting the test assembly, the release binary being locked while running, and so on).
 
 1. Download **MuSync.exe** (full edition, recommended — a portable single file, just double-click) from [Releases](https://github.com/ZhaoBuyan/MuSync/releases)
 2. Sign in to Steam on first launch (mobile authenticator / email code supported). If you hit an "unusual login" warning, follow the in-window instructions: Steam app on your phone → select "Steam Client" → confirm your location

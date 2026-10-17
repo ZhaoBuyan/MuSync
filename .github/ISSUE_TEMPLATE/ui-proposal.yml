@@ -1,0 +1,70 @@
+name: 界面改版提案
+description: 对界面布局 / 信息层次的想法——贴一张改版图也行
+title: "[界面] "
+labels: ["ui"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        界面目前能用但不够好看，**信息层次**尤其需要改进。不用写代码，一张图或一段描述就很有价值。
+
+        方向上的取舍（详见 [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md)）：
+        用 Windows 原生控件，靠左导航 / 分组 / 间距 / 字号层级把信息摆清楚；
+        **不自绘边框圆角阴影，不引入第三方 UI 库**。
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及哪个界面
+      options:
+        - 主窗口
+        - 设置窗口（整体结构 / 左导航）
+        - 设置 → 同步页
+        - 设置 → 显示页
+        - 设置 → 程序页
+        - 设置 → 数据源页
+        - 积木编辑器
+        - 登录窗口
+        - 托盘菜单 / 右键菜单
+        - 其他 / 全局
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 现在哪里不好用
+      description: 说清"难看在哪个具体位置"或"找不到哪个信息"，比笼统说"不好看"更有帮助。
+      placeholder: |
+        例如：设置窗口有 7 个页签横着排，第 5 个之后要横向滚动才能看见；
+        而且"数据源"这种不常用的页和"同步"这种常用的页看起来一样重要。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望改成什么样
+      description: 可以贴改版图（直接拖进输入框）、描述布局，或者只描述想要的效果。
+    validations:
+      required: false
+
+  - type: textarea
+    id: mockup
+    attributes:
+      label: 改版图 / 草图
+      description: 直接粘贴图片，或拖拽上传。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: 自查
+      options:
+        - label: 我的方案只用了 Windows 原生控件（没有自绘边框 / 圆角 / 阴影）
+          required: false
+        - label: 我的方案没有去掉现有功能入口
+          required: false
+        - label: 我愿意自己提 PR 实现
+          required: false
