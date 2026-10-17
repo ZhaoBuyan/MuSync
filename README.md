@@ -26,6 +26,12 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new) to discuss, or s
 2. Sign in to Steam on first launch (mobile authenticator / email code supported). If you hit an "unusual login" warning, follow the in-window instructions: Steam app on your phone → select "Steam Client" → confirm your location
 3. Open your music player — that's it, your friends can now see what you're listening to
 4. (Optional) Want friends to see which app you're using? Settings → Sync → enable "Sync non-game apps"
+5. (Optional) Also sync video from your browser: Settings → Sync → enable
+   "Sync media playing in your browser (video / audio)", then move "browser media" to the position
+   you want it to take in the priority list below
+6. (Optional) Put a heart rate or other data into your status: Settings → Data sources → Add source
+   (field reference in [Custom data sources](#custom-data-sources-blocks)), then write `{Name}`
+   into a format template in Settings → Display
 
 > **First launch on Windows**: MuSync isn't code-signed yet, so Windows may show a "Windows protected your PC" / unknown-publisher warning. Click **More info** → **Run anyway** — that's the standard prompt for unsigned software, not a sign that anything is wrong.
 
