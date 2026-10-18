@@ -1181,14 +1181,15 @@ internal sealed class SettingsForm : Form
                     $"Name too long (max {SteamStatusManager.MaxBlockNameLength} characters)");
                 continue;
           }
-            // ⚠️ 内建标记优先：数据源叫 bar/time/song 之类，模板里永远渲染不到它
+            // ⚠️ 内建标记优先：数据源叫 bar/time/song 之类时，模板里的 {time} 会先按时间轴渲染，
+            // 这个数据源要写成 {Time}（大小写不同）才会生效 —— 很容易踩，所以提示改名。
+            // ⚠️ 但不能拒收：用户可能是在旧版本里配好的，静默删掉等于丢配置。
             if (SteamStatusManager.BuiltInBlockNames.Contains(name))
             {
                 row.Status.ForeColor = Color.Firebrick;
                 row.Status.Text = Loc.L(
-                    "名称与内建标记冲突（app / song / artist / artistPart / bar / time / progress / sep）",
-                    "Name clashes with a built-in token (app / song / artist / artistPart / bar / time / progress / sep)");
-                continue;
+                    "名称与内建标记同名：{time} 会被当作时间轴，这个数据源要写 {Time} 才生效，建议改名",
+                    "Name collides with a built-in token: {time} renders as the timeline; use {Time} for this source. Renaming is recommended.");
             }
             if (!seen.Add(name))
           {
