@@ -218,7 +218,6 @@ internal sealed class FormatBlockEditorForm : Form
         var y = 6;
         for (var i = 0; i < _blocks.Count; i++)
         {
-            var index = i;
             var block = _blocks[i];
 
             var typeCombo = new ComboBox
@@ -296,7 +295,9 @@ internal sealed class FormatBlockEditorForm : Form
                 Size = new Size(30, 26),
                 Enabled = i > 0
             };
-            upButton.Click += (_, _) => MoveBlock(index, -1);
+            // ⚠️ 必须按"积木对象"定位，不能按 index：重建改成延迟执行后，
+            // 连续点击时旧的 index 可能已经指到别的积木（会移错/删错行）。
+            upButton.Click += (_, _) => MoveBlock(block, -1);
 
             var downButton = new Button
             {
@@ -305,7 +306,7 @@ internal sealed class FormatBlockEditorForm : Form
                 Size = new Size(30, 26),
                 Enabled = i < _blocks.Count - 1
             };
-            downButton.Click += (_, _) => MoveBlock(index, +1);
+            downButton.Click += (_, _) => MoveBlock(block, +1);
 
             var delButton = new Button
             {
@@ -315,7 +316,7 @@ internal sealed class FormatBlockEditorForm : Form
             };
             delButton.Click += (_, _) =>
             {
-                _blocks.RemoveAt(index);
+                _blocks.Remove(block);
                 RequestRebuild();
             };
 
@@ -325,8 +326,11 @@ internal sealed class FormatBlockEditorForm : Form
         _rowsPanel.ResumeLayout(true);
     }
 
-    private void MoveBlock(int index, int delta)
+    private void MoveBlock(FormatBlock block, int delta)
     {
+        // 按对象找当前位置：延迟重建期间用户可能连点，index 会过期
+        var index = _blocks.IndexOf(block);
+        if (index < 0) return;
         var target = index + delta;
         if (target < 0 || target >= _blocks.Count) return;
         (_blocks[index], _blocks[target]) = (_blocks[target], _blocks[index]);

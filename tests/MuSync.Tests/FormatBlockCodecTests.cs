@@ -123,4 +123,26 @@ public class FormatBlockCodecTests
         Assert.Equal(FormatBlockType.Bar, blocks[0].Type);
         Assert.Equal(FormatBlockType.Time, blocks[1].Type);
     }
+    [Theory]
+    [InlineData("{progress}")]
+    [InlineData("{song}{progress}")]
+    [InlineData("{progress}{song}")]
+    [InlineData("{bar}{progress}{time}")]
+    [InlineData("{progress}{progress}")]
+    public void Parse_ProgressToken_InAnyPosition_BecomesBarPlusTime(string format)
+    {
+        var expected = format.Replace("{progress}", "{bar}{time}");
+        Assert.Equal(expected, FormatBlockCodec.Compile(FormatBlockCodec.Parse(format)));
+    }
+
+    [Fact]
+    public void Parse_BareWordProgress_StaysLiteralText()
+    {
+        // 没有大括号的 progress 只是普通文字，不能被当成积木
+        var blocks = FormatBlockCodec.Parse("progress");
+
+        Assert.Single(blocks);
+        Assert.Equal(FormatBlockType.Custom, blocks[0].Type);
+        Assert.Equal("progress", FormatBlockCodec.Compile(blocks));
+    }
 }

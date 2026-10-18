@@ -119,4 +119,60 @@ public class FormatBlockEditorFormTests
 
         Assert.Equal(format, form.ResultFormat);
     }
+    [Fact]
+    public void RapidUpClicks_KeepMovingTheSameBlock()
+    {
+        // 回归：重建改成延迟执行后，按钮事件里捕获的 index 会过期。
+        // 连点两次"上移"必须是同一块积木动两次；按 index 实现会把中间那块挪回去（等于没动）。
+        using var form = CreateForm("{song}{artist}{app}");
+
+        var onClick = typeof(Button).GetMethod("OnClick",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(onClick);
+
+        var ups = AllControls(form).OfType<Button>()
+            .Where(b => b.Text == "↑")
+            .OrderBy(b => b.Top)
+            .ToList();
+        Assert.Equal(3, ups.Count);
+
+        // 第 3 块（app）连点上移两次，中间没有任何重建/重绘发生
+        onClick!.Invoke(ups[2], [System.EventArgs.Empty]);
+        onClick.Invoke(ups[2], [System.EventArgs.Empty]);
+
+        var ok = AllControls(form).OfType<Button>().First(b => b.Text == Loc.L("确定", "OK"));
+        onClick.Invoke(ok, [System.EventArgs.Empty]);
+
+        Assert.Equal("{app}{song}{artist}", form.ResultFormat);
+    }
+    [Fact]
+    public void TimeToken_SelectsTimelineEntry_NotProgressBar()
+    {
+        // 防错位：{time} 必须显示成「时间轴」，{bar} 必须是「进度条」。
+        // TypeNames 与 TypeValues 一旦顺序不一致，用户选时间轴就会得到别的积木。
+        using var barForm = CreateForm("{bar}");
+        var barCombo = AllControls(barForm).OfType<ComboBox>().First(c => c.Name != "BlockDataSourceBox");
+        Assert.Equal(Loc.L("进度条", "Progress bar"), barCombo.SelectedItem?.ToString());
+
+        using var timeForm = CreateForm("{time}");
+        var timeCombo = AllControls(timeForm).OfType<ComboBox>().First(c => c.Name != "BlockDataSourceBox");
+        Assert.Equal(Loc.L("时间轴", "Timeline"), timeCombo.SelectedItem?.ToString());
+    }
+
+    [Fact]
+    public void HandWrittenProgressToken_ShowsAsBarPlusTime()
+    {
+        // 老模板 {progress} 打开后应变成两块：进度条 + 时间轴
+        using var form = CreateForm("{song}{progress}");
+
+        var combos = AllControls(form).OfType<ComboBox>()
+            .Where(c => c.Name != "BlockDataSourceBox")
+            .OrderBy(c => c.Top)
+            .ToList();
+
+        Assert.Equal(3, combos.Count);   // song + 条 + 时间
+        Assert.Equal(Loc.L("歌名", "Song"), combos[0].SelectedItem?.ToString());
+        Assert.Equal(Loc.L("进度条", "Progress bar"), combos[1].SelectedItem?.ToString());
+        Assert.Equal(Loc.L("时间轴", "Timeline"), combos[2].SelectedItem?.ToString());
+    }
 }
