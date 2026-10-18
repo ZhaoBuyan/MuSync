@@ -217,6 +217,19 @@ internal class SteamStatusManager
         new($@"\{{[^{{}}\r\n]{{1,{MaxBlockNameLength}}}\}}",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    /// <summary>
+    /// 内建模板标记的名字（不含大括号）。
+    /// <para>
+    /// ⚠️ 数据源**不能**用这些名字：<see cref="ApplyTemplate"/> 里内建标记优先命中，
+    /// 同名的数据源永远不会被渲染（`{time}` 会被当成时间轴，而不是名为 time 的数据源）。
+    /// 设置页据此拒收同名数据源。
+    /// </para>
+    /// </summary>
+    internal static readonly IReadOnlySet<string> BuiltInBlockNames =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "app", "song", "artist", "artistPart", "bar", "time", "progress", "sep"
+        };
     /// <summary>自定义积木名的最大长度（模板正则与设置页校验共用同一口径）。</summary>
     internal const int MaxBlockNameLength = 32;
 

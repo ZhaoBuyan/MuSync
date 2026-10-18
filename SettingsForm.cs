@@ -1181,6 +1181,15 @@ internal sealed class SettingsForm : Form
                     $"Name too long (max {SteamStatusManager.MaxBlockNameLength} characters)");
                 continue;
           }
+            // ⚠️ 内建标记优先：数据源叫 bar/time/song 之类，模板里永远渲染不到它
+            if (SteamStatusManager.BuiltInBlockNames.Contains(name))
+            {
+                row.Status.ForeColor = Color.Firebrick;
+                row.Status.Text = Loc.L(
+                    "名称与内建标记冲突（app / song / artist / artistPart / bar / time / progress / sep）",
+                    "Name clashes with a built-in token (app / song / artist / artistPart / bar / time / progress / sep)");
+                continue;
+            }
             if (!seen.Add(name))
           {
                 row.Status.ForeColor = Color.Firebrick;
@@ -1588,11 +1597,22 @@ internal sealed class SettingsForm : Form
         UpdatePreview();
     }
 
+    /// <summary>
+    /// 把渲染等价的"新写法"归一成"旧写法"，供模板预设识别使用。
+    /// <para>
+    /// 积木编辑器会把模板里的 <c>{progress}</c> 拆成 <c>{bar}{time}</c>（渲染结果逐字符相同），
+    /// 若预设识别只认旧写法，"打开编辑器、什么都不改、点确定"就会把预设从「简洁」跳成「自定义」。
+    /// </para>
+    /// </summary>
+    internal static string NormalizeFormatForPreset(string? format) =>
+        (format ?? "").Replace("{bar}{time}", "{progress}");
+
     private void SyncPresetFromFormats()
     {
         _updatingTemplatePreset = true;
         var index = 0;
-        if (_musicFormatBox.Text == "{song}{artistPart}{progress}" &&
+        var musicFormatForPreset = NormalizeFormatForPreset(_musicFormatBox.Text);
+        if (musicFormatForPreset == "{song}{artistPart}{progress}" &&
             _programFormatBox.Text == "{app}" &&
             _combinedFormatBox.Text == "{app} {sep} {song}{artistPart}")
         {
