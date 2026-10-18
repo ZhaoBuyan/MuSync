@@ -1572,11 +1572,21 @@ internal sealed class SettingsForm : Form
     {
         using var editor = new FormatBlockEditorForm(kind, formatBox.Text, NonEmpty(_separatorCombo.Text, "‖"));
         if (editor.ShowDialog(this) != DialogResult.OK) return;
-        formatBox.Text = editor.ResultFormat;
-          // 编辑器会把 {progress} 拆成 {bar}{time}（渲染等价），但上面的赋值已经触发
-          // TextChanged → MarkPresetCustom 把预设置成「自定义」。这里立刻按归一化重新识别，
-          // 否则"打开编辑器、什么都不改、点确定"当场就会跳成自定义（要重开设置才恢复）。
-          SyncPresetFromFormats();
+        ApplyEditorResult(formatBox, editor.ResultFormat);
+    }
+
+    /// <summary>
+    /// 把积木编辑器的结果写回格式框，并**立刻**重新识别模板预设。
+    /// <para>
+    /// 单独抽出来是为了能被测试直接调用：模态对话框测不到，但"写回 + 重新识别"这段接线
+    /// 恰恰是上次漏掉的地方（编辑器把 {progress} 拆成 {bar}{time} 后，预设当场跳成「自定义」）。
+    /// </para>
+    /// </summary>
+    internal void ApplyEditorResult(TextBox formatBox, string resultFormat)
+    {
+        formatBox.Text = resultFormat;
+        // 赋值会触发 TextChanged → MarkPresetCustom 把预设置成「自定义」，这里按归一化改回来
+        SyncPresetFromFormats();
     }
 
     private void MarkPresetCustom()

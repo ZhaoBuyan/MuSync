@@ -314,23 +314,27 @@ public class ProgressSplitCompatibilityTests
     }
 
     [Fact]
-    public void SyncPresetFromFormats_RecognizesSplitFormImmediately()
+    public void ApplyEditorResult_KeepsDefaultPreset_EvenThoughFormatWasRewritten()
     {
-        // 审计复现：编辑器把 {progress} 改写成 {bar}{time} 后，同一次会话里预设会跳成「自定义」。
+        // 审计复现：编辑器把 {progress} 改写成 {bar}{time} 后，同一次会话里预设会跳成「自定义」，
+        // 只有重开设置才恢复。这里直接调真实接线（OpenBlockEditor 也走它）。
         using var form = new SettingsForm();
         var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
         var music = (TextBox)typeof(SettingsForm).GetField("_musicFormatBox", flags)!.GetValue(form)!;
         var program = (TextBox)typeof(SettingsForm).GetField("_programFormatBox", flags)!.GetValue(form)!;
         var combined = (TextBox)typeof(SettingsForm).GetField("_combinedFormatBox", flags)!.GetValue(form)!;
         var combo = (ComboBox)typeof(SettingsForm).GetField("_templatePresetCombo", flags)!.GetValue(form)!;
-        var sync = typeof(SettingsForm).GetMethod("SyncPresetFromFormats", flags)!;
 
-        music.Text = "{song}{artistPart}{bar}{time}";
+        // 先摆成「简洁」的三个格式框
+        music.Text = "{song}{artistPart}{progress}";
         program.Text = "{app}";
         combined.Text = "{app} {sep} {song}{artistPart}";
-        sync.Invoke(form, null);
 
-        Assert.Equal(1, combo.SelectedIndex);   // 1 = 简洁（默认）
+        // 模拟编辑器返回：音乐格式被改写成拆分写法
+        form.ApplyEditorResult(music, "{song}{artistPart}{bar}{time}");
+
+        Assert.Equal("{song}{artistPart}{bar}{time}", music.Text);   // 写回生效
+        Assert.Equal(1, combo.SelectedIndex);                        // 预设仍是「简洁」（1）
     }
 
 }
