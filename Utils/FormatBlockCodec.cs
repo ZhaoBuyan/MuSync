@@ -34,7 +34,7 @@ internal sealed class FormatBlock
 /// </summary>
 internal static class FormatBlockCodec
 {
-    private static readonly (string Token, FormatBlockType Type)[] Tokens =
+    internal static readonly (string Token, FormatBlockType Type)[] Tokens =
     [
         ("{artistPart}", FormatBlockType.ArtistPart),
         ("{artist}", FormatBlockType.Artist),
@@ -139,6 +139,35 @@ internal static class FormatBlockCodec
         return true;
     }
 
+    /// <summary>
+    /// 积木名是否可用：非空、不超过 MaxBlockNameLength、不含大括号与换行。
+    /// <para>口径与模板占位符正则、设置页数据源名校验保持一致。</para>
+    /// </summary>
+    internal static bool IsValidBlockName(string? name)
+    {
+        var trimmed = (name ?? "").Trim();
+        return trimmed.Length > 0
+            && trimmed.Length <= SteamStatusManager.MaxBlockNameLength
+            && !trimmed.Contains('{')
+            && !trimmed.Contains('}')
+            && !trimmed.Contains('\r')
+            && !trimmed.Contains('\n');
+    }
+
+    /// <summary>
+    /// 把数据源积木编译成 <c>{名字}</c>；名字不合法时输出空串（而不是 <c>{}</c>）。
+    /// <para>
+    /// 不能输出 <c>{}</c>：模板正则需要 1~32 个字符，<c>{}</c> 匹配不上，
+    /// 会原样出现在 Steam 状态里（用户只看到一对莫名其妙的花括号）。
+    /// </para>
+    /// </summary>
+    private static string RenderDataSourceToken(string? name)
+    {
+        var trimmed = (name ?? "").Trim();
+        return IsValidBlockName(trimmed) ? "{" + trimmed + "}" : "";
+    }
+
+
     /// <summary>把积木块列表编译回模板字符串。</summary>
     public static string Compile(IEnumerable<FormatBlock> blocks)
     {
@@ -154,7 +183,7 @@ internal static class FormatBlockCodec
                 FormatBlockType.Time => "{time}",
                 FormatBlockType.App => "{app}",
                 FormatBlockType.Sep => "{sep}",
-                FormatBlockType.DataSource => "{" + block.Text + "}",
+                FormatBlockType.DataSource => RenderDataSourceToken(block.Text),
                 _ => block.Text
             });
         }

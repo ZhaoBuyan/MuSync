@@ -132,4 +132,22 @@ public class ProgressBarTests
         var combined = SteamStatusManager.ComposeStatus(Song(10, 0), null, Config("{song}{bar}{time}"));
         Assert.Equal("歌", combined);
     }
+    [Fact]
+    public void Paused_TimeOnly_IsEmpty()
+    {
+        // 审计指出：名字叫 TimeIsEmpty 的测试从未真的断言过 {time}
+        var status = SteamStatusManager.ComposeStatus(Song(50, 100, pause: true), null, Config("{time}"));
+
+        Assert.True(string.IsNullOrEmpty(status));
+    }
+
+    [Fact]
+    public void SplitRender_HasExpectedValue()
+    {
+        // 只断言 legacy == split 时，两边同时错也能过；这里钉死具体期望
+        var status = SteamStatusManager.ComposeStatus(Song(50, 100), null, Config("{bar}{time}"));
+
+        // 注意：ApplyTemplate 末尾会 Trim()，所以前导空格不会出现在最终状态里
+        Assert.Equal("[##---] 0:50/1:40", status);
+    }
 }

@@ -138,6 +138,7 @@ internal sealed class FormatBlockEditorForm : Form
         };
         okButton.Click += (_, _) =>
         {
+            if (!ValidateDataSourceBlocks()) return;   // 名字不合格就不关窗，让用户改
             ResultFormat = FormatBlockCodec.Compile(_blocks);
             DialogResult = DialogResult.OK;
             Close();
@@ -336,6 +337,30 @@ internal sealed class FormatBlockEditorForm : Form
         (_blocks[index], _blocks[target]) = (_blocks[target], _blocks[index]);
         RequestRebuild();
     }
+
+    /// <summary>
+    /// 确定前的校验：数据源积木的名字必须可用（非空、不含大括号、不超过长度上限）。
+    /// <para>
+    /// 名字空的积木编译出来是空串（不会污染状态），但用户显然是想加一块积木却没填名字，
+    /// 直接关窗会让"点了确定但什么都没加上"变成一次无声失败，所以挡住并提示。
+    /// </para>
+    /// </summary>
+    private bool ValidateDataSourceBlocks()
+    {
+        foreach (var block in _blocks)
+        {
+            if (block.Type != FormatBlockType.DataSource) continue;
+            if (FormatBlockCodec.IsValidBlockName(block.Text)) continue;
+            var message = Loc.L(
+                $"数据源积木的名字不能用：不能为空、不能含大括号、不能超过 {SteamStatusManager.MaxBlockNameLength} 个字符。" + Environment.NewLine + "请改正后再点确定。",
+                $"The data source block name is invalid: it must not be empty, contain braces, or exceed {SteamStatusManager.MaxBlockNameLength} characters." + Environment.NewLine + "Fix it and press OK again.");
+            MessageBox.Show(this, message, Loc.L("积木名字不合法", "Invalid block name"),
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+        return true;
+    }
+
 
     private void UpdatePreview()
     {

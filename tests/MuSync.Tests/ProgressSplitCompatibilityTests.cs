@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Windows.Forms;
 using System.Linq;
 using MuSync;
 using MuSync.Models;
@@ -80,7 +81,7 @@ public class ProgressSplitCompatibilityTests
     }
 
     [Fact]
-    public void DataSourceWithBuiltInName_CannotRender_WhichIsWhyWeRejectIt()
+    public void DataSourceWithBuiltInName_IsShadowedByBuiltInToken()
     {
         // 这条说明"为什么必须在设置页拒收"：内建标记优先，
         // 同名数据源即使有值也永远渲染不到（这里用 name=time 演示）。
@@ -192,4 +193,144 @@ public class ProgressSplitCompatibilityTests
                 SteamStatusManager.GetStatusPreview(s, "卡拉彼丘", splitConfig));
         }
     }
+    // ---- token 漂移守卫：新增内建 token 却忘了加进保留名集合时，这里必须变红 ----
+
+    [Fact]
+    public void EveryCodecBuiltInToken_IsInReservedNames()
+    {
+        // 反方向（集合 → codec）挡不住"往 Tokens 里加了新 token、忘了加进 BuiltInBlockNames"，
+        // 这里从 codec 的 token 表反推：每个内建 token 的名字都必须在保留名集合里。
+        foreach (var (token, _) in FormatBlockCodec.Tokens)
+        {
+            var name = token.Trim('{', '}');
+            Assert.Contains(name, SteamStatusManager.BuiltInBlockNames);
+        }
+    }
+
+    [Fact]
+    public void ProgressToken_IsAlsoReserved()
+    {
+        // {progress} 不在 Tokens 表里（由 Parse 特判拆分），单独钉一次，防止漏加。
+        Assert.Contains("progress", SteamStatusManager.BuiltInBlockNames);
+    }
+
+    // ---- 名字校验：空名 / 超长 / 含大括号都不能编译成 {} ----
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("{")]
+    [InlineData("}")]
+    [InlineData("a}b")]
+    public void Compile_SkipsDataSourceBlockWithInvalidName(string badName)
+    {
+        var blocks = new System.Collections.Generic.List<FormatBlock>
+        {
+            new() { Type = FormatBlockType.Song },
+            new() { Type = FormatBlockType.DataSource, Text = badName }
+        };
+
+        var compiled = FormatBlockCodec.Compile(blocks);
+
+        Assert.Equal("{song}", compiled);      // 不合法的数据源块整体跳过，绝不产出 {}
+        Assert.DoesNotContain("{}", compiled);
+    }
+
+    [Fact]
+    public void Compile_SkipsDataSourceBlockWithTooLongName()
+    {
+        var longName = new string('X', SteamStatusManager.MaxBlockNameLength + 1);
+        var compiled = FormatBlockCodec.Compile([new FormatBlock { Type = FormatBlockType.DataSource, Text = longName }]);
+
+        Assert.Equal("", compiled);
+    }
+
+    [Fact]
+    public void Compile_TrimsDataSourceName()
+    {
+        // 前后空格会被去掉：否则 { 心率} 在模板里匹配不上名为"心率"的数据源
+        var compiled = FormatBlockCodec.Compile([new FormatBlock { Type = FormatBlockType.DataSource, Text = "  心率  " }]);
+
+        Assert.Equal("{心率}", compiled);
+    }
+
+    [Fact]
+    public void IsValidBlockName_MatchesTemplateRegexLimits()
+    {
+        Assert.True(FormatBlockCodec.IsValidBlockName("心率"));
+        Assert.True(FormatBlockCodec.IsValidBlockName(new string('X', SteamStatusManager.MaxBlockNameLength)));
+        Assert.False(FormatBlockCodec.IsValidBlockName(new string('X', SteamStatusManager.MaxBlockNameLength + 1)));
+        Assert.False(FormatBlockCodec.IsValidBlockName(""));
+        Assert.False(FormatBlockCodec.IsValidBlockName("  "));
+        Assert.False(FormatBlockCodec.IsValidBlockName("{a}"));
+        Assert.False(FormatBlockCodec.IsValidBlockName("a\nb"));
+    }
+
+    // ---- 撞名提示文案：按实际名字生成，且能算大小写建议 ----
+
+    [Fact]
+    public void BuiltInNameWarning_MentionsActualNameAndSuggestion()
+    {
+        var warning = SettingsForm.BuiltInNameWarning("time");
+
+        Assert.Contains("{time}", warning);
+        Assert.Contains("{Time}", warning);   // 建议的可用拼写
+    }
+
+    [Fact]
+    public void BuiltInNameWarning_EmptyNameIsEmpty()
+    {
+        Assert.Equal("", SettingsForm.BuiltInNameWarning(""));
+    }
+    // ---- 设置页接线：撞名保留 + 预设当场识别（审计指出这两处原来零回归守卫）----
+
+    [Fact]
+    public void CollectDataSources_KeepsCollidingName_AndWarns()
+    {
+        var settings = Configurations.Instance.Settings;
+        var backup = settings.DataSources;
+        try
+        {
+            settings.DataSources =
+            [
+                new DataSourceConfig { Enabled = true, Name = "time", Url = "http://127.0.0.1:1/a", ValuePath = "v", Format = "{v}" },
+                new DataSourceConfig { Enabled = true, Name = "心率", Url = "http://127.0.0.1:1/b", ValuePath = "v", Format = "{v}" }
+            ];
+
+            using var form = new SettingsForm();
+            var collect = typeof(SettingsForm).GetMethod("CollectDataSources",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var kept = ((System.Collections.IEnumerable)collect!.Invoke(form, null)!)
+                .Cast<DataSourceConfig>().Select(s => s.Name).ToList();
+
+            // 关键：撞名不能把配置删掉（旧版本里配过的名字，升级后动一次设置就没了）
+            Assert.Contains("time", kept);
+            Assert.Contains("心率", kept);
+        }
+        finally
+        {
+            settings.DataSources = backup;
+        }
+    }
+
+    [Fact]
+    public void SyncPresetFromFormats_RecognizesSplitFormImmediately()
+    {
+        // 审计复现：编辑器把 {progress} 改写成 {bar}{time} 后，同一次会话里预设会跳成「自定义」。
+        using var form = new SettingsForm();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var music = (TextBox)typeof(SettingsForm).GetField("_musicFormatBox", flags)!.GetValue(form)!;
+        var program = (TextBox)typeof(SettingsForm).GetField("_programFormatBox", flags)!.GetValue(form)!;
+        var combined = (TextBox)typeof(SettingsForm).GetField("_combinedFormatBox", flags)!.GetValue(form)!;
+        var combo = (ComboBox)typeof(SettingsForm).GetField("_templatePresetCombo", flags)!.GetValue(form)!;
+        var sync = typeof(SettingsForm).GetMethod("SyncPresetFromFormats", flags)!;
+
+        music.Text = "{song}{artistPart}{bar}{time}";
+        program.Text = "{app}";
+        combined.Text = "{app} {sep} {song}{artistPart}";
+        sync.Invoke(form, null);
+
+        Assert.Equal(1, combo.SelectedIndex);   // 1 = 简洁（默认）
+    }
+
 }

@@ -218,15 +218,16 @@ internal class SteamStatusManager
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>
-    /// 内建模板标记的名字（不含大括号）。
+    /// 内建模板标记的名字（不含大括号），**区分大小写**。
     /// <para>
-    /// ⚠️ 数据源**不能**用这些名字：<see cref="ApplyTemplate"/> 里内建标记优先命中，
-    /// 同名的数据源永远不会被渲染（`{time}` 会被当成时间轴，而不是名为 time 的数据源）。
-    /// 设置页据此拒收同名数据源。
+    /// ⚠️ 大小写口径必须与 <see cref="ApplyTemplate"/> 的 switch 一致：switch 比对的是字面量，
+    /// 所以只有**全小写**的 <c>{time}</c> 会被内建时间轴抢走；
+    /// 数据源叫 <c>Time</c> 时，模板里写 <c>{Time}</c> / <c>{TIME}</c> 仍能命中它（数据源查表忽略大小写）。
+    /// 若这里用忽略大小写，就会把本来能用的名字误判成冲突。
     /// </para>
     /// </summary>
     internal static readonly IReadOnlySet<string> BuiltInBlockNames =
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        new HashSet<string>(StringComparer.Ordinal)
         {
             "app", "song", "artist", "artistPart", "bar", "time", "progress", "sep"
         };

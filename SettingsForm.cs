@@ -1097,13 +1097,20 @@ internal sealed class SettingsForm : Form
             Status = status,
             Container = row
         };
-        removeButton.Click += (_, _) =>
-        {
-            _dataSourceRows.Remove(controls);
-            _dataSourcesPanel.Controls.Remove(row);
-            row.Dispose();
-            RelayoutDataSourceRows();
-        };
+            removeButton.Click += (_, _) =>
+            {
+                // ⚠️ 不能在自己的 Click 里 Dispose 自己所在的整行：销毁 HWND 时它的 WndProc
+                // 还在调用栈上（积木编辑器当初偶发卡死就是这个原因）。延迟到本轮消息处理完之后再删。
+                var target = controls;
+                BeginInvoke(new Action(() =>
+                {
+                    if (IsDisposed) return;
+                    _dataSourceRows.Remove(target);
+                    _dataSourcesPanel.Controls.Remove(row);
+                    row.Dispose();
+                    RelayoutDataSourceRows();
+                }));
+            };
 
         row.Controls.AddRange([enabled, nameLabel, name, urlLabel, url, pathLabel, path,
             formatLabel, format, refreshLabel, refresh, removeButton, status]);
@@ -1133,6 +1140,13 @@ internal sealed class SettingsForm : Form
         {
             var name = row.Name.Text.Trim();
             if (name.Length == 0) continue;
+            // 撞名是配置问题、不是运行状态：优先显示它，免得被"上次成功 N 秒前"盖掉
+            if (SteamStatusManager.BuiltInBlockNames.Contains(name))
+            {
+                row.Status.ForeColor = Color.Firebrick;
+                row.Status.Text = BuiltInNameWarning(name);
+                continue;
+            }
             var (display, error, lastSuccessUtc) = rpc.DataSourceStatus(name);
             var enabled = row.Enabled.Checked;
             if (!enabled)
@@ -1187,11 +1201,9 @@ internal sealed class SettingsForm : Form
             if (SteamStatusManager.BuiltInBlockNames.Contains(name))
             {
                 row.Status.ForeColor = Color.Firebrick;
-                row.Status.Text = Loc.L(
-                    "名称与内建标记同名：{time} 会被当作时间轴，这个数据源要写 {Time} 才生效，建议改名",
-                    "Name collides with a built-in token: {time} renders as the timeline; use {Time} for this source. Renaming is recommended.");
+                row.Status.Text = BuiltInNameWarning(name);
             }
-            if (!seen.Add(name))
+            else if (!seen.Add(name))
           {
                 row.Status.ForeColor = Color.Firebrick;
                 row.Status.Text = Loc.L("名称重复，已忽略这一条", "Duplicate name, ignored");
@@ -1561,6 +1573,10 @@ internal sealed class SettingsForm : Form
         using var editor = new FormatBlockEditorForm(kind, formatBox.Text, NonEmpty(_separatorCombo.Text, "‖"));
         if (editor.ShowDialog(this) != DialogResult.OK) return;
         formatBox.Text = editor.ResultFormat;
+          // 编辑器会把 {progress} 拆成 {bar}{time}（渲染等价），但上面的赋值已经触发
+          // TextChanged → MarkPresetCustom 把预设置成「自定义」。这里立刻按归一化重新识别，
+          // 否则"打开编辑器、什么都不改、点确定"当场就会跳成自定义（要重开设置才恢复）。
+          SyncPresetFromFormats();
     }
 
     private void MarkPresetCustom()
@@ -1597,6 +1613,23 @@ internal sealed class SettingsForm : Form
         _updatingTemplatePreset = false;
         UpdatePreview();
     }
+
+    /// <summary>
+    /// 数据源名是"全小写的内建标记"时的提示文案（设置页保存时与运行状态刷新共用）。
+    /// <para>
+    /// 渲染器对 token 的大小写敏感、对数据源名不敏感，所以只有全小写会被内建语义抢走，
+    /// 写成首字母大写就能命中这个数据源。
+    /// </para>
+    /// </summary>
+    internal static string BuiltInNameWarning(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "";
+        var suggestion = char.ToUpperInvariant(name[0]) + name[1..];
+        return Loc.L(
+            $"名称是全小写的内建标记：模板里 {{{name}}} 会被内建语义抢走，要写成 {{{suggestion}}} 才命中这个数据源；建议改名",
+            $"Name is a lowercase built-in token: {{{name}}} resolves to the built-in meaning; write {{{suggestion}}} to reach this source. Renaming is recommended.");
+    }
+
 
     /// <summary>
     /// 把渲染等价的"新写法"归一成"旧写法"，供模板预设识别使用。
