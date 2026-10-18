@@ -95,4 +95,32 @@ public class FormatBlockCodecTests
         Assert.Single(blocks);
         Assert.Equal(FormatBlockType.ArtistPart, blocks[0].Type);
     }
+    [Fact]
+    public void Parse_ProgressToken_SplitsIntoBarAndTime()
+    {
+        // {progress} 是"条 + 时间"的老写法。编辑器里不保留"旧条目"，
+        // 打开时直接拆成两块；渲染结果必须与原来一致（见下一条测试）。
+        var blocks = FormatBlockCodec.Parse("{song}{progress}");
+
+        Assert.Equal(FormatBlockType.Song, blocks[0].Type);
+        Assert.Contains(blocks, b => b.Type == FormatBlockType.Bar);
+        Assert.Contains(blocks, b => b.Type == FormatBlockType.Time);
+        Assert.Equal("{song}{bar}{time}", FormatBlockCodec.Compile(blocks));
+    }
+
+    [Fact]
+    public void BarAndTime_AreSeparateTokens()
+    {
+        Assert.Equal("{song} {bar} {time}", RoundTrip("{song} {bar} {time}"));
+    }
+
+    [Fact]
+    public void Parse_BarAndTime_ProduceTheirOwnBlockTypes()
+    {
+        var blocks = FormatBlockCodec.Parse("{bar}{time}");
+
+        Assert.Equal(2, blocks.Count);
+        Assert.Equal(FormatBlockType.Bar, blocks[0].Type);
+        Assert.Equal(FormatBlockType.Time, blocks[1].Type);
+    }
 }

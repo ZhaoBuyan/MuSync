@@ -419,8 +419,8 @@ internal sealed class SettingsForm : Form
             ForeColor = Color.Gray,
             Font = new Font("Microsoft YaHei", 8),
             Text = Loc.L(
-                "变量：{app} 程序名｜{song} 歌名｜{artist} 歌手｜{artistPart} 自动连接符的歌手｜{progress} 进度｜{sep} 分隔符",
-                "Variables: {app} app name | {song} song | {artist} artist | {artistPart} artist with auto separators | {progress} progress | {sep} separator")
+                "变量：{app} 程序名｜{song} 歌名｜{artist} 歌手｜{artistPart} 自动连接符的歌手｜{bar} 进度条｜{time} 时间轴｜{progress} 条+时间｜{sep} 分隔符",
+                "Variables: {app} app name | {song} song | {artist} artist | {artistPart} artist with auto separators | {bar} progress bar | {time} timeline | {progress} bar + time | {sep} separator")
         };
 
         _previewLabel = new Label

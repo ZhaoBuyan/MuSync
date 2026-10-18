@@ -100,7 +100,7 @@ Then use it in Settings → Display's format template: click the "Blocks" button
 
 ### Display customization
 
-- Block editor: compose the status text from blocks — Song / Artist / Progress bar / App name / Separator / Custom text — reorder freely with a live preview
+- Block editor: compose the status text from blocks — Song / Artist / **progress bar / timeline** (place them separately) / App name / Separator / Custom text / custom data sources — reorder freely with a live preview
 - Template presets: one click to switch between "Simple / With prefix (Playing·Listening) / Name only"
 - Progress bar style: presets plus any characters you like, length 1–50; emoji work out of the box, e.g. `[❤️❤️❤️❤️❤️❤️💕💕💕💕] 1:59/3:32`
 - Appearance: title / song colors, font, background color, background image (stretch / fit / tile / center) — all customizable with one-click reset

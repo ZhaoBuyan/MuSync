@@ -29,7 +29,8 @@ internal sealed class FormatBlockEditorForm : Form
     [
         Loc.L("歌名", "Song"), Loc.L("歌手", "Artist (auto separator)"),
         Loc.L("歌手（无连接符）", "Artist (no separator)"),
-        Loc.L("进度条", "Progress bar"), Loc.L("程序名", "App name"),
+        Loc.L("进度条", "Progress bar"), Loc.L("时间轴", "Timeline"),
+        Loc.L("程序名", "App name"),
         Loc.L("分隔符", "Separator"), Loc.L("自定义文字", "Custom text"),
         Loc.L("数据源", "Data source")
     ];
@@ -37,8 +38,8 @@ internal sealed class FormatBlockEditorForm : Form
     private static readonly FormatBlockType[] TypeValues =
     [
         FormatBlockType.Song, FormatBlockType.ArtistPart, FormatBlockType.Artist,
-        FormatBlockType.Progress, FormatBlockType.App, FormatBlockType.Sep, FormatBlockType.Custom,
-        FormatBlockType.DataSource
+        FormatBlockType.Bar, FormatBlockType.Time, FormatBlockType.App, FormatBlockType.Sep,
+        FormatBlockType.Custom, FormatBlockType.DataSource
     ];
 
     private readonly TemplateKind _kind;
@@ -46,6 +47,10 @@ internal sealed class FormatBlockEditorForm : Form
     private readonly List<FormatBlock> _blocks;
     private Panel _rowsPanel = null!;
     private Label _previewLabel = null!;
+    /// <summary>是否已排了一次延迟重建（合并连续请求）。</summary>
+    private bool _rebuildScheduled;
+    /// <summary>重建重入保护。</summary>
+    private bool _rebuilding;
 
     /// <summary>
     /// 当前配置里的数据源名称（供"数据源"积木下拉选择）。
@@ -113,8 +118,7 @@ internal sealed class FormatBlockEditorForm : Form
         addButton.Click += (_, _) =>
         {
             _blocks.Add(new FormatBlock { Type = FormatBlockType.Custom });
-            RebuildRows();
-            UpdatePreview();
+            RequestRebuild();
         };
 
         _previewLabel = new Label
@@ -157,7 +161,46 @@ internal sealed class FormatBlockEditorForm : Form
         CancelButton = cancelButton;
     }
 
+    /// <summary>
+    /// 请求重建积木行：**延迟到当前消息处理完之后**再执行。
+    /// <para>
+    /// ⚠️ 不能在这些控件自己的事件里同步重建：<see cref="RebuildRowsCore"/> 会 Dispose 掉所有行控件，
+    /// 包括正在触发事件的那一个。销毁 HWND 时它的 WndProc 还在调用栈上，
+    /// ComboBox 尤其容易卡住（症状就是"有时候卡死"）。
+    /// </para>
+    /// <para>
+    /// 用 BeginInvoke 把重建推到消息循环的下一轮；再用 <see cref="_rebuildScheduled"/> 合并连续请求
+    /// （连点上下移不会排出一长串重建）。
+    /// </para>
+    /// </summary>
+    private void RequestRebuild()
+    {
+        if (_rebuildScheduled || IsDisposed || !IsHandleCreated) return;
+        _rebuildScheduled = true;
+        BeginInvoke(new Action(() =>
+        {
+            _rebuildScheduled = false;
+            if (IsDisposed) return;
+            RebuildRows();
+            UpdatePreview();
+        }));
+    }
+
     private void RebuildRows()
+    {
+        if (_rebuilding) return;
+        _rebuilding = true;
+        try
+        {
+            RebuildRowsCore();
+        }
+        finally
+        {
+            _rebuilding = false;
+        }
+    }
+
+    private void RebuildRowsCore()
     {
         _rowsPanel.SuspendLayout();
         // ⚠️ Controls.Clear() 只解除父子关系、**不释放**控件：每行 5 个控件（含 HWND）会一直留到
@@ -206,8 +249,7 @@ internal sealed class FormatBlockEditorForm : Form
                 {
                     block.Text = "";
                 }
-                RebuildRows();
-                UpdatePreview();
+                RequestRebuild();
             };
 
             // 数据源块用可编辑下拉：列出你已配好的数据源，也能手打（未被本机配置的名字同样有效）
@@ -274,14 +316,13 @@ internal sealed class FormatBlockEditorForm : Form
             delButton.Click += (_, _) =>
             {
                 _blocks.RemoveAt(index);
-                RebuildRows();
-                UpdatePreview();
+                RequestRebuild();
             };
 
             _rowsPanel.Controls.AddRange(typeCombo, valueEditor, upButton, downButton, delButton);
             y += 32;
         }
-        _rowsPanel.ResumeLayout();
+        _rowsPanel.ResumeLayout(true);
     }
 
     private void MoveBlock(int index, int delta)
@@ -289,8 +330,7 @@ internal sealed class FormatBlockEditorForm : Form
         var target = index + delta;
         if (target < 0 || target >= _blocks.Count) return;
         (_blocks[index], _blocks[target]) = (_blocks[target], _blocks[index]);
-        RebuildRows();
-        UpdatePreview();
+        RequestRebuild();
     }
 
     private void UpdatePreview()

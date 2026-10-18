@@ -44,9 +44,10 @@ public class FormatBlockEditorFormTests
         var combo = AllControls(form).OfType<ComboBox>()
             .First(c => c.Name != "BlockDataSourceBox");
 
-        // 8 种积木：歌名/歌手/歌手（无连接符）/进度条/程序名/分隔符/自定义文字/数据源
-        Assert.Equal(8, combo.Items.Count);
+        // 9 种积木：歌名/歌手/歌手（无连接符）/进度条/时间轴/程序名/分隔符/自定义文字/数据源
+        Assert.Equal(9, combo.Items.Count);
         Assert.Contains(combo.Items.Cast<object>(), item => item?.ToString() == Loc.L("数据源", "Data source"));
+        Assert.Contains(combo.Items.Cast<object>(), item => item?.ToString() == Loc.L("时间轴", "Timeline"));
     }
 
     [Fact]

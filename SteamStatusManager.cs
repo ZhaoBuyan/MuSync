@@ -102,21 +102,22 @@ internal class SteamStatusManager
             // 无音乐也无程序：常驻状态开启且文案非空时推送常驻文案，否则返回 null（调用方清除状态）
             var persistent = config.PersistentStatusEnabled ? (config.PersistentStatusText ?? "").Trim() : "";
             // 常驻文案同样支持积木（例如不播音乐时只想显示心率）
-            persistent = ApplyTemplate(persistent, "", null, "", config, blocks);
+            persistent = ApplyTemplate(persistent, "", null, "", "", config, blocks);
             return persistent.Length == 0 ? null : TruncateToUtf8ByteLength(persistent, MaxStatusBytes);
         }
         if (appText == null) return TruncateToUtf8ByteLength(musicText!, MaxStatusBytes);
         if (musicText == null)
         {
-            var programText = ApplyTemplate(config.ProgramFormat, appText, null, "", config, blocks);
+            var programText = ApplyTemplate(config.ProgramFormat, appText, null, "", "", config, blocks);
             return TruncateToUtf8ByteLength(string.IsNullOrWhiteSpace(programText) ? appText : programText,
                 MaxStatusBytes);
         }
         // 程序 + 音乐：按组合模板生成，超长时逐级降级（去进度 → 仅歌名 → 仅程序名）
         var song = music!.Value;
-        var progressPart = BuildProgressPart(song, config);
-        var full = ApplyTemplate(config.CombinedFormat, appText, song, progressPart, config, blocks);
-        var noProgress = ApplyTemplate(config.CombinedFormat, appText, song, "", config, blocks);
+        var barPart = BuildBarPart(song, config);
+        var timePart = BuildTimePart(song, config);
+        var full = ApplyTemplate(config.CombinedFormat, appText, song, barPart, timePart, config, blocks);
+        var noProgress = ApplyTemplate(config.CombinedFormat, appText, song, "", "", config, blocks);
         var songOnly = $"{appText} {config.CombinedSeparator} {song.Title}".Trim();
         string[] candidates = [full, noProgress, songOnly, appText];
         foreach (var candidate in candidates)
@@ -157,8 +158,9 @@ internal class SteamStatusManager
         if (!config.MusicSyncEnabled) return null;
         // 暂停时按设置隐藏；HideMusicWhenPaused=false 时显示 "(Paused)"（旧行为）
         if (m.Pause && config.HideMusicWhenPaused) return null;
-        var progress = includeProgress ? BuildProgressPart(m, config) : "";
-        var text = ApplyTemplate(config.MusicFormat, "", m, progress, config, blocks);
+        var barPart = includeProgress ? BuildBarPart(m, config) : "";
+        var timePart = includeProgress ? BuildTimePart(m, config) : "";
+        var text = ApplyTemplate(config.MusicFormat, "", m, barPart, timePart, config, blocks);
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
@@ -171,7 +173,7 @@ internal class SteamStatusManager
     /// 外部文本被当成模板解释。单趟扫描从根上避免。
     /// </para>
     /// </summary>
-    private static string ApplyTemplate(string template, string app, PlayerInfo? music, string progressPart,
+    private static string ApplyTemplate(string template, string app, PlayerInfo? music, string barPart, string timePart,
         ConfigData config, IReadOnlyDictionary<string, string> blocks)
     {
         var artist = music?.Artists ?? "";
@@ -187,7 +189,11 @@ internal class SteamStatusManager
                 // {artistPart} 必须先于 {artist} 判断：否则 "{artistPart}" 会被当成 "{artist}" + "Part}"
                 case "{artistPart}": return artistPart;
                 case "{artist}": return artist;
-                case "{progress}": return progressPart;
+                // {progress} 保持"进度条 + 时间"的组合语义（老模板零变化）；
+                // 想把两者分开放，用 {bar} / {time}。
+                case "{progress}": return barPart + timePart;
+                case "{bar}": return barPart;
+                case "{time}": return timePart;
                 case "{sep}": return config.CombinedSeparator;
             }
             // 自定义数据源积木：{名称} → 取到的值；没在配（或当前取不到值）时展开为空
@@ -214,7 +220,11 @@ internal class SteamStatusManager
     /// <summary>自定义积木名的最大长度（模板正则与设置页校验共用同一口径）。</summary>
     internal const int MaxBlockNameLength = 32;
 
-    private static string BuildProgressPart(PlayerInfo music, ConfigData config)
+    /// <summary>
+    /// 进度条部分（**只有条**，不含时间）：<c> [####------]</c>。
+    /// <para>想同时显示时间请用 <c>{time}</c>；老模板里的 <c>{progress}</c> 仍是"条 + 时间"。</para>
+    /// </summary>
+    private static string BuildBarPart(PlayerInfo music, ConfigData config)
     {
         if (music.Pause) return " (Paused)";
         if (music.Duration <= 0) return "";
@@ -224,11 +234,11 @@ internal class SteamStatusManager
         // 位置来自播放器的内存读取，读到错位数据时出现 NaN/Infinity 是现实可能的。
         if (!double.IsFinite(music.Schedule) || !double.IsFinite(music.Duration)) return "";
         var barLength = config.ProgressBarLength is >= 1 and <= 50 ? config.ProgressBarLength : 10;
-        var sb = new StringBuilder(" [");
         var progress = Math.Clamp(music.Schedule / music.Duration, 0, 1);
         var filledCount = (int)Math.Clamp(progress * barLength, 0, barLength);
         var fill = BarStyleParser.Normalize(config.ProgressBarFillChar, "#");
         var empty = BarStyleParser.Normalize(config.ProgressBarEmptyChar, "-");
+        var sb = new StringBuilder(" [");
         for (var i = 0; i < filledCount; i++)
         {
             sb.Append(fill);
@@ -237,10 +247,24 @@ internal class SteamStatusManager
         {
             sb.Append(empty);
         }
-        sb.Append($"] {FormatTime(music.Schedule)}/{FormatTime(music.Duration)}");
+        sb.Append(']');
         return sb.ToString();
     }
 
+    /// <summary>
+    /// 时间轴部分（**只有时间**，不含条）：<c> 2:30/4:15</c>。
+    /// <para>
+    /// 开头的空格是刻意保留的：这样 <c>{bar}{time}</c> 拼出来的结果与旧的 <c>{progress}</c> 完全一致，
+    /// 老模板改成拆分布局时不会多/少一个空格。
+    /// </para>
+    /// </summary>
+    private static string BuildTimePart(PlayerInfo music, ConfigData config)
+    {
+        if (music.Pause) return "";
+        if (music.Duration <= 0) return "";
+        if (!double.IsFinite(music.Schedule) || !double.IsFinite(music.Duration)) return "";
+        return $" {FormatTime(music.Schedule)}/{FormatTime(music.Duration)}";
+    }
     private static int GetUtf8ByteCount(string str) => Encoding.UTF8.GetByteCount(str);
 
     private static string TruncateToUtf8ByteLength(string str, int maxBytes)

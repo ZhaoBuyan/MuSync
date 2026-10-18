@@ -129,7 +129,7 @@ internal class ConfigData
     /// <summary>常驻状态文案（空 = 未启用；超过状态长度上限时按 UTF-8 截断）。</summary>
     public string PersistentStatusText { get; set; } = "";
 
-    // —— 显示格式模板（变量：{app} {song} {artist} {artistPart} {progress} {sep} + 自定义数据源名）——
+    // —— 显示格式模板（变量：{app} {song} {artist} {artistPart} {bar} {time} {progress} {sep} + 自定义数据源名）——
     public string MusicFormat { get; set; } = "{song}{artistPart}{progress}";
     public string ProgramFormat { get; set; } = "{app}";
     public string CombinedFormat { get; set; } = "{app} {sep} {song}{artistPart}";

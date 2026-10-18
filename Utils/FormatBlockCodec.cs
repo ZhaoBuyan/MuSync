@@ -8,7 +8,10 @@ internal enum FormatBlockType
     Song,
     Artist,
     ArtistPart,
-    Progress,
+    /// <summary>进度条（只有条）。</summary>
+    Bar,
+    /// <summary>时间轴（只有时间，如 2:30/4:15）。</summary>
+    Time,
     App,
     Sep,
     Custom,
@@ -25,7 +28,7 @@ internal sealed class FormatBlock
 
 /// <summary>
 /// 模板字符串与积木块列表互转。
-/// 模板字符串沿用 {song} {artist} {artistPart} {progress} {app} {sep} 占位符，
+/// 模板字符串沿用 {song} {artist} {artistPart} {bar} {time} {app} {sep} 占位符（旧的 {progress} 仍可解析），
 /// 以及自定义数据源的 {名称}；块编辑器负责把用户搭的积木编译回该格式，
 /// 保持存储与渲染引擎不变。
 /// </summary>
@@ -34,10 +37,11 @@ internal static class FormatBlockCodec
     private static readonly (string Token, FormatBlockType Type)[] Tokens =
     [
         ("{artistPart}", FormatBlockType.ArtistPart),
-        ("{progress}", FormatBlockType.Progress),
         ("{artist}", FormatBlockType.Artist),
         ("{song}", FormatBlockType.Song),
         ("{sep}", FormatBlockType.Sep),
+        ("{bar}", FormatBlockType.Bar),
+        ("{time}", FormatBlockType.Time),
         ("{app}", FormatBlockType.App)
     ];
 
@@ -58,6 +62,23 @@ internal static class FormatBlockCodec
         var i = 0;
         while (i < text.Length)
         {
+            // {progress} = 条 + 时间（老模板的写法）。编辑器里不保留"旧条目"，
+            // 而是在打开时就拆成「进度条」+「时间轴」两块 ——
+            // {bar}{time} 拼出来的结果与 {progress} 完全一致（见 SteamStatusManager 的注释）。
+            if (i + "{progress}".Length <= text.Length &&
+                string.CompareOrdinal(text, i, "{progress}", 0, "{progress}".Length) == 0)
+            {
+                if (buffer.Length > 0)
+                {
+                    blocks.Add(new FormatBlock { Type = FormatBlockType.Custom, Text = buffer.ToString() });
+                    buffer.Clear();
+                }
+                blocks.Add(new FormatBlock { Type = FormatBlockType.Bar });
+                blocks.Add(new FormatBlock { Type = FormatBlockType.Time });
+                i += "{progress}".Length;
+                continue;
+            }
+
             var matched = false;
             foreach (var (token, type) in Tokens)
             {
@@ -129,7 +150,8 @@ internal static class FormatBlockCodec
                 FormatBlockType.Song => "{song}",
                 FormatBlockType.Artist => "{artist}",
                 FormatBlockType.ArtistPart => "{artistPart}",
-                FormatBlockType.Progress => "{progress}",
+                FormatBlockType.Bar => "{bar}",
+                FormatBlockType.Time => "{time}",
                 FormatBlockType.App => "{app}",
                 FormatBlockType.Sep => "{sep}",
                 FormatBlockType.DataSource => "{" + block.Text + "}",
