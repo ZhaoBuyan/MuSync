@@ -114,20 +114,48 @@ jobs:
       - name: Create Release
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          # 从 CHANGELOG.md 提取当前版本段落作为 Release notes；找不到则退回自动生成
+          # 从 CHANGELOG.md 提取当前版本段落作为 Release notes；找不到则用一行标题兜底
           awk -v tag="$TAG" '
             BEGIN { inSec = 0 }
             /^## \[/ { if (inSec) exit; if ($0 ~ "^## \\[" tag "\\]") inSec = 1; next }
             inSec { print }
           ' CHANGELOG.md > notes.md
-          if [ -s notes.md ]; then
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --title "MuSync $GITHUB_REF_NAME" \
-              --notes-file notes.md
-          else
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --title "MuSync $GITHUB_REF_NAME" \
-              --generate-notes
+          if [ ! -s notes.md ]; then
+            echo "MuSync $GITHUB_REF_NAME" > notes.md
           fi
+
+          # 发布资产的 SHA-256：既写进 Release notes（方便人工核对），也单独出一个 SHA256SUMS.txt 资产。
+          # 它证明的是"文件与发布时一致"，不是"来源可信"：摘要和文件走同一条 TLS 连接，
+          # 要密码学意义上的来源保证只能靠代码签名（发行包目前未签名，程序会如实提示）。
+          # ⚠️ 逐个数、用 cut 只取摘要：Windows 上的 sha256sum 会输出 "hash *文件名"（二进制标记），
+          #    直接重定向会把星号带进 SHA256SUMS.txt 和 Release 表格里。
+          (
+            cd dist
+            for f in MuSync.exe MuSync-lite.exe MuSync-Setup.exe; do
+              printf '%s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$f"
+            done > SHA256SUMS.txt
+          )
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "### 校验下载（SHA-256）"
+            echo ""
+            echo "下载后可在本地核对文件是否与发布时一致："
+            echo ""
+            echo '```powershell'
+            echo 'Get-FileHash .\MuSync.exe -Algorithm SHA256'
+            echo '```'
+            echo ""
+            echo "| 文件 | SHA-256 |"
+            echo "| --- | --- |"
+            while read -r sum name; do
+              echo "| `$name` | `$sum` |"
+            done < dist/SHA256SUMS.txt
+          } >> notes.md
+
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "MuSync $GITHUB_REF_NAME" \
+            --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}

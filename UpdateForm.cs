@@ -31,6 +31,8 @@ internal sealed class UpdateForm : Form
     private readonly ProgressBar _progressBar;
     private readonly Label _statusLabel;
     private string _packagePath = "";
+    /// <summary>下载后的签名提示（为空表示无需提醒）；只在"没有数字签名"时非空。</summary>
+    private string _signatureWarning = "";
     private CancellationTokenSource? _cts;
     private DownloadState _state = DownloadState.Idle;
 
@@ -146,10 +148,31 @@ internal sealed class UpdateForm : Form
                 _cts?.Cancel();
                 break;
             case DownloadState.Done:
+                if (!ConfirmUnsignedPackage()) return;
                 if (_canAutoUpdate) RunInstaller();
                 else ExitAndOpenFolders();
                 break;
         }
+    }
+
+    /// <summary>
+    /// 运行更新包之前的最后一道确认：包没有数字签名时，把"哈希校验防不了伪造"这件事讲清楚。
+    /// <para>
+    /// 放在这里而不是下载完成时，是因为这才是用户真正要执行的时刻；
+    /// 下载完成时只在状态栏留一个短标记，避免两行状态栏被说明文字挤爆。
+    /// </para>
+    /// </summary>
+    private bool ConfirmUnsignedPackage()
+    {
+        if (_signatureWarning.Length == 0) return true;
+        var result = MessageBox.Show(
+            this,
+            _signatureWarning,
+            Loc.L("这个更新包没有数字签名", "This update package is not digitally signed"),
+            MessageBoxButtons.OKCancel,
+            MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2);
+        return result == DialogResult.OK;
     }
 
     private async Task StartDownloadAsync()
@@ -157,9 +180,17 @@ internal sealed class UpdateForm : Form
         if (_asset == null) return;
         if (UpdateDownloader.IsAlreadyDownloaded(_asset, _info.Version, out var existing))
         {
-            _packagePath = existing;
-            SetDoneState(alreadyExisted: true);
-            return;
+            // 磁盘上已有更新包：内容与签名不符就不直接用（DownloadAsync 会删掉它并重新下载）；
+            // 没有签名 / 链验证不了只提示，不阻断。
+            var existingSignature = BinarySignature.Check(existing, out var existingHResult);
+            if (!BinarySignature.MustReject(existingSignature))
+            {
+                _packagePath = existing;
+                _signatureWarning = BinarySignature.WarningFor(existingSignature);
+                SetDoneState(alreadyExisted: true);
+                return;
+            }
+            Logger.Warn($"[Update] 本地更新包签名无效（hresult=0x{existingHResult:X8}），改为重新下载");
         }
 
         _cts = new CancellationTokenSource();
@@ -181,6 +212,7 @@ internal sealed class UpdateForm : Form
         {
             case UpdateDownloader.DownloadStatus.Completed:
                 _packagePath = result.FilePath;
+                _signatureWarning = result.WarningMessage;
                 SetDoneState(alreadyExisted: false);
                 break;
             case UpdateDownloader.DownloadStatus.Canceled:
@@ -230,7 +262,16 @@ internal sealed class UpdateForm : Form
         var actionHint = _canAutoUpdate
             ? Loc.L("点「立即更新」→ 自动安装新版本，完成后自动重启。", "Click \"Update now\" — the new version installs automatically and MuSync restarts when installation finishes.")
             : Loc.L("点「退出并打开文件夹」→ 拖过去替换旧程序即可。", "Click \"Exit & open folder\" — then drag the new file over the old one.");
-        SetStatus($"{prefix}{Path.GetFileName(_packagePath)}\n{actionHint}", Color.Green);
+        var text = $"{prefix}{Path.GetFileName(_packagePath)}\n{actionHint}";
+        if (_signatureWarning.Length > 0)
+        {
+            // 状态栏只有两行，放不下完整说明：这里只标一个醒目的短标记，
+            // 完整说明留到"真正要运行更新包之前"再弹一次确认（见 ConfirmUnsignedPackage）。
+            text = $"{prefix}{Path.GetFileName(_packagePath)}{Loc.L("（未数字签名）", " (not digitally signed)")}\n{actionHint}";
+            SetStatus(text, Color.DarkOrange);
+            return;
+        }
+        SetStatus(text, Color.Green);
     }
 
     private void SetStatus(string text, Color color)

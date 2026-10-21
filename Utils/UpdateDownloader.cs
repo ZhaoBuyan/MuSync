@@ -20,12 +20,18 @@ internal static class UpdateDownloader
         Failed
     }
 
-    /// <summary>下载结果（状态 / 文件路径 / 错误信息）。</summary>
+    /// <summary>下载结果（状态 / 文件路径 / 错误信息 / 签名提示）。</summary>
     public sealed class DownloadResult
     {
         public DownloadStatus Status { get; init; }
         public string FilePath { get; init; } = "";
         public string ErrorMessage { get; init; } = "";
+
+        /// <summary>
+        /// 非阻断性的警告（目前只用于"更新包没有数字签名"）。
+        /// 为空表示没有需要提醒的事；界面应把它显示出来，但不能因此阻止用户继续。
+        /// </summary>
+        public string WarningMessage { get; init; } = "";
     }
 
     /// <summary>下载进度（已接收字节 / 总字节）。</summary>
@@ -85,8 +91,20 @@ internal static class UpdateDownloader
         {
             if (File.Exists(finalPath) && FileSizesMatch(finalPath, asset.Size))
             {
-                Logger.Info($"[Update] 更新包已存在，跳过下载: {finalPath}");
-                return new DownloadResult { Status = DownloadStatus.Completed, FilePath = finalPath };
+                // 已存在也要验签名：磁盘上这份可能是上次留下的、也可能被人替换过
+                var existing = BinarySignature.Check(finalPath, out var existingHResult);
+                if (!BinarySignature.MustReject(existing))
+                {
+                    Logger.Info($"[Update] 更新包已存在，跳过下载: {finalPath}（签名: {existing}）");
+                    return new DownloadResult
+                    {
+                        Status = DownloadStatus.Completed,
+                        FilePath = finalPath,
+                        WarningMessage = BinarySignature.WarningFor(existing)
+                    };
+                }
+                Logger.Warn($"[Update] 本地更新包签名无效（hresult=0x{existingHResult:X8}），删除后重新下载");
+                TryDelete(finalPath);
             }
             var targetDir = Path.GetDirectoryName(finalPath);
             if (!string.IsNullOrEmpty(targetDir)) Directory.CreateDirectory(targetDir);
@@ -149,6 +167,24 @@ internal static class UpdateDownloader
                 };
             }
 
+            // 来源校验：Authenticode 签名。
+            // 注意这里的分工——SHA256 摘要与更新包走同一条 TLS 连接，若连接被伪造，"校验通过"证明不了来源；
+            // 签名无效必须硬拒（文件被动过 / 证书不受信任），没有签名则只警告（本项目发行包目前未签名）。
+            var signature = BinarySignature.Check(partPath, out var signatureHResult);
+            if (BinarySignature.MustReject(signature))
+            {
+                TryDelete(partPath);
+                Logger.Warn($"[Update] 更新包数字签名无效（hresult=0x{signatureHResult:X8}），已丢弃");
+                return new DownloadResult
+                {
+                    Status = DownloadStatus.Failed,
+                    ErrorMessage = BinarySignature.InvalidMessage()
+                };
+            }
+
+            var warning = BinarySignature.WarningFor(signature);
+            Logger.Info($"[Update] 数字签名状态: {signature}（hresult=0x{signatureHResult:X8}）");
+
             File.Move(partPath, finalPath, overwrite: true);
             Logger.Info($"[Update] 更新包下载完成: {finalPath}");
             var cleanupDir = Path.GetDirectoryName(finalPath);
@@ -156,7 +192,7 @@ internal static class UpdateDownloader
             {
                 CleanupOldPackages(cleanupDir, finalPath, UpdateChecker.NormalizeVersion(parsedVersion));
             }
-            return new DownloadResult { Status = DownloadStatus.Completed, FilePath = finalPath };
+            return new DownloadResult { Status = DownloadStatus.Completed, FilePath = finalPath, WarningMessage = warning };
         }
         catch (OperationCanceledException)
         {

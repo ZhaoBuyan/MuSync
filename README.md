@@ -146,6 +146,19 @@ Rice Field ❤92                                                   ← plus a cu
 
 Upgrading: the app checks for updates automatically — for the full/lite editions, download then click "Exit & open folder" and drag to replace; for the installer edition, click "Update now" and it's done.
 
+### Verifying a download (optional)
+
+Every release page lists the **SHA-256** of all three artifacts, and ships a `SHA256SUMS.txt` alongside them. After downloading you can confirm the file is intact and matches what was published:
+
+```powershell
+Get-FileHash .\MuSync.exe -Algorithm SHA256
+```
+
+**About code signing**: the release binaries are currently **not code-signed**, so the updater explicitly tells you "this update package is not digitally signed". That is not an error — it is an honest statement of the limits:
+
+- **Hash verification** rules out transfer corruption and truncation, but the digest and the file travel over the same HTTPS connection. If that connection itself is forged (e.g. a compromised CA), an attacker can forge both the digest and the file — "verification passed" does not prove origin.
+- **Code signing is what actually anchors the origin.** Once the binaries are signed, the updater flips from "note" to "signed and trusted" on its own; and if a signature is present but the content no longer matches (i.e. the file was modified), it **rejects the package outright** instead of leaving the judgement to you.
+
 ## FAQ
 
 - **Sign-in keeps failing / "Server busy" (TryAnotherCM)**
