@@ -150,7 +150,7 @@ jobs:
             echo "| 文件 | SHA-256 |"
             echo "| --- | --- |"
             while read -r sum name; do
-              echo "| `$name` | `$sum` |"
+              printf '| `%s` | `%s` |\n' "$name" "$sum"
             done < dist/SHA256SUMS.txt
           } >> notes.md
 
