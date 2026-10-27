@@ -428,7 +428,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                 if (ShouldCheckPlayer(_netEaseState, activeSnapshot, currentTime))
                 {
                     _netEaseState.LastCheckTime = currentTime;
-                    var detected = await PollNetEaseAsync(currentTime);
+                    var detected = await PollStepAsync("NetEase", currentTime, PollNetEaseAsync);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_netEaseState);
                     MarkStepAndCheckSuperseded(generation);
@@ -437,7 +437,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                 if (ShouldCheckPlayer(_tencentState, activeSnapshot, currentTime))
                 {
                     _tencentState.LastCheckTime = currentTime;
-                    var detected = await PollTencentAsync(currentTime);
+                    var detected = await PollStepAsync("Tencent", currentTime, PollTencentAsync);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_tencentState);
                     MarkStepAndCheckSuperseded(generation);
@@ -446,7 +446,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                 if (ShouldCheckPlayer(_lxMusicState, activeSnapshot, currentTime))
                 {
                     _lxMusicState.LastCheckTime = currentTime;
-                    var detected = await PollLxMusicAsync(currentTime);
+                    var detected = await PollStepAsync("LxMusic", currentTime, PollLxMusicAsync);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_lxMusicState);
                     MarkStepAndCheckSuperseded(generation);
@@ -455,7 +455,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                 if (ShouldCheckPlayer(_kuGouState, activeSnapshot, currentTime))
                 {
                     _kuGouState.LastCheckTime = currentTime;
-                    var detected = await PollKuGouAsync(currentTime);
+                    var detected = await PollStepAsync("KuGou", currentTime, PollKuGouAsync);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_kuGouState);
                     MarkStepAndCheckSuperseded(generation);
@@ -464,7 +464,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                 if (ShouldCheckPlayer(_ttPlayerState, activeSnapshot, currentTime))
                 {
                     _ttPlayerState.LastCheckTime = currentTime;
-                    var detected = await PollTTPlayerAsync(currentTime);
+                    var detected = await PollStepAsync("TTPlayer", currentTime, PollTTPlayerAsync);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_ttPlayerState);
                     MarkStepAndCheckSuperseded(generation);
@@ -473,7 +473,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                 if (ShouldCheckPlayer(_browserState, activeSnapshot, currentTime))
                 {
                     _browserState.LastCheckTime = currentTime;
-                    var detected = await PollBrowserAsync(currentTime);
+                    var detected = await PollStepAsync("Browser", currentTime, PollBrowserAsync);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_browserState);
                     MarkStepAndCheckSuperseded(generation);
@@ -952,6 +952,29 @@ internal class RpcManager(SteamStatusManager steamManager)
         if (state == activeState) return true;
         return (currentTime - state.LastCheckTime).TotalSeconds >= InactiveCheckIntervalSeconds;
     }
+
+    /// <summary>单步耗时超过它就要记一条。</summary>
+    private static readonly TimeSpan SlowStepThreshold = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// 执行一个轮询步骤并计时；超过阈值记一条 WARN。
+    /// <para>
+    /// 为什么需要：线上出现过"主循环停摆 34 秒"（看门狗重启），但日志里看不出停在哪一步 ——
+    /// 各步骤内部只有各自的超时，没有统一耗时记录。加上之后，下次停摆能直接指名道姓。
+    /// </para>
+    /// </summary>
+    private async Task<bool> PollStepAsync(string name, DateTime currentTime, Func<DateTime, Task<bool>> step)
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var result = await step(currentTime).ConfigureAwait(false);
+        var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+        if (elapsed > SlowStepThreshold)
+        {
+            Logger.Warn($"[MuSync] 轮询步骤「{name}」耗时 {elapsed.TotalSeconds:F1} 秒（阈值 {SlowStepThreshold.TotalSeconds:F0} 秒）");
+        }
+        return result;
+    }
+
 
     /// <summary>网易云：探测进程 + 轮询。返回是否检测到进程（决定主循环频率）。</summary>
     private async Task<bool> PollNetEaseAsync(DateTime currentTime)
