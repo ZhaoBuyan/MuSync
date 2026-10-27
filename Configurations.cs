@@ -188,6 +188,18 @@ internal class Configurations
     // ⚠️ 注意：Instance 的构造函数会立即读取/写入配置文件。
     // 不能在此类中放“依赖静态字段声明顺序”的配置项（如 JsonSerializerOptions），
     // 否则构造期间它们还是 null——JSON 选项统一走 ConfigJson.Options（惰性单例）。
+    /// <summary>
+    /// 原子写盘的进程内互斥对象。
+    /// <para>
+    /// ⚠️ 必须声明在 <see cref="Instance"/> **之前**：静态字段按书写顺序初始化，
+    /// 而 <see cref="Instance"/> 的构造函数在"配置文件不存在"时会立刻调用 <see cref="Save"/>，
+    /// 进而 <c>lock (WriteLock)</c>。若本字段排在后面，那一刻它还是 null ——
+    /// 表现为首次运行报 <c>ArgumentNullException: Value cannot be null（Monitor.Enter）</c>，
+    /// 默认配置写不进去（已由线上日志证实）。
+    /// </para>
+    /// </summary>
+    private static readonly object WriteLock = new();
+
     public static readonly Configurations Instance = new();
     private readonly string _path;
 
@@ -254,8 +266,6 @@ internal class Configurations
         }
     }
 
-    /// <summary>原子写盘：先写临时文件再整体替换，避免写到一半被中断产生损坏配置。</summary>
-    private static readonly object WriteLock = new();
 
     private static void WriteAtomic(string path, string content)
     {

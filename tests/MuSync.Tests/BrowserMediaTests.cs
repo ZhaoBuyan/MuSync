@@ -115,6 +115,19 @@ public class BrowserMediaTests
     [InlineData("firefox")]
     [InlineData("librewolf")]
     [InlineData("waterfox")]
+    // 国产 / 其它常见浏览器：以前没进白名单，用户报的"浏览器视频不同步"多半就是它们
+    [InlineData("360se")]
+    [InlineData("360se6")]
+    [InlineData("360chrome")]
+    [InlineData("QQBrowser")]
+    [InlineData("SogouExplorer")]
+    [InlineData("UCBrowser")]
+    [InlineData("Liebao")]
+    [InlineData("Maxthon")]
+    [InlineData("YandexBrowser")]
+    [InlineData("SLBrowser")]
+    // 全路径形态的 AUMID（某些浏览器发布的是可执行文件路径）
+    [InlineData(@"C:\Program Files\Google\Chrome\Application\chrome.exe")]
     public void IsBrowserAppId_RecognizesBrowsers(string appId)
     {
         Assert.True(BrowserMedia.IsBrowserAppId(appId));
@@ -252,5 +265,33 @@ public class BrowserMediaTests
     {
         // 默认关闭：浏览器经常挂着后台页面在放，不该自动顶掉当前状态
         Assert.False(new ConfigData().BrowserMediaSyncEnabled);
+    }
+    // ---- 防漂移：三处名单必须同源 ----
+
+    [Fact]
+    public void BrowserTable_IsTheSingleSourceOfTruth()
+    {
+        // 历史问题：AppId 白名单、进程名闸门、图标路径名单各写各的，
+        // 加浏览器时漏改一处 → "某个浏览器的视频同步不了"（闸门先把它挡掉了）。
+        Assert.NotEmpty(BrowserMedia.BrowserTable);
+
+        foreach (var (appId, process) in BrowserMedia.BrowserTable)
+        {
+            Assert.True(BrowserMedia.IsBrowserAppId(appId), $"{appId} 应该被认作浏览器");
+            Assert.False(string.IsNullOrWhiteSpace(process), $"{appId} 没有对应的进程名");
+        }
+
+        // 闸门用的进程名列表必须覆盖表里所有进程名
+        foreach (var (_, process) in BrowserMedia.BrowserTable)
+        {
+            Assert.Contains(process, BrowserMedia.BrowserProcessNames);
+        }
+    }
+
+    [Fact]
+    public void BrowserProcessNames_GateMatchesTable()
+    {
+        Assert.Equal(BrowserMedia.BrowserTable.Length, BrowserMedia.BrowserProcessNames.Length);
+        Assert.All(BrowserMedia.BrowserProcessNames, name => Assert.False(string.IsNullOrWhiteSpace(name)));
     }
 }

@@ -1158,8 +1158,22 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// </summary>
     private async Task<bool> PollBrowserAsync(DateTime currentTime)
     {
-        if (!Configurations.Instance.Settings.BrowserMediaSyncEnabled || !IsAnyBrowserRunning())
+        if (!Configurations.Instance.Settings.BrowserMediaSyncEnabled)
         {
+            CleanupPlayerState(_browserState, "Browser");
+            RecordPollSuccess(_browserState);
+            return false;
+        }
+        if (!IsAnyBrowserRunning())
+        {
+            // 闸门被挡住时记一条（5 分钟最多一次）：否则用户报"浏览器视频不同步"时，
+            // 日志里完全看不出是被这道闸挡住的，还是根本没有媒体会话。
+            if (DateTime.UtcNow - _lastBrowserGateLogUtc > TimeSpan.FromMinutes(5))
+            {
+                _lastBrowserGateLogUtc = DateTime.UtcNow;
+                Logger.Info("[浏览器媒体] 未发现受支持的浏览器进程，本轮跳过（支持 Edge / Chrome / Firefox / Brave / Vivaldi / Opera / "
+                            + "360 / QQ / 搜狗 / UC / 猎豹 / 傲游 / Yandex / Arc / Zen 等；若你用的是其它浏览器，请把它的进程名反馈给我们）");
+            }
             CleanupPlayerState(_browserState, "Browser");
             RecordPollSuccess(_browserState);
             return false;
@@ -1197,6 +1211,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     }
 
     private static DateTime _lastBrowserCheckUtc = DateTime.MinValue;
+    /// <summary>"没发现浏览器进程"这条日志的节流时刻。</summary>
+    private static DateTime _lastBrowserGateLogUtc = DateTime.MinValue;
     private static bool _lastBrowserRunning;
     private static readonly TimeSpan BrowserCheckInterval = TimeSpan.FromSeconds(5);
 
@@ -1233,11 +1249,9 @@ internal class RpcManager(SteamStatusManager steamManager)
     }
 
     /// <summary>浏览器进程名（不含 .exe，与 Process.ProcessName 口径一致）。</summary>
+    /// <summary>浏览器进程名集合（与 <see cref="MuSync.Players.BrowserMedia.BrowserTable"/> 同源，避免漂移）。</summary>
     private static readonly System.Collections.Generic.HashSet<string> BrowserProcessNames =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            "msedge", "chrome", "brave", "vivaldi", "opera", "firefox", "librewolf", "waterfox"
-        };
+        new(MuSync.Players.BrowserMedia.BrowserProcessNames, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>千千静听（重制版）主进程是否在运行。</summary>
     private static bool IsTTPlayerRunning()

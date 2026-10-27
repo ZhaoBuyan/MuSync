@@ -24,20 +24,50 @@ namespace MuSync.Players;
 internal sealed class BrowserMedia : IMusicPlayer
 {
     /// <summary>
-    /// AppId 前缀白名单（取 AppId 的第一段，大小写不敏感）。
-    /// 刻意精确到首段，避免 "." 前缀匹配到 EdgeDriver / EdgeUpdate 之类非浏览器的 Edge 组件。
+    /// 浏览器识别表：**AppId 前缀 → 进程名**。这是浏览器识别的单一事实来源。
+    /// <para>
+    /// ⚠️ 三处判断必须同源，否则会出现"进程认出来了但会话被过滤掉"（或反之）的半通状态：
+    /// <list type="number">
+    /// <item>"有没有浏览器在跑"的闸门（不满足就整轮跳过浏览器轮询）；</item>
+    /// <item>这个媒体会话是不是浏览器发的；</item>
+    /// <item>封面占位图标取可执行文件路径。</item>
+    /// </list>
+    /// 之前这三份名单各写各的，新增浏览器时漏改一处，表现就是"某个浏览器的视频同步不了"。
+    /// AppId 刻意精确到首段，避免 "." 前缀匹配到 EdgeDriver / EdgeUpdate 之类非浏览器组件。
+    /// </para>
     /// </summary>
-    private static readonly string[] BrowserAppIdPrefixes =
+    internal static readonly (string AppId, string Process)[] BrowserTable =
     [
-        "MSEdge",     // Microsoft Edge（实测值）
-        "chrome",     // Google Chrome
-        "brave",      // Brave
-        "vivaldi",    // Vivaldi
-        "opera",      // Opera / Opera GX
-        "firefox",    // Mozilla Firefox
-        "librewolf",
-        "waterfox"
+        ("MSEdge", "msedge"),          // Microsoft Edge（实测值）
+        ("chrome", "chrome"),          // Google Chrome
+        ("brave", "brave"),
+        ("vivaldi", "vivaldi"),
+        ("opera", "opera"),            // Opera / Opera GX
+        ("firefox", "firefox"),        // Mozilla Firefox
+        ("librewolf", "librewolf"),
+        ("waterfox", "waterfox"),
+        // 国产 / 其它常见 Chromium 浏览器
+        ("360se", "360se"),
+        ("360se6", "360se6"),
+        ("360chrome", "360chrome"),
+        ("QQBrowser", "QQBrowser"),
+        ("SogouExplorer", "SogouExplorer"),
+        ("UCBrowser", "UCBrowser"),
+        ("Liebao", "liebao"),
+        ("Maxthon", "Maxthon"),
+        ("YandexBrowser", "YandexBrowser"),
+        ("Arc", "Arc"),
+        ("Zen", "Zen"),
+        ("SLBrowser", "SLBrowser")
     ];
+
+    /// <summary>AppId 前缀（供 <see cref="IsBrowserAppId"/> 比对）。</summary>
+    private static readonly string[] BrowserAppIdPrefixes =
+        Array.ConvertAll(BrowserTable, static entry => entry.AppId);
+
+    /// <summary>浏览器进程名（供"有没有浏览器在跑"的闸门判断）。</summary>
+    internal static readonly string[] BrowserProcessNames =
+        Array.ConvertAll(BrowserTable, static entry => entry.Process);
 
     private static readonly TimeSpan ManagerRetryDelay = TimeSpan.FromSeconds(30);
 
@@ -103,9 +133,8 @@ internal sealed class BrowserMedia : IMusicPlayer
         return null;
     }
 
-    /// <summary>AppId 前缀 → 进程名（用于取可执行文件路径）。</summary>
-    private static readonly string[] BrowserProcessNamesForPath =
-        ["MSEdge", "msedge", "chrome", "brave", "vivaldi", "opera", "firefox", "librewolf", "waterfox"];
+    /// <summary>AppId 前缀 → 进程名（用于取可执行文件路径）。与 <see cref="BrowserTable"/> 同源。</summary>
+    private static readonly string[] BrowserProcessNamesForPath = BrowserAppIdPrefixes;
 
     /// <summary>
     /// 取会话快照。**每次都重新获取会话管理器**，不再长期缓存它。
@@ -129,7 +158,41 @@ internal sealed class BrowserMedia : IMusicPlayer
             return [];
         }
         _managerFailedAtUtc = DateTime.MinValue;
-        return await Smtc.DescribeAsync(manager, IsBrowserAppId).ConfigureAwait(false);
+        // 这里**不再用 appIdFilter 过滤**：诊断需要看到"系统里到底有哪些会话、哪些没被认成浏览器"。
+        // 过滤交给挑选阶段（PickBest 里仍会 IsBrowserAppId 判定），行为不变。
+        var sessions = await Smtc.DescribeAsync(manager).ConfigureAwait(false);
+        LogSessions(sessions);
+        return sessions;
+    }
+
+    /// <summary>会话诊断日志的节流：会话组合不变时最多每 60 秒记一次。</summary>
+    private static readonly TimeSpan SessionLogInterval = TimeSpan.FromSeconds(60);
+    private static DateTime _lastSessionLogUtc = DateTime.MinValue;
+    private static string _lastSessionSignature = "";
+
+    /// <summary>
+    /// 记录系统当前的全部媒体会话（AppId / 播放状态 / 是否被认作浏览器）。
+    /// <para>
+    /// 为什么要这条日志：浏览器同步出问题时，旧版日志里**一条相关记录都没有**，
+    /// 无法区分"没有会话""会话被过滤掉了""配置没开"三种情况，只能靠用户口述猜。
+    /// 有了它，用户日志第一眼就能看出 AppId 是否在白名单里。
+    /// </para>
+    /// </summary>
+    private static void LogSessions(IReadOnlyList<Smtc.SessionSnapshot> sessions)
+    {
+        var parts = new List<string>(sessions.Count);
+        foreach (var s in sessions)
+        {
+            var kind = IsBrowserAppId(s.AppId) ? "浏览器" : "非浏览器";
+            var state = s.IsPlaying ? "播放中" : "暂停";
+            parts.Add($"{s.AppId}[{state},{kind}]");
+        }
+        var signature = string.Join(" | ", parts);
+        var now = DateTime.UtcNow;
+        if (signature == _lastSessionSignature && now - _lastSessionLogUtc < SessionLogInterval) return;
+        _lastSessionSignature = signature;
+        _lastSessionLogUtc = now;
+        Logger.Info($"[浏览器媒体] 系统会话 {sessions.Count} 个：{(sessions.Count == 0 ? "(无)" : signature)}");
     }
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
