@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>MuSync 浏览器桥 - 设置</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font: 13px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      margin: 0;
+      padding: 18px 20px 22px;
+      min-width: 420px;
+    }
+    h1 { font-size: 15px; margin: 0 0 4px; }
+    .sub { color: #888; margin: 0 0 16px; }
+    label { display: block; font-weight: 600; margin: 0 0 6px; }
+    .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    input[type=number] {
+      width: 110px; padding: 5px 7px; font: inherit;
+      border: 1px solid #bbb; border-radius: 5px;
+    }
+    button {
+      font: inherit; padding: 5px 12px; border-radius: 5px;
+      border: 1px solid #bbb; background: #fff; cursor: pointer;
+    }
+    button:hover { background: #f2f2f2; }
+    .hint { color: #888; font-size: 12px; margin: 10px 0 0; }
+    .status { margin-top: 12px; font-size: 12px; min-height: 18px; }
+    .ok { color: #1a7f37; }
+    .bad { color: #c62828; }
+    code { background: rgba(127,127,127,.15); padding: 1px 4px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>MuSync 浏览器桥</h1>
+  <p class="sub">把这里播放的音视频上报给本机 MuSync（只发到 127.0.0.1，不联网）。</p>
+
+  <label for="port">MuSync 监听端口</label>
+  <div class="row">
+    <input id="port" type="number" min="1" max="65535" step="1" value="47564">
+    <button id="save">保存</button>
+    <button id="test">测试连接</button>
+  </div>
+  <p class="hint">
+    必须与 MuSync 的「设置 → 数据源 → 浏览器扩展增强 → 监听端口」一致（默认 47564）。<br>
+    改完保存即可，不用重新加载扩展。
+  </p>
+  <div id="status" class="status"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>
