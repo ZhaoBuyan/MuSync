@@ -264,7 +264,7 @@ internal sealed class SettingsForm : Form
         ]);
 
 
-        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 182, 650, 182);
+        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 182, 650, 202);
         var priorityLabel = new Label
         {
             AutoSize = true,
@@ -274,24 +274,24 @@ internal sealed class SettingsForm : Form
         var priorityHint = new Label
         {
             AutoSize = true,
-            Location = new Point(228, 60),
+            Location = new Point(336, 60),
             ForeColor = Color.Gray,
             Font = new Font("Microsoft YaHei", 8),
-            Text = Loc.L("选中一项，用右侧按钮上下调整", "Select an item, then use the buttons on the right to move it")
+            Text = Loc.L("选中后用右侧按钮调整（浏览器媒体内部：扩展优先）", "Use the buttons to move (browser media: extension wins)")
         };
         _playerPriorityList = new ListBox
         {
             Location = new Point(20, 58),
             // 高度留足：5 项 × 约 17px 逻辑高度，再叠上 DPI 缩放余量，保证不出现内部滚动条
             // （实测 94 在 125% 缩放下只渲染出 72px，装不下 5 项）
-            Size = new Size(196, 120),
+            Size = new Size(300, 136),
             BackColor = Color.White
         };
         _playerPriorityList.SelectedIndexChanged += (_, _) => UpdatePriorityMoveButtons();
         var moveUpButton = new Button
         {
             Text = Loc.L("上移", "Move up"),
-            Location = new Point(228, 80),
+            Location = new Point(336, 84),
             Size = new Size(78, 26),
             BackColor = Color.White
         };
@@ -299,7 +299,7 @@ internal sealed class SettingsForm : Form
         var moveDownButton = new Button
         {
             Text = Loc.L("下移", "Move down"),
-            Location = new Point(314, 80),
+            Location = new Point(422, 84),
             Size = new Size(78, 26),
             BackColor = Color.White
         };
@@ -307,7 +307,7 @@ internal sealed class SettingsForm : Form
         _playerPriorityMoveButtons.AddRange([moveUpButton, moveDownButton]);
         priorityGroup.Controls.AddRange([priorityLabel, priorityHint, _playerPriorityList, moveUpButton, moveDownButton]);
 
-        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 376, 650, 90);
+        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 396, 650, 90);
         var speedLabel = new Label { Text = Loc.L("进度刷新档位:", "Update rate:"), Location = new Point(20, 32), AutoSize = true };
         _syncSpeedCombo = new ComboBox
         {
@@ -328,7 +328,7 @@ internal sealed class SettingsForm : Form
 
         var lxHint = new Label
         {
-            Location = new Point(10, 474),
+            Location = new Point(10, 494),
             Size = new Size(650, 40),
             ForeColor = Color.FromArgb(150, 110, 40),
             Font = new Font("Microsoft YaHei", 8.5f),
