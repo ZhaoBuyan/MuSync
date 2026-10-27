@@ -1158,6 +1158,17 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// </summary>
     private async Task<bool> PollBrowserAsync(DateTime currentTime)
     {
+        // 每次进程内只记一次"有效配置"，供用户报障时定位：
+        // 到底是设置没开、闸门挡住、还是开了也读不到会话 —— 这三种在旧日志里长得一模一样。
+        if (!_browserConfigLogged)
+        {
+            _browserConfigLogged = true;
+            var interval = Configurations.Instance.Settings.BrowserMediaRefreshSeconds;
+            Logger.Info($"[浏览器媒体] 配置：{(
+                Configurations.Instance.Settings.BrowserMediaSyncEnabled ? "已启用" : "未启用（设置 → 同步 里打开）")}"
+                + $"，刷新间隔 {interval} 秒，{((IsAnyBrowserRunning() ? "检测到浏览器进程" : "未检测到浏览器进程"))}");
+        }
+
         if (!Configurations.Instance.Settings.BrowserMediaSyncEnabled)
         {
             CleanupPlayerState(_browserState, "Browser");
@@ -1213,6 +1224,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     private static DateTime _lastBrowserCheckUtc = DateTime.MinValue;
     /// <summary>"没发现浏览器进程"这条日志的节流时刻。</summary>
     private static DateTime _lastBrowserGateLogUtc = DateTime.MinValue;
+    /// <summary>"浏览器媒体有效配置"这条日志是否已记过（每进程一次）。</summary>
+    private static bool _browserConfigLogged;
     private static bool _lastBrowserRunning;
     private static readonly TimeSpan BrowserCheckInterval = TimeSpan.FromSeconds(5);
 
