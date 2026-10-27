@@ -419,20 +419,44 @@ internal static class BrowserExtensionBridge
 
     private static void Store(BrowserExtensionSnapshot snapshot)
     {
-        string titleForLog;
+        string? titleForLog = null;
+        bool playingForLog = false;
         lock (Gate)
         {
+            var incumbent = _latest;
+            // 多标签防抖：两个页面都在播放时，扩展会每秒各报一次。
+            // 直接覆盖会让 Steam 状态每秒来回跳，所以：
+            //   · 同一个页面（site+title 相同）→ 正常更新进度
+            //   · 新来的在播、在位者已暂停 → 让新来的接管（用户切页面 / 切集）
+            //   · 在位者已过期（超过粘性窗口没上报）→ 让新来的接管
+            //   · 其它情况（都在播）→ 保持在位者，避免每秒互相顶掉
+            var samePage = incumbent is not null &&
+                           string.Equals(incumbent.Site, snapshot.Site, StringComparison.OrdinalIgnoreCase) &&
+                           string.Equals(incumbent.Title, snapshot.Title, StringComparison.Ordinal);
+            var incumbentFresh = incumbent is not null &&
+                                 DateTime.UtcNow - incumbent.ReceivedUtc <= IncumbentStickiness;
+            var accept = incumbent is null || samePage || !incumbentFresh || (snapshot.IsPlaying && !incumbent!.IsPlaying);
+            if (!accept) return;
+
             _latest = snapshot;
             _lastError = "";
-            titleForLog = snapshot.Title;
+            if (snapshot.Title != _lastLoggedTitle)
+            {
+                _lastLoggedTitle = snapshot.Title;
+                titleForLog = snapshot.Title;
+                playingForLog = snapshot.IsPlaying;
+            }
         }
-        // 标题变化时记一条，便于确认扩展是否在工作（同标题不刷屏）
-        if (titleForLog != _lastLoggedTitle)
+
+        // 标题变化时记一条，便于确认扩展是否在工作（同标题不刷屏）。写在锁外，日志 IO 不占锁。
+        if (titleForLog is not null)
         {
-            _lastLoggedTitle = titleForLog;
-            Logger.Info($"[浏览器扩展] 收到：{titleForLog}{(snapshot.IsPlaying ? "（播放中）" : "（暂停）")}");
+            Logger.Info($"[浏览器扩展] 收到：{titleForLog}{(playingForLog ? "（播放中）" : "（暂停）")}");
         }
     }
+
+    /// <summary>在位者粘性窗口：这段时间内在位者一直有新上报，就不让"同样在播的另一个页面"顶掉它。</summary>
+    private static readonly TimeSpan IncumbentStickiness = TimeSpan.FromSeconds(5);
 
     /// <summary>取"足够新"的快照；超过 <paramref name="maxAge"/> 视为没有数据。</summary>
     public static BrowserExtensionSnapshot? TryGetFresh(TimeSpan maxAge)
