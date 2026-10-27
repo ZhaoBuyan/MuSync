@@ -32,13 +32,20 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
     /// <summary>重制版的 AppUserModelId 前缀（实测值，见其 docs/SMTC.md 对应实现）。</summary>
     private const string AppIdPrefix = "Sonic853.TTPlayerRebuild";
 
-    private GlobalSystemMediaTransportControlsSessionManager? _manager;
     /// <summary>上次取会话管理器失败的时刻；失败后按 <see cref="ManagerRetryDelay"/> 退避重试，而不是永久放弃。</summary>
     private DateTime _managerFailedAtUtc = DateTime.MinValue;
     private static readonly TimeSpan ManagerRetryDelay = TimeSpan.FromSeconds(30);
-    /// <summary>会话管理器重建的最小间隔（见 FindSessionAsync 的失效说明）。</summary>
-    private static readonly TimeSpan RebuildMinInterval = TimeSpan.FromSeconds(5);
-    private DateTime _lastRebuildAttemptUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// 上一轮是否看到过千千静听的会话（用于区分"从来没在播"和"播过又丢了"）。
+    /// <para>
+    /// 为什么要区分：以前只要这一轮没命中会话就重建管理器（限频 5 秒），
+    /// 而"千千静听开着但没在播"是常态 —— 等于长期每 5 秒白造一套 WinRT 对象。
+    /// 现在只有"本来有、现在没了"才重建，和管理器 10 分钟兜底换新一起覆盖真正的失效。
+    /// </para>
+    /// </summary>
+    private bool _sawSession;
+    private int _lostPolls;
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
@@ -50,56 +57,60 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
     private async Task<GlobalSystemMediaTransportControlsSession?> FindSessionAsync()
     {
         // 上次失败后先退避一会儿，避免每轮都去撞同一个失败点
-        if (_manager == null && _managerFailedAtUtc != DateTime.MinValue &&
+        if (_managerFailedAtUtc != DateTime.MinValue &&
             DateTime.UtcNow - _managerFailedAtUtc < ManagerRetryDelay)
         {
             return null;
         }
         try
         {
-            // 会话管理器只建一次
-            if (_manager == null)
-            {
-                _manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask()
-                    .ConfigureAwait(false);
-                if (_manager == null)
-                {
-                    _managerFailedAtUtc = DateTime.UtcNow;
-                    return null;
-                }
-            }
-            var sessions = _manager.GetSessions();
-            var index = PickSessionIndex(Describe(sessions), AppIdPrefix);
-            if (index >= 0) return sessions[index];
-
-            // ⚠️ 没命中时不能直接放弃：会话管理器在被反复快速调用后会**持续返回 0 个会话**
-            // （这是实测确认过的失效，浏览器媒体那边同样踩过），而本方法每 233ms 就走一次。
-            // 不重建的话，一旦失效就会永久报"没在播放"，只能等千千静听进程退出才自愈。
-            // 重建限频 5 秒，避免"确实没在播放"时每拍都重建管理器。
-            var now = DateTime.UtcNow;
-            if (now - _lastRebuildAttemptUtc < RebuildMinInterval) return null;
-            _lastRebuildAttemptUtc = now;
-            _manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask()
-                .ConfigureAwait(false);
-            if (_manager == null)
+            // 与浏览器媒体共用同一个缓存管理器（Smtc 内部有 10 分钟兜底换新），
+            // 避免两条链路各自 RequestAsync 出一堆 WinRT 包装对象。
+            var manager = await Smtc.RequestManagerAsync(forceRefresh: _forceRefresh).ConfigureAwait(false);
+            _forceRefresh = false;
+            if (manager == null)
             {
                 _managerFailedAtUtc = DateTime.UtcNow;
                 return null;
             }
-            _managerFailedAtUtc = DateTime.MinValue;
-            var retrySessions = _manager.GetSessions();
-            var retryIndex = PickSessionIndex(Describe(retrySessions), AppIdPrefix);
-            return retryIndex < 0 ? null : retrySessions[retryIndex];
+
+            var sessions = manager.GetSessions();
+            var index = PickSessionIndex(Describe(sessions), AppIdPrefix);
+            if (index >= 0)
+            {
+                _sawSession = true;
+                _lostPolls = 0;
+                _managerFailedAtUtc = DateTime.MinValue;
+                return sessions[index];
+            }
+
+            // 没命中：只有"本来有、现在连续两轮没有"才判定管理器假死并重建。
+            // （以前是每 5 秒无条件重建 —— 千千静听开着不播时等于长期白造对象。）
+            if (_sawSession && ++_lostPolls >= LostPollsBeforeRebuild)
+            {
+                _lostPolls = 0;
+                _sawSession = false;
+                _forceRefresh = true;
+                Debug.WriteLine("[TTPlayer] 会话从有到无，判定会话管理器假死，下一轮重建");
+            }
+            return null;
         }
         catch (Exception ex)
         {
             // SMTC 不可用不该影响主循环：记一次诊断，退避后再说
             Debug.WriteLine($"[TTPlayer] 取 SMTC 会话失败: {ex.Message}");
-            _manager = null;
+            Smtc.InvalidateManager();
+            _forceRefresh = false;
             _managerFailedAtUtc = DateTime.UtcNow;
             return null;
         }
     }
+
+    /// <summary>连续多少轮"本来有、现在没有"才判定管理器假死。</summary>
+    private const int LostPollsBeforeRebuild = 2;
+
+    /// <summary>下一轮是否要求重建管理器（由上面的假死判定置位）。</summary>
+    private bool _forceRefresh;
 
     /// <summary>把 WinRT 会话对象压成纯数据快照，交给可单测的挑选函数。</summary>
     private static List<SmtcSessionSnapshot> Describe(
@@ -214,5 +225,12 @@ internal sealed class TTPlayerSmtc : IMusicPlayer
     internal readonly record struct SmtcSessionSnapshot(string AppId, bool IsPlaying);
 
     /// <summary>释放会话管理器引用（SMTC 是系统共享对象，不需要我们主动销毁）。</summary>
-    public void Dispose() => _manager = null;
+    public void Dispose()
+    {
+        // SMTC 是系统共享对象，不需要我们销毁；这里只清掉本播放器的观测状态，
+        // 让下次重新开播时能重新判定。
+        _sawSession = false;
+        _lostPolls = 0;
+        _forceRefresh = true;
+    }
 }

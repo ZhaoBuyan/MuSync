@@ -130,6 +130,10 @@ internal static class Smtc
         catch (Exception ex)
         {
             Debug.WriteLine($"[SMTC] 枚举会话失败: {ex.Message}");
+            // 枚举失败通常意味着这个管理器已经死了（媒体服务重启 / 会话被系统回收）。
+            // 之前只返回空列表，缓存里那个坏管理器会一直用到 10 分钟兜底为止 ——
+            // 期间所有来源都看不到会话，表现就是"浏览器媒体时有时无"。
+            InvalidateManager();
             return list;
         }
         foreach (var session in sessions)
