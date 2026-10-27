@@ -103,14 +103,13 @@ internal class SteamStatusManager
             var persistent = config.PersistentStatusEnabled ? (config.PersistentStatusText ?? "").Trim() : "";
             // 常驻文案同样支持积木（例如不播音乐时只想显示心率）
             persistent = ApplyTemplate(persistent, "", null, "", "", config, blocks);
-            return persistent.Length == 0 ? null : TruncateToUtf8ByteLength(persistent, MaxStatusBytes);
+            return persistent.Length == 0 ? null : NormalizeStatus(persistent);
         }
-        if (appText == null) return TruncateToUtf8ByteLength(musicText!, MaxStatusBytes);
+        if (appText == null) return NormalizeStatus(musicText!);
         if (musicText == null)
         {
             var programText = ApplyTemplate(config.ProgramFormat, appText, null, "", "", config, blocks);
-            return TruncateToUtf8ByteLength(string.IsNullOrWhiteSpace(programText) ? appText : programText,
-                MaxStatusBytes);
+            return NormalizeStatus(string.IsNullOrWhiteSpace(programText) ? appText : programText);
         }
         // 程序 + 音乐：按组合模板生成，超长时逐级降级（去进度 → 仅歌名 → 仅程序名）
         var song = music!.Value;
@@ -124,10 +123,10 @@ internal class SteamStatusManager
         {
             if (!string.IsNullOrWhiteSpace(candidate) && GetUtf8ByteCount(candidate) <= MaxStatusBytes)
             {
-                return candidate.Trim();
+                return NormalizeStatus(candidate);
             }
         }
-        return TruncateToUtf8ByteLength(candidates[0].Trim(), MaxStatusBytes);
+        return NormalizeStatus(candidates[0]);
     }
 
     private static readonly Dictionary<string, string> EmptyBlocks = new(StringComparer.OrdinalIgnoreCase);
@@ -280,6 +279,44 @@ internal class SteamStatusManager
         return $" {FormatTime(music.Schedule)}/{FormatTime(music.Duration)}";
     }
     private static int GetUtf8ByteCount(string str) => Encoding.UTF8.GetByteCount(str);
+
+    /// <summary>
+    /// 状态的最后一道处理：**先清洗控制字符，再按字节截断**。
+    /// <para>
+    /// 为什么必须清洗：进状态的文本来自很多地方 —— 播放器内存里读到的标题、窗口标题（程序名）、
+    /// 用户在设置里填的分隔符与常驻文案、浏览器扩展上报……其中任何一处带上 <c>\r\n</c> 或其它控制字符，
+    /// 都会让 Steam 上的显示错乱，甚至被服务端拒绝。统一在这里兜底，比在每个来源各写一遍可靠。
+    /// </para>
+    /// </summary>
+    internal static string NormalizeStatus(string text) =>
+        TruncateToUtf8ByteLength(StripControlChars(text ?? ""), MaxStatusBytes);
+
+    /// <summary>
+    /// 把控制字符（C0 / DEL / C1）替换成空格，并把连续空白压成一个。
+    /// 正常字符（中文、日文、emoji、空白）不受影响。
+    /// </summary>
+    internal static string StripControlChars(string text)
+    {
+        if (text.Length == 0) return text;
+
+        var clean = false;
+        foreach (var c in text)
+        {
+            if (char.IsControl(c)) { clean = true; break; }
+        }
+        if (!clean) return text;
+
+        var builder = new StringBuilder(text.Length);
+        var lastWasSpace = false;
+        foreach (var c in text)
+        {
+            var ch = char.IsControl(c) ? ' ' : c;
+            if (ch == ' ' && lastWasSpace) continue;
+            builder.Append(ch);
+            lastWasSpace = ch == ' ';
+        }
+        return builder.ToString().Trim();
+    }
 
     private static string TruncateToUtf8ByteLength(string str, int maxBytes)
     {
