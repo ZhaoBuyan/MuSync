@@ -256,7 +256,8 @@ public class BrowserExtensionBridgeTests
             foreach (System.Windows.Forms.Control child in control.Controls) stack.Push(child);
         }
 
-        Assert.Contains(all.OfType<System.Windows.Forms.CheckBox>(), c => c.Text.Contains("浏览器扩展"));
+        // 扩展现在有独立分组（复选框文案只是"启用"），所以查分组标题
+        Assert.Contains(all.OfType<System.Windows.Forms.GroupBox>(), g => g.Text.Contains("浏览器扩展"));
         Assert.Contains(all.OfType<System.Windows.Forms.Button>(), b => b.Text.Contains("获取扩展"));
         // 那句提示是这条路线的"为什么"：用户按 Win+A 没控件时才知道该装扩展
         Assert.Contains(all.OfType<System.Windows.Forms.Label>(), l => l.Text.Contains("Win+A"));
