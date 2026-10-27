@@ -54,6 +54,12 @@ Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) to discus
   when you play a video or audio in a browser, its title is synced. This goes through the Windows
   system media controls — no browser memory reads, no injection, no admin rights; the title is
   shown verbatim. **Off by default**, enable it in Settings → Sync
+  - **When a site never publishes a media session** (common with smaller video hosts and some web players),
+    Windows has nothing for anyone to read. An optional browser extension (source in `extension/`, also shipped
+    as `MuSync-Browser-Extension.zip` in each release) reads the page directly and posts to `127.0.0.1` —
+    turn on "Browser extension bridge (experimental)" under Settings → **Data sources**. Quick test: press
+    **Win+A**; if the media flyout shows nothing, no program can see that playback. Within the same
+    "browser media" slot, extension data wins over the system API whenever it is available
 - All six sources share **one priority list** (NetEase / QQ Music / LX / KuGou / TTPlayer / browser media)
   which you can reorder in Settings → Sync with immediate effect
 - Multiple players running at once are arbitrated automatically: **whatever is playing wins**;
@@ -175,6 +181,10 @@ Get-FileHash .\MuSync.exe -Algorithm SHA256
   browser's system-media-controls support and only appears while media is actually playing (not while paused).
   A browser session can outlive the video; MuSync then treats it as opened/paused. To make video win over music,
   move "browser media" higher in the priority list.
+  **If nothing shows up at all**: press **Win+A** and look at the Windows media flyout. If it is empty, the
+  browser never published a session — no program can read it. Install the browser extension from `extension/`
+  (or the release zip), enable "Browser extension bridge (experimental)" under Settings → Data sources, and
+  keep the port identical on both sides. Details: `extension/README.md`.
 
 - **A data source (e.g. heart rate) can't be read**
   First open that address in a browser to confirm it really returns JSON, then use "Test as filled" in

@@ -49,6 +49,8 @@ MuSync（BrowserExtensionBridge，只监听 127.0.0.1）
 
 ## 3. 安装（Edge / Chrome，无需上架商店）
 
+> **不想克隆仓库？** 每个 Release 里都附了 `MuSync-Browser-Extension.zip`，下载解压后，
+> 在下面第 4 步里选中**解压出来的目录**即可（该目录里应能看到 `manifest.json`）。
 1. 打开 `edge://extensions`（Chrome 是 `chrome://extensions`）
 2. 右下角打开 **「开发人员模式」**
 3. 点 **「加载解压缩的扩展」**
