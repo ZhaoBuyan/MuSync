@@ -20,7 +20,9 @@ internal sealed record BrowserExtensionSnapshot(
     double DurationSeconds,
     bool IsPlaying,
     string Site,
-    DateTime ReceivedUtc);
+    DateTime ReceivedUtc,
+    /// <summary>页面是否在前台（老版本扩展不发这个字段时为 false）。</summary>
+    bool IsVisible = false);
 
 /// <summary>
 /// 浏览器扩展增强的本机接收器：浏览器扩展把当前播放状态 POST 到 <c>127.0.0.1:端口</c>，
@@ -492,6 +494,9 @@ internal static class BrowserExtensionBridge
                 DurationSeconds: ReadNumber(root, "duration"),
                 IsPlaying: ReadBool(root, "playing"),
                 Site: ReadString(root, "site"),
+                  // 页面是否在前台：前台新开的视频要能接过后台的直播，
+                  // 但两个都在后台时仍保持在位者（避免每秒互相顶掉）。老版本扩展不发 → false
+                  IsVisible: ReadBool(root, "visible"),
                 ReceivedUtc: DateTime.UtcNow);
         }
         catch (JsonException)
@@ -575,7 +580,10 @@ internal static class BrowserExtensionBridge
                            string.Equals(incumbent.Title, snapshot.Title, StringComparison.Ordinal);
             var incumbentFresh = incumbent is not null &&
                                  DateTime.UtcNow - incumbent.ReceivedUtc <= IncumbentStickiness;
-            var accept = incumbent is null || samePage || !incumbentFresh || (snapshot.IsPlaying && !incumbent!.IsPlaying);
+            var accept = incumbent is null || samePage || !incumbentFresh ||
+                         (snapshot.IsPlaying && !incumbent!.IsPlaying) ||
+                           // 前台页面接管后台页面：后台挂着直播、前台开新视频时，直接丢弃会让人以为坏了
+                         (snapshot.IsVisible && !incumbent!.IsVisible);
             if (!accept) return;
 
             _latest = snapshot;

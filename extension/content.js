@@ -71,6 +71,9 @@
       duration,
       playing,
       site: location.hostname || "",
+      // 页面是否在前台：MuSync 用它决定"前台新开的视频要不要接管后台挂着的直播"。
+      // 两个都在后台时仍保持在位者，避免多标签每秒互相顶掉。
+      visible: document.visibilityState === "visible",
     };
   }
 

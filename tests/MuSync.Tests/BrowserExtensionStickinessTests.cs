@@ -22,8 +22,9 @@ public class BrowserExtensionStickinessTests
         return port;
     }
 
-    private static StringContent Body(string title, string site, bool playing) =>
-        new($$"""{"title":"{{title}}","site":"{{site}}","playing":{{(playing ? "true" : "false")}},"position":10,"duration":100}""",
+    private static StringContent Body(string title, string site, bool playing, bool? visible = null) =>
+        // visible=null 时不发该字段（模拟老版本扩展）
+        new($$"""{"title":"{{title}}","site":"{{site}}","playing":{{(playing ? "true" : "false")}},"position":10,"duration":100{{(visible is null ? "" : $",\"visible\":{(visible.Value ? "true" : "false")}")}}}""",
             Encoding.UTF8, "application/json");
 
     private static async Task<string?> StatusTitleAsync(int port)
@@ -97,6 +98,50 @@ public class BrowserExtensionStickinessTests
 
             // 同一页面必须持续更新（进度才会走），不能被粘性规则挡掉
             Assert.Equal("同一页面", await StatusTitleAsync(port));
+        }
+        finally
+        {
+            BrowserExtensionBridge.Ensure(enabled: false, port: port);
+        }
+    }
+    [Fact]
+    public async Task ForegroundTab_TakesOver_BackgroundTab()
+    {
+        // 后台挂着直播、前台开新视频：不能因为"在位者在播"就把新视频静默丢掉
+        var port = FindFreePort();
+        BrowserExtensionBridge.Ensure(enabled: true, port: port);
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            using var background = await client.PostAsync($"http://127.0.0.1:{port}/media", Body("后台直播", "live.example.com", true, visible: false));
+            Assert.True(background.IsSuccessStatusCode);
+
+            using var foreground = await client.PostAsync($"http://127.0.0.1:{port}/media", Body("前台视频", "video.example.com", true, visible: true));
+            Assert.True(foreground.IsSuccessStatusCode);
+
+            Assert.Equal("前台视频", await StatusTitleAsync(port));
+        }
+        finally
+        {
+            BrowserExtensionBridge.Ensure(enabled: false, port: port);
+        }
+    }
+
+    [Fact]
+    public async Task BackgroundTab_DoesNotStealFromForegroundTab()
+    {
+        var port = FindFreePort();
+        BrowserExtensionBridge.Ensure(enabled: true, port: port);
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            using var foreground = await client.PostAsync($"http://127.0.0.1:{port}/media", Body("前台视频", "video.example.com", true, visible: true));
+            Assert.True(foreground.IsSuccessStatusCode);
+
+            using var background = await client.PostAsync($"http://127.0.0.1:{port}/media", Body("后台音频", "music.example.com", true, visible: false));
+            Assert.True(background.IsSuccessStatusCode);
+
+            Assert.Equal("前台视频", await StatusTitleAsync(port));
         }
         finally
         {
