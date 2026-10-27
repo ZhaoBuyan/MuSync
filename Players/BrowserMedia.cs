@@ -176,6 +176,27 @@ internal sealed class BrowserMedia : IMusicPlayer
     /// 有了它，用户日志第一眼就能看出 AppId 是否在白名单里。
     /// </para>
     /// </summary>
+    /// <summary>会话组合不变时的心跳间隔：既能让日志保持"看得出来还在工作"，又不至于刷屏。</summary>
+    private static readonly TimeSpan SessionHeartbeat = TimeSpan.FromMinutes(10);
+    private static DateTime _lastSessionLogUtc = DateTime.MinValue;
+
+    /// <summary>最近一次读到的系统会话摘要（诊断信息用，与是否记日志无关）。</summary>
+    internal static string LastSessionsSummary { get; private set; } = "(尚未读取)";
+    /// <summary>最近一次读取系统会话的时刻。</summary>
+    internal static DateTime LastSessionsAtUtc { get; private set; } = DateTime.MinValue;
+
+    /// <summary>
+    /// 记录系统当前的全部媒体会话（AppId / 播放状态 / 是否被认作浏览器）。
+    /// <para>
+    /// 记录策略（降噪但不丢线索）：
+    /// <list type="bullet">
+    /// <item>组合**变化**时立刻记一条；</item>
+    /// <item>组合不变时每 10 分钟记一条心跳 —— 这样用户报"不同步"时，日志里一定有一条近期现场，
+    /// 不会因为"一直没变化"而什么都看不到（之前按 60 秒重复又太吵）。</item>
+    /// </list>
+    /// 另外无论记不记日志，都会更新 <see cref="LastSessionsSummary"/>，供「复制诊断信息」使用。
+    /// </para>
+    /// </summary>
     private static void LogSessions(IReadOnlyList<Smtc.SessionSnapshot> sessions)
     {
         var parts = new List<string>(sessions.Count);
@@ -186,12 +207,19 @@ internal sealed class BrowserMedia : IMusicPlayer
             parts.Add($"{s.AppId}[{state},{kind}]");
         }
         var signature = string.Join(" | ", parts);
-        // 只在会话**组合发生变化**时记一条：这条以前按 60 秒重复输出，
-        // 一台机器一天能刷几十上百行相同的"系统会话 1 个：QQMusic.exe[暂停,非浏览器]"，
-        // 对排查没帮助，还把真正有用的线索淹掉了。
-        if (signature == _lastSessionSignature) return;
+        var now = DateTime.UtcNow;
+
+        LastSessionsSummary = sessions.Count == 0 ? "(无会话)" : $"{sessions.Count} 个：{signature}";
+        LastSessionsAtUtc = now;
+
+        var changed = signature != _lastSessionSignature;
+        var heartbeatDue = now - _lastSessionLogUtc >= SessionHeartbeat;
+        if (!changed && !heartbeatDue) return;
+
         _lastSessionSignature = signature;
-        Logger.Info($"[浏览器媒体] 系统会话 {sessions.Count} 个：{(sessions.Count == 0 ? "(无)" : signature)}");
+        _lastSessionLogUtc = now;
+        var suffix = changed ? "" : "（心跳，无变化）";
+        Logger.Info($"[浏览器媒体] 系统会话 {LastSessionsSummary}{suffix}");
     }
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()

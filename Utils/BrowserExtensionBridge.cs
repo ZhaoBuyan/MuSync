@@ -460,6 +460,26 @@ internal static class BrowserExtensionBridge
     }
 
     /// <summary>
+    /// 诊断信息里用的详细状态：**带原因**（设置页那一格太窄，只能给结论）。
+    /// </summary>
+    public static string DiagnosticText()
+    {
+        lock (Gate)
+        {
+            var listening = _listener is not null
+                ? Loc.L($"监听中 127.0.0.1:{_port}", $"listening on 127.0.0.1:{_port}")
+                : Loc.L("未监听", "not listening");
+            var error = _lastError.Length > 0 ? Loc.L($"（{_lastError}）", $" ({_lastError})") : "";
+            var data = _latest is null
+                ? Loc.L("尚无上报", "no data yet")
+                : Loc.L($"最近上报「{_latest.Title}」{(DateTime.UtcNow - _latest.ReceivedUtc).TotalSeconds:F0} 秒前",
+                         $"last: {_latest.Title} {(DateTime.UtcNow - _latest.ReceivedUtc).TotalSeconds:F0}s ago");
+            return $"{listening}{error} ｜ {data}";
+        }
+    }
+
+
+    /// <summary>
     /// 设置页那一小格（166×40）里显示的一句话状态。详细原因走日志，这里只给结论。
     /// </summary>
     public static string StatusText()

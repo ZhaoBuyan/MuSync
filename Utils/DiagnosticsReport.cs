@@ -19,6 +19,7 @@ internal static class DiagnosticsReport
         AppendVersionInfo(sb);
         AppendSteamInfo(sb);
         AppendPlayerInfo(sb);
+        AppendBrowserMediaInfo(sb);
         AppendAppSyncInfo(sb);
         AppendSettingsSummary(sb);
         AppendEnvironmentInfo(sb);
@@ -65,6 +66,38 @@ internal static class DiagnosticsReport
         var update = Program.PendingUpdate is { } pending ? Loc.L($"已发现 {pending.Tag}", $"Found {pending.Tag}") : Loc.L("未发现", "Not found");
         sb.AppendLine(Loc.L($"同步：{syncState} ｜ 更新：{update}", $"Sync: {syncState} | update: {update}"));
     }
+
+    /// <summary>
+    /// 浏览器媒体 / 扩展桥的状态。
+    /// <para>
+    /// 这块单独列出来，是因为"浏览器视频不同步"的三种原因（设置没开 / 没有浏览器进程 / 读不到会话）
+    /// 在旧日志里长得一模一样。诊断信息里直接把三者摆出来，用户复制一次就能定位。
+    /// </para>
+    /// </summary>
+    private static void AppendBrowserMediaInfo(StringBuilder sb)
+    {
+        var config = Configurations.Instance.Settings;
+        var ext = config.BrowserExtensionEnabled
+            ? Loc.L($"开（端口 {config.BrowserExtensionPort}）", $"on (port {config.BrowserExtensionPort})")
+            : Loc.L("关", "off");
+        sb.AppendLine(Loc.L(
+            $"浏览器媒体：{(config.BrowserMediaSyncEnabled ? "开" : "关")} ｜ 刷新间隔 {config.BrowserMediaRefreshSeconds}s ｜ 扩展增强：{ext}",
+            $"Browser media: {(config.BrowserMediaSyncEnabled ? "on" : "off")} | refresh {config.BrowserMediaRefreshSeconds}s | extension: {ext}"));
+
+        var sinceLastSession = Players.BrowserMedia.LastSessionsAtUtc == DateTime.MinValue
+            ? Loc.L("从未读取", "never")
+            : Loc.L($"{(DateTime.UtcNow - Players.BrowserMedia.LastSessionsAtUtc).TotalSeconds:F0} 秒前",
+                     $"{(DateTime.UtcNow - Players.BrowserMedia.LastSessionsAtUtc).TotalSeconds:F0}s ago");
+        sb.AppendLine(Loc.L(
+            $"  系统会话（{sinceLastSession}）：{Players.BrowserMedia.LastSessionsSummary}",
+            $"  System sessions ({sinceLastSession}): {Players.BrowserMedia.LastSessionsSummary}"));
+
+        if (config.BrowserExtensionEnabled)
+        {
+            sb.AppendLine("  " + Loc.L("扩展桥：", "Bridge: ") + BrowserExtensionBridge.DiagnosticText());
+        }
+    }
+
 
     /// <summary>四个播放器的运行 / 播放 / 错误状态。</summary>
     private static void AppendPlayerInfo(StringBuilder sb)

@@ -47,4 +47,30 @@ public class DiagnosticsReportTests
         Assert.Contains("Steam：未初始化", text);
         Assert.Contains("播放器：未初始化", text);
     }
+    [Fact]
+    public void Report_IncludesBrowserMediaAndExtensionState()
+    {
+        // "浏览器视频不同步"的三种原因（设置没开 / 没浏览器进程 / 读不到会话）
+        // 必须能从诊断信息里一眼区分，不能让用户去翻日志。
+        var settings = Configurations.Instance.Settings;
+        var backupEnabled = settings.BrowserExtensionEnabled;
+        var backupPort = settings.BrowserExtensionPort;
+        try
+        {
+            settings.BrowserExtensionEnabled = true;
+            settings.BrowserExtensionPort = 47564;
+
+            var text = DiagnosticsReport.Build();
+
+            Assert.Contains(Loc.L("浏览器媒体", "Browser media"), text);
+            Assert.Contains("47564", text);                       // 端口要能看到
+            Assert.Contains(Loc.L("系统会话", "System sessions"), text);
+            Assert.Contains(Loc.L("扩展桥", "Bridge"), text);
+        }
+        finally
+        {
+            settings.BrowserExtensionEnabled = backupEnabled;
+            settings.BrowserExtensionPort = backupPort;
+        }
+    }
 }
