@@ -91,6 +91,16 @@ internal static class Smtc
     private static readonly TimeSpan ManagerMaxAge = TimeSpan.FromMinutes(10);
 
     /// <summary>
+    /// 单个会话读元数据的超时。
+    /// <para>
+    /// <c>TryGetMediaPropertiesAsync()</c> 是跨进程调用：会话正在消失、或播放器卡住时，
+    /// 实测能挂好几秒，把轮询步骤拖过 3 秒阈值（日志里见过「轮询步骤 Browser 耗时 3.x 秒」），
+    /// 极端情况会触发看门狗重启主循环。超时只是跳过这一个会话，下一拍再试。
+    /// </para>
+    /// </summary>
+    private static readonly TimeSpan SessionPropertyTimeout = TimeSpan.FromSeconds(1);
+
+    /// <summary>
     /// 把会话压成纯数据快照，**并顺手把封面缩略图的引用一并取出**。
     /// 读取失败的单个会话跳过，不影响其它。
     /// </summary>
@@ -131,7 +141,8 @@ internal static class Smtc
                 if (appIdFilter != null && !appIdFilter(appId)) continue;
                 var playing = session.GetPlaybackInfo()?.PlaybackStatus ==
                               GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-                var props = await session.TryGetMediaPropertiesAsync().AsTask().ConfigureAwait(false);
+                var props = await session.TryGetMediaPropertiesAsync().AsTask()
+                    .WaitAsync(SessionPropertyTimeout).ConfigureAwait(false);
                 var timeline = session.GetTimelineProperties();
                 list.Add(new SessionSnapshot(
                     appId,

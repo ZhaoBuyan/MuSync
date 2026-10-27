@@ -67,6 +67,12 @@ internal static class BrowserExtensionBridge
     private static bool _attempted;
     private static int _attemptedPort;
 
+    /// <summary>上次尝试监听的时刻（失败后按冷却期重试，而不是永久放弃）。</summary>
+    private static DateTime _lastAttemptUtc = DateTime.MinValue;
+
+    /// <summary>监听失败后的重试冷却期。</summary>
+    private static readonly TimeSpan RetryCooldown = TimeSpan.FromSeconds(60);
+
     /// <summary>
     /// 可选的共享令牌（空 = 不校验）。
     /// 非空时，<c>POST /media</c> 与 <c>GET /status</c> 都必须带 <c>X-MuSync-Token</c> 头。
@@ -100,6 +106,13 @@ internal static class BrowserExtensionBridge
         if (!enabled)
         {
             Stop();
+            // 关掉时清掉"尝试过"的记录：用户再勾上就是一次**明确的重新尝试**，
+            // 不该被失败冷却期挡住（否则"关掉再打开"看起来毫无反应）。
+            lock (Gate)
+            {
+                _attempted = false;
+                _lastAttemptUtc = DateTime.MinValue;
+            }
             return;
         }
         if (port is < 1 or > 65535)
@@ -122,34 +135,62 @@ internal static class BrowserExtensionBridge
                     : "[浏览器扩展] 未设置共享令牌：本机任意程序都可向该端口上报（仅影响状态显示）");
             }
             if (_listener is not null && _port == port) return;
-            // 同一端口已经尝试过且失败：不再每拍重试（改端口或重新启用会重新尝试），否则日志会被刷屏
-            if (_attempted && _attemptedPort == port && _listener is null) return;
+            // 同一端口尝试失败后不每拍重试（会把日志刷屏），但也不能"永不重试"：
+            // 实测有"重启时端口恰好还在 TIME_WAIT / 被旧进程占着"的情况，若永久放弃，
+            // 扩展增强会一直显示"未监听"，直到用户手动换端口 —— 那是能被用户看见的故障。
+            // 现在改成冷却期重试：失败后 60 秒再试一次。
+            if (_attempted && _attemptedPort == port && _listener is null &&
+                DateTime.UtcNow - _lastAttemptUtc < RetryCooldown)
+            {
+                return;
+            }
             _attempted = true;
             _attemptedPort = port;
+            _lastAttemptUtc = DateTime.UtcNow;
         }
         Stop();
         _attempted = true;
         _attemptedPort = port;
+        _lastAttemptUtc = DateTime.UtcNow;
         Start(port);
     }
 
     private static void Start(int port)
     {
-        TcpListener listener;
-        try
+        TcpListener? listener = null;
+        Exception? lastError = null;
+
+        // 最多试 3 次：上次退出的连接可能还在 TIME_WAIT，立即重绑会偶发 EADDRINUSE。
+        // 加上 ReuseAddress 后通常一次就成，重试只是兜底。
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
-            listener = new TcpListener(IPAddress.Loopback, port);
-            listener.Start();
+            try
+            {
+                var candidate = new TcpListener(IPAddress.Loopback, port);
+                // 允许绑定到仍有 TIME_WAIT 连接的端口（否则重启后可能几秒内都绑不上）
+                candidate.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                candidate.Start();
+                listener = candidate;
+                lastError = null;
+                break;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+                if (attempt < 3) Thread.Sleep(200 * attempt);
+            }
         }
-        catch (Exception ex)
+
+        if (listener is null)
         {
             lock (Gate)
             {
                 _listener = null;
                 _port = port;
-                _lastError = ex.Message;
+                _lastError = lastError?.Message ?? "未知错误";
             }
-            Logger.Warn($"[浏览器扩展] 监听 127.0.0.1:{port} 失败：{ex.Message}（可在设置里换一个端口）");
+            Logger.Warn($"[浏览器扩展] 监听 127.0.0.1:{port} 失败（已重试 3 次）：{lastError?.Message}。" +
+                        $"60 秒后会再试；也可以换一个端口。");
             return;
         }
 
