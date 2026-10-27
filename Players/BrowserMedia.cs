@@ -197,6 +197,14 @@ internal sealed class BrowserMedia : IMusicPlayer
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
+        // 扩展增强优先：它由页面里的扩展直接上报，能救"系统媒体控件根本没有会话"的站点。
+        // 数据超过 FreshnessSeconds 未更新就视为过期，回落到下面的 SMTC 路径。
+        if (Configurations.Instance.Settings.BrowserExtensionEnabled)
+        {
+            var fromExtension = BrowserExtensionBridge.TryGetFresh(ExtensionFreshness);
+            if (fromExtension is not null) return BuildInfoFromExtension(fromExtension);
+        }
+
         // 管理器获取失败后先退避，别每轮都撞同一个失败点
         if (_managerFailedAtUtc != DateTime.MinValue &&
             DateTime.UtcNow - _managerFailedAtUtc < ManagerRetryDelay)
@@ -352,6 +360,42 @@ internal sealed class BrowserMedia : IMusicPlayer
             Duration = duration,
             Url = "",
             Pause = !session.IsPlaying
+        };
+    }
+
+    /// <summary>
+    /// 扩展上报的有效期：扩展约每秒上报一次，超过这个时长没更新就当作"已停止"，
+    /// 回落到 SMTC 路径（避免视频关掉后状态永远停在最后一帧）。
+    /// </summary>
+    private static readonly TimeSpan ExtensionFreshness = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// 把扩展上报的快照转成统一模型。
+    /// <para>
+    /// 与 <see cref="BuildInfo"/> 的差别：扩展给的位置是"上报那一刻"的实时值（页面自己读的
+    /// <c>currentTime</c>），不需要再按采样时刻推算；总长不可信时的处理保持一致（置 0 不显示进度）。
+    /// </para>
+    /// </summary>
+    internal static PlayerInfo BuildInfoFromExtension(BrowserExtensionSnapshot snapshot)
+    {
+        var position = snapshot.PositionSeconds > 0 ? snapshot.PositionSeconds : 0;
+        var duration = snapshot.DurationSeconds > 0 ? snapshot.DurationSeconds : 0;
+        // 同样规则：位置已超过总长时说明总长不可信，当作未知
+        if (duration > 0 && position > duration) duration = 0;
+
+        return new PlayerInfo
+        {
+            // Identity 带上站点：同一标题在不同站点算不同内容，避免切换时被判成"没变化"
+            Identity = $"browser-ext|{snapshot.Site}|{snapshot.Title}",
+            Title = snapshot.Title,
+            Artists = snapshot.Artist,
+            Album = snapshot.Album,
+            Cover = "",
+            CoverImage = null,
+            Schedule = position,
+            Duration = duration,
+            Url = "",
+            Pause = !snapshot.IsPlaying
         };
     }
 

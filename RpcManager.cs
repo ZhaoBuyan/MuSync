@@ -1182,6 +1182,11 @@ internal class RpcManager(SteamStatusManager steamManager)
     private async Task<bool> PollBrowserAsync(DateTime currentTime)
     {
         // 每次进程内只记一次"有效配置"，供用户报障时定位：
+        // 扩展增强的监听跟随配置启停：放在这里，改完设置下一拍就生效（Ensure 内部有幂等判断）
+        BrowserExtensionBridge.Ensure(
+            Configurations.Instance.Settings.BrowserMediaSyncEnabled && Configurations.Instance.Settings.BrowserExtensionEnabled,
+            Configurations.Instance.Settings.BrowserExtensionPort);
+
         // 到底是设置没开、闸门挡住、还是开了也读不到会话 —— 这三种在旧日志里长得一模一样。
         if (!_browserConfigLogged)
         {

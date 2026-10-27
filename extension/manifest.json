@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "MuSync Browser Bridge",
+  "version": "1.0.0",
+  "description": "把浏览器里正在播放的媒体上报给 MuSync（只发到本机 127.0.0.1，不联网）。",
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

@@ -109,6 +109,21 @@ internal class ConfigData
     /// </summary>
     public int BrowserMediaRefreshSeconds { get; set; } = 1;
     /// <summary>
+    /// 浏览器扩展增强：由浏览器扩展把当前播放状态 POST 到本机端口（默认关闭）。
+    /// <para>
+    /// 为什么需要它：系统媒体控件（SMTC）只能读到"网页主动发布了媒体会话"的情况，
+    /// 而不少站点（尤其是国内小站、网盘播放器、直播）根本不发布，系统里连会话都没有，
+    /// 任何按 SMTC 读取的方案都拿不到 —— 这时只能由扩展直接在页面里读 DOM / mediaSession。
+    /// 装上扩展后本项才有效；不装则完全不影响原有 SMTC 路径。
+    /// </para>
+    /// </summary>
+    public bool BrowserExtensionEnabled { get; set; }
+    /// <summary>
+    /// 浏览器扩展增强的监听端口：**只绑定 127.0.0.1**，不对外网开放。
+    /// 默认 47564；与数据源（心率等）一样走本机回环，避免经过系统代理。
+    /// </summary>
+    public int BrowserExtensionPort { get; set; } = 47564;
+    /// <summary>
     /// 音乐播放器优先级顺序（NetEase/Tencent/LxMusic/KuGou/TTPlayer；正在播放的始终优先于暂停的）。
     /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsForm.PlayerOrderKeys</c> 一致：
     /// 三处口径不同时运行期靠 Concat(Distinct) 补齐不会出错，但读代码的人会被绊住。

@@ -33,6 +33,9 @@ internal sealed class SettingsForm : Form
     private CheckBox _musicSyncCheckBox = null!;
     private CheckBox _hidePausedMusicCheckBox = null!;
     private CheckBox _browserMediaCheckBox = null!;
+    private CheckBox _browserExtensionCheckBox = null!;
+    private TextBox _browserExtensionPortBox = null!;
+    private Label _browserExtensionStatusLabel = null!;
     private CheckBox _enableAppSyncCheckBox = null!;
     private CheckBox _syncNonGameCheckBox = null!;
     private CheckBox _pauseWhenPlayingGameCheckBox = null!;
@@ -246,7 +249,7 @@ internal sealed class SettingsForm : Form
     {
         var page = new TabPage(Loc.L("同步", "Sync")) { BackColor = Color.White };
 
-        var switchGroup = CreateGroupBox(Loc.L("同步开关", "Sync options"), 10, 10, 650, 160);
+        var switchGroup = CreateGroupBox(Loc.L("同步开关", "Sync options"), 10, 10, 650, 234);
         _enableSteamSyncCheckBox = CreateCheckBox(Loc.L("启用 Steam 同步（总开关）", "Enable Steam sync (master switch)"), 20, 32);
         _musicSyncCheckBox = CreateCheckBox(Loc.L("启用音乐同步", "Enable music sync"), 20, 66);
         _hidePausedMusicCheckBox = CreateCheckBox(Loc.L("音乐暂停时不在状态中显示", "Hide music status when paused"), 20, 100);
@@ -255,12 +258,56 @@ internal sealed class SettingsForm : Form
         _enableAppSyncCheckBox = CreateCheckBox(Loc.L("启用程序同步", "Enable app sync"), 340, 32);
         _syncNonGameCheckBox = CreateCheckBox(Loc.L("同步非游戏应用", "Sync non-game apps"), 340, 66);
         _pauseWhenPlayingGameCheckBox = CreateCheckBox(Loc.L("玩真实 Steam 游戏时自动暂停", "Auto-pause while playing a real Steam game"), 340, 100);
+        _browserExtensionCheckBox = CreateCheckBox(
+            Loc.L("浏览器扩展增强（实验性）", "Browser extension bridge (experimental)"), 20, 168);
+        _browserExtensionCheckBox.CheckedChanged += (_, _) => UpdateBrowserExtensionStatus();
+        // 入口放在开关旁边：打开默认浏览器到扩展说明页（用户按 Win+A 看不到媒体控件时最需要它）
+        var browserExtensionGetButton = new Button
+        {
+            Text = Loc.L("获取扩展", "Get extension"),
+            Location = new Point(258, 164),
+            Size = new Size(92, 26),
+            BackColor = Color.White
+        };
+        browserExtensionGetButton.Click += (_, _) => OpenUrl(ExtensionPageUrl);
+        var browserExtensionPortLabel = new Label
+        {
+            Text = Loc.L("端口", "Port"),
+            Location = new Point(362, 172),
+            AutoSize = true
+        };
+        _browserExtensionPortBox = new TextBox
+        {
+            Location = new Point(407, 168),
+            Width = 56,
+            Text = "47564"
+        };
+        _browserExtensionStatusLabel = new Label
+        {
+            Location = new Point(474, 166),
+            Size = new Size(166, 40),
+            ForeColor = Color.Gray,
+            Font = new Font("Microsoft YaHei", 7.5f)
+        };
+        // 给用户的一句话：这就是"为什么需要装扩展"
+        var browserExtensionHint = new Label
+        {
+            Location = new Point(20, 200),
+            Size = new Size(620, 28),
+            ForeColor = Color.FromArgb(150, 110, 40),
+            Font = new Font("Microsoft YaHei", 8),
+            Text = Loc.L(
+                "按 Win+A 看不到媒体控件，就说明浏览器没把播放状态交给系统 —— 请安装浏览器扩展（点上面的「获取扩展」，装完把端口填一致）。",
+                "If Win+A shows no media controls, the browser is not publishing playback to Windows — install the browser extension (click \"Get extension\", then keep the port identical).")
+        };
         switchGroup.Controls.AddRange([
             _enableSteamSyncCheckBox, _musicSyncCheckBox, _hidePausedMusicCheckBox, _browserMediaCheckBox,
-            _enableAppSyncCheckBox, _syncNonGameCheckBox, _pauseWhenPlayingGameCheckBox
+            _enableAppSyncCheckBox, _syncNonGameCheckBox, _pauseWhenPlayingGameCheckBox,
+              _browserExtensionCheckBox, browserExtensionGetButton, browserExtensionPortLabel,
+              _browserExtensionPortBox, _browserExtensionStatusLabel, browserExtensionHint
         ]);
 
-        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 182, 650, 182);
+        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 256, 650, 182);
         var priorityLabel = new Label
         {
             AutoSize = true,
@@ -303,7 +350,7 @@ internal sealed class SettingsForm : Form
         _playerPriorityMoveButtons.AddRange([moveUpButton, moveDownButton]);
         priorityGroup.Controls.AddRange([priorityLabel, priorityHint, _playerPriorityList, moveUpButton, moveDownButton]);
 
-        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 376, 650, 90);
+        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 450, 650, 90);
         var speedLabel = new Label { Text = Loc.L("进度刷新档位:", "Update rate:"), Location = new Point(20, 32), AutoSize = true };
         _syncSpeedCombo = new ComboBox
         {
@@ -324,7 +371,7 @@ internal sealed class SettingsForm : Form
 
         var lxHint = new Label
         {
-            Location = new Point(10, 396),
+            Location = new Point(10, 470),
             Size = new Size(650, 60),
             ForeColor = Color.FromArgb(150, 110, 40),
             Font = new Font("Microsoft YaHei", 8.5f),
@@ -940,6 +987,15 @@ internal sealed class SettingsForm : Form
         _updateNoticeLabel.Text = Loc.L($"● 有新版本 {info.Tag}", $"● New version {info.Tag} available");
         _updateNoticeLabel.Visible = true;
     }
+
+    /// <summary>
+    /// 浏览器扩展的说明页（"获取扩展"按钮打开这里）。
+    /// <para>
+    /// 现在指向 MuSync 仓库里的 extension/ 目录 —— 那里有完整源码与安装步骤。
+    /// 将来如果单独开一个扩展仓库，只改这一处即可。
+    /// </para>
+    /// </summary>
+    private const string ExtensionPageUrl = "https://github.com/ZhaoBuyan/MuSync/tree/main/extension";
 
     private static void OpenUrl(string url)
     {
@@ -1641,6 +1697,18 @@ internal sealed class SettingsForm : Form
     }
 
 
+    /// <summary>刷新"浏览器扩展增强"的状态文字（监听端口 / 最近一次上报）。</summary>
+    private void UpdateBrowserExtensionStatus()
+    {
+        if (!_browserExtensionCheckBox.Checked)
+        {
+            _browserExtensionStatusLabel.Text = Loc.L("未启用", "Not enabled");
+            return;
+        }
+        _browserExtensionStatusLabel.Text = BrowserExtensionBridge.StatusText();
+    }
+
+
     /// <summary>
     /// 把渲染等价的"新写法"归一成"旧写法"，供模板预设识别使用。
     /// <para>
@@ -1748,6 +1816,9 @@ internal sealed class SettingsForm : Form
         _musicSyncCheckBox.Checked = settings.MusicSyncEnabled;
         _hidePausedMusicCheckBox.Checked = settings.HideMusicWhenPaused;
         _browserMediaCheckBox.Checked = settings.BrowserMediaSyncEnabled;
+        _browserExtensionCheckBox.Checked = settings.BrowserExtensionEnabled;
+        _browserExtensionPortBox.Text = settings.BrowserExtensionPort.ToString();
+        UpdateBrowserExtensionStatus();
         // 数据源：清掉旧行再按配置重建（对话框可能被重复打开）
         foreach (var row in _dataSourceRows.ToArray())
         {
@@ -1840,6 +1911,15 @@ internal sealed class SettingsForm : Form
         settings.MusicSyncEnabled = _musicSyncCheckBox.Checked;
         settings.HideMusicWhenPaused = _hidePausedMusicCheckBox.Checked;
         settings.BrowserMediaSyncEnabled = _browserMediaCheckBox.Checked;
+        settings.BrowserExtensionEnabled = _browserExtensionCheckBox.Checked;
+        if (int.TryParse(_browserExtensionPortBox.Text.Trim(), out var extPort) && extPort is >= 1 and <= 65535)
+        {
+            settings.BrowserExtensionPort = extPort;
+        }
+        // 立刻生效：端口/开关变了就重启监听，不用等下一拍
+        BrowserExtensionBridge.Ensure(
+            settings.BrowserMediaSyncEnabled && settings.BrowserExtensionEnabled, settings.BrowserExtensionPort);
+        UpdateBrowserExtensionStatus();
         // 数据源按界面上的填写回写（名称重复/含大括号的条目会被 CollectDataSources 过滤掉）
         settings.DataSources = CollectDataSources();
         settings.AppSyncEnabled = _enableAppSyncCheckBox.Checked;
