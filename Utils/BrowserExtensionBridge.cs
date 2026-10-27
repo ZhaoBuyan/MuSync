@@ -67,6 +67,12 @@ internal static class BrowserExtensionBridge
     private static bool _attempted;
     private static int _attemptedPort;
 
+    /// <summary>
+    /// 可选的共享令牌（空 = 不校验）。
+    /// 非空时，<c>POST /media</c> 与 <c>GET /status</c> 都必须带 <c>X-MuSync-Token</c> 头。
+    /// </summary>
+    private static string _token = "";
+
     /// <summary>是否正在监听。</summary>
     public static bool IsRunning
     {
@@ -84,7 +90,12 @@ internal static class BrowserExtensionBridge
     /// </summary>
     /// <param name="enabled">设置里的开关。</param>
     /// <param name="port">监听端口（仅本机回环）。</param>
-    public static void Ensure(bool enabled, int port)
+    /// <param name="sharedToken">
+    /// 可选共享令牌。留空表示不校验（默认，保持向后兼容）；填了则扩展必须在
+    /// <c>X-MuSync-Token</c> 头里带上同一个值，否则一律拒绝。
+    /// 这是为了挡住"本机其它程序伪装成扩展、把你的 Steam 状态改成任意文本"。
+    /// </param>
+    public static void Ensure(bool enabled, int port, string? sharedToken = null)
     {
         if (!enabled)
         {
@@ -99,8 +110,17 @@ internal static class BrowserExtensionBridge
             return;
         }
 
+        // 令牌变更不需要重建监听：它是每个请求现算的，改完下一次请求就生效
+        var normalizedToken = (sharedToken ?? "").Trim();
         lock (Gate)
         {
+            if (_token != normalizedToken)
+            {
+                _token = normalizedToken;
+                Logger.Info(normalizedToken.Length > 0
+                    ? "[浏览器扩展] 已启用共享令牌校验（扩展需在设置页填入同一令牌）"
+                    : "[浏览器扩展] 未设置共享令牌：本机任意程序都可向该端口上报（仅影响状态显示）");
+            }
             if (_listener is not null && _port == port) return;
             // 同一端口已经尝试过且失败：不再每拍重试（改端口或重新启用会重新尝试），否则日志会被刷屏
             if (_attempted && _attemptedPort == port && _listener is null) return;
@@ -229,6 +249,20 @@ internal static class BrowserExtensionBridge
                     return;
                 }
 
+                // 共享令牌（可选）：设置里填了令牌，才要求带上正确的头。
+                // 放在 OPTIONS 之后：预检请求不会带自定义头，挡掉它会让扩展连预检都过不去。
+                if (!IsTokenAcceptable(header))
+                {
+                    // 先把请求体读掉再回 401：否则客户端还在发 body，收到的会是"连接被重置"
+                    // 而不是清清楚楚的 401（实测有客户端如此）。
+                    if (bodyLength is > 0 and <= MaxBodyBytes)
+                    {
+                        await ReadExactAsync(stream, bodyLength, token).ConfigureAwait(false);
+                    }
+                    await WriteResponseAsync(stream, 401, "text/plain", "unauthorized", token).ConfigureAwait(false);
+                    return;
+                }
+
                 if (method == "GET" && path == "/status")
                 {
                     var json = DescribeCurrent();
@@ -277,6 +311,33 @@ internal static class BrowserExtensionBridge
                 Logger.Diagnose($"[浏览器扩展] 处理请求失败：{ex.GetType().Name}: {ex.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// 校验 <c>X-MuSync-Token</c> 请求头。
+    /// <para>
+    /// 未配置令牌（空字符串）时一律放行 —— 保持默认行为不变。
+    /// 配置了就按常量时间比较，避免"逐字符比较 + 提前返回"泄露令牌长度/前缀。
+    /// </para>
+    /// </summary>
+    private static bool IsTokenAcceptable(string header)
+    {
+        string expected;
+        lock (Gate) { expected = _token; }
+        if (expected.Length == 0) return true;
+
+        foreach (var line in header.Split("\r\n"))
+        {
+            var colon = line.IndexOf(':');
+            if (colon <= 0) continue;
+            if (!line.AsSpan(0, colon).Trim().Equals("X-MuSync-Token", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var provided = line[(colon + 1)..].Trim();
+            return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(expected),
+                Encoding.UTF8.GetBytes(provided));
+        }
+        return false;
     }
 
     /// <summary>读请求头（读到空行为止），返回头文本与 Content-Length。</summary>

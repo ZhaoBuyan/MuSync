@@ -45,6 +45,17 @@
     必须与 MuSync 的「设置 → 数据源 → 浏览器扩展增强 → 监听端口」一致（默认 47564）。<br>
     改完保存即可，不用重新加载扩展。
   </p>
+
+  <label for="token">共享令牌（可选）</label>
+  <div class="row">
+    <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="留空 = 不校验">
+    <button id="saveToken">保存令牌</button>
+  </div>
+  <p class="hint">
+    填了就要求每次上报都带上它，用来挡住<b>本机其它程序</b>伪装成这个扩展、改掉你 Steam 上显示的"正在玩"。<br>
+    必须与 MuSync 里「共享令牌」填的完全一致；两边都留空则不校验（默认）。
+  </p>
+
   <div id="status" class="status"></div>
 
   <script src="options.js"></script>

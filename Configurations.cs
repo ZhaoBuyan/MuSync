@@ -123,6 +123,12 @@ internal class ConfigData
     /// 默认 47564；与数据源（心率等）一样走本机回环，避免经过系统代理。
     /// </summary>
     public int BrowserExtensionPort { get; set; } = 47564;
+
+    /// <summary>
+    /// 可选的共享令牌：留空 = 不校验（默认）；填了则扩展必须在请求头里带同一个值。
+    /// 目的是挡住"本机其它程序伪装成扩展、改掉你的 Steam 状态"。
+    /// </summary>
+    public string BrowserExtensionToken { get; set; } = "";
     /// <summary>
     /// 音乐播放器优先级顺序（NetEase/Tencent/LxMusic/KuGou/TTPlayer；正在播放的始终优先于暂停的）。
     /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsForm.PlayerOrderKeys</c> 一致：

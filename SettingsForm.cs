@@ -35,6 +35,7 @@ internal sealed class SettingsForm : Form
     private CheckBox _browserMediaCheckBox = null!;
     private CheckBox _browserExtensionCheckBox = null!;
     private TextBox _browserExtensionPortBox = null!;
+    private TextBox _browserExtensionTokenBox = null!;
     private Label _browserExtensionStatusLabel = null!;
     private CheckBox _enableAppSyncCheckBox = null!;
     private CheckBox _syncNonGameCheckBox = null!;
@@ -993,13 +994,13 @@ internal sealed class SettingsForm : Form
         // 浏览器扩展增强放在「数据源」页：它和心率那些 HTTP 源本质一样 —— 都是"从外部收数据"，
         // 而不是"同步哪些东西"的开关。放这里用户在配心率时一眼就能看到。
         var extensionGroup = CreateGroupBox(
-            Loc.L("浏览器扩展增强（实验性）", "Browser extension bridge (experimental)"), 10, 8, 650, 120);
-        _browserExtensionCheckBox = CreateCheckBox(Loc.L("启用", "Enable"), 20, 32);
+            Loc.L("浏览器扩展增强（实验性）", "Browser extension bridge (experimental)"), 10, 8, 650, 132);
+        _browserExtensionCheckBox = CreateCheckBox(Loc.L("启用", "Enable"), 20, 30);
         _browserExtensionCheckBox.CheckedChanged += (_, _) => UpdateBrowserExtensionStatus();
         var browserExtensionGetButton = new Button
         {
             Text = Loc.L("获取扩展（打开浏览器）", "Get extension (opens browser)"),
-            Location = new Point(96, 28),
+            Location = new Point(96, 26),
             Size = new Size(190, 28),
             BackColor = Color.White
         };
@@ -1007,35 +1008,49 @@ internal sealed class SettingsForm : Form
         var browserExtensionPortLabel = new Label
         {
             Text = Loc.L("监听端口", "Port"),
-            Location = new Point(310, 34),
+            Location = new Point(310, 32),
             AutoSize = true
         };
         _browserExtensionPortBox = new TextBox
         {
-            Location = new Point(382, 30),
+            Location = new Point(382, 28),
             Width = 84,
             Text = "47564"
         };
+        var browserExtensionTokenLabel = new Label
+        {
+            Text = Loc.L("共享令牌", "Shared token"),
+            Location = new Point(20, 68),
+            AutoSize = true
+        };
+        _browserExtensionTokenBox = new TextBox
+        {
+            Location = new Point(96, 64),
+            Width = 220,
+            // 留空 = 不校验（默认）。填了要跟扩展设置页里的一模一样。
+            PlaceholderText = Loc.L("留空 = 不校验", "Empty = no check")
+        };
         _browserExtensionStatusLabel = new Label
         {
-            Location = new Point(20, 66),
-            Size = new Size(610, 20),
+            Location = new Point(330, 66),
+            Size = new Size(300, 20),
             ForeColor = Color.Gray,
             Font = new Font("Microsoft YaHei", 8)
         };
         var browserExtensionHint = new Label
         {
-            Location = new Point(20, 90),
-            Size = new Size(610, 22),
+            Location = new Point(20, 96),
+            Size = new Size(610, 30),
             ForeColor = Color.FromArgb(150, 110, 40),
             Font = new Font("Microsoft YaHei", 8),
             Text = Loc.L(
-                "按 Win+A 看不到媒体控件，就说明浏览器没把播放状态交给系统 —— 请点「获取扩展」。",
-                "If Win+A shows no media controls, the browser is not publishing playback to Windows — click \"Get extension\".")
+                "按 Win+A 看不到媒体控件，就说明浏览器没把播放状态交给系统 —— 请点「获取扩展」。令牌用于防止本机其它程序伪造状态，两端填一致即可。",
+                "If Win+A shows no media controls, the browser is not publishing playback to Windows — click \"Get extension\". The token stops other local programs from spoofing your status; fill the same value on both sides.")
         };
         extensionGroup.Controls.AddRange([
             _browserExtensionCheckBox, browserExtensionGetButton, browserExtensionPortLabel,
-            _browserExtensionPortBox, _browserExtensionStatusLabel, browserExtensionHint
+            _browserExtensionPortBox, browserExtensionTokenLabel, _browserExtensionTokenBox,
+            _browserExtensionStatusLabel, browserExtensionHint
         ]);
         page.Controls.Add(extensionGroup);
 
@@ -1825,6 +1840,7 @@ internal sealed class SettingsForm : Form
         _browserMediaCheckBox.Checked = settings.BrowserMediaSyncEnabled;
         _browserExtensionCheckBox.Checked = settings.BrowserExtensionEnabled;
         _browserExtensionPortBox.Text = settings.BrowserExtensionPort.ToString();
+        _browserExtensionTokenBox.Text = settings.BrowserExtensionToken ?? "";
         UpdateBrowserExtensionStatus();
         // 数据源：清掉旧行再按配置重建（对话框可能被重复打开）
         foreach (var row in _dataSourceRows.ToArray())
@@ -1922,10 +1938,13 @@ internal sealed class SettingsForm : Form
         if (int.TryParse(_browserExtensionPortBox.Text.Trim(), out var extPort) && extPort is >= 1 and <= 65535)
         {
             settings.BrowserExtensionPort = extPort;
+
+        // 令牌：留空表示不校验（默认），两端填一致才会生效
+        settings.BrowserExtensionToken = _browserExtensionTokenBox.Text.Trim();
         }
         // 立刻生效：端口/开关变了就重启监听，不用等下一拍
         BrowserExtensionBridge.Ensure(
-            settings.BrowserMediaSyncEnabled && settings.BrowserExtensionEnabled, settings.BrowserExtensionPort);
+            settings.BrowserMediaSyncEnabled && settings.BrowserExtensionEnabled, settings.BrowserExtensionPort, settings.BrowserExtensionToken);
         UpdateBrowserExtensionStatus();
         // 数据源按界面上的填写回写（名称重复/含大括号的条目会被 CollectDataSources 过滤掉）
         settings.DataSources = CollectDataSources();
