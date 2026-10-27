@@ -25,3 +25,5 @@ config.json.bak
 logs/
 *.log
 cm-serverlist.bin
+# 歌词内存探测笔记（本地，不推送）
+docs/lyrics-probe-notes.md
