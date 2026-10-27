@@ -92,6 +92,8 @@ internal sealed class FormatBlockEditorForm : Form
             TemplateKind.Program => Loc.L("编辑「程序」模板 — 积木编辑", "Edit \"App\" template — Block editor"),
             _ => Loc.L("编辑「组合」模板 — 积木编辑", "Edit \"Combined\" template — Block editor")
         };
+        // 用我们自己画的图标：否则标题栏会显示 WinForms 默认图标
+        Icon = AppResource.Icon;
         Size = new Size(560, 520);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -115,6 +117,8 @@ internal sealed class FormatBlockEditorForm : Form
             Size = new Size(110, 28),
             BackColor = Color.White
         };
+            // 用我们自己画的图标：否则标题栏会显示 WinForms 默认图标
+            Icon = AppResource.Icon;
         addButton.Click += (_, _) =>
         {
             _blocks.Add(new FormatBlock { Type = FormatBlockType.Custom });

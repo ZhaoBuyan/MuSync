@@ -54,6 +54,8 @@ internal sealed class SteamLoginForm : Form
     private void InitializeComponent()
     {
         Text = Loc.L("Steam 登录", "Steam Sign In");
+            // 用我们自己画的图标：否则标题栏会显示 WinForms 默认图标
+            Icon = AppResource.Icon;
         Size = new Size(350, 384);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;

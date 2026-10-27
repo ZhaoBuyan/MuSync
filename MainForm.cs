@@ -757,14 +757,24 @@ internal class MainForm : Form
     };
 
     /// <summary>
-    /// 哪些播放器需要"用自身图标当封面占位"：酷狗与千千静听都不提供封面 URL。
-    /// 返回可执行文件路径；拿不到（进程已退出 / 读不到路径）返回 null，此时界面退回空白灰块。
-    /// 千千静听同样读它自己的进程路径，不依赖任何接口。
+    /// 每个播放器在"没有封面可显示"时，都退回**它自己的程序图标**（而不是一个灰块）。
+    /// <para>
+    /// 哪些情况会没有封面：酷狗 / 千千静听本身不提供封面 URL；网易云 / QQ 音乐 / 洛雪的封面可能下载失败
+    /// （没网、图挂了、封面还没就绪）；浏览器媒体在页面没有海报时也一样。
+    /// 与其让用户看一个灰方块，不如显示"这是哪个播放器"。
+    /// </para>
+    /// <para>
+    /// 返回可执行文件路径；拿不到（进程已退出 / 读不到路径）返回 null，此时界面才退回空白灰块。
+    /// </para>
     /// </summary>
     private static string? GetPlaceholderIconSource(string playerName)
     {
         string? path = playerName switch
         {
+            // 网易云的进程名就是 cloudmusic.exe；QQ 是 QQMusic.exe；洛雪是 lx-music-desktop.exe
+            "网易云音乐" => GetProcessPathByName("cloudmusic"),
+            "QQ音乐" => GetProcessPathByName("QQMusic"),
+            "洛雪音乐" => GetProcessPathByName("lx-music-desktop"),
             "酷狗音乐" => KuGou.FindAppIconPath(),
             "千千静听" => GetProcessPathByName("TTPlayerRebuild"),
             // 浏览器媒体拿不到缩略图时同样用浏览器自己的图标占位（文档与更新日志都是这么承诺的）

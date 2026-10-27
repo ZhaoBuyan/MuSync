@@ -37,3 +37,10 @@ chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
     // MuSync 没开 / 端口或令牌不对，静默忽略：这个扩展不该影响网页本身
   });
 });
+
+// 点工具栏图标 = 打开设置页（不设 popup，直接开选项，省一次点击）
+if (chrome.action && chrome.action.onClicked) {
+  chrome.action.onClicked.addListener(() => {
+    chrome.runtime.openOptionsPage();
+  });
+}

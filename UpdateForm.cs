@@ -47,6 +47,8 @@ internal sealed class UpdateForm : Form
                          UpdateChecker.NormalizeEdition(UpdateChecker.GetCurrentEdition()) == "setup";
 
         Text = Loc.L("发现新版本", "Update available");
+            // 用我们自己画的图标：否则标题栏会显示 WinForms 默认图标
+            Icon = AppResource.Icon;
         Size = new Size(560, 490);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;

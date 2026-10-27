@@ -106,6 +106,8 @@ internal sealed class SettingsForm : Form
     private void InitializeComponent()
     {
         Text = Loc.L("设置 - MuSync", "MuSync - Settings");
+            // 用我们自己画的图标：否则标题栏会显示 WinForms 默认图标
+            Icon = AppResource.Icon;
         Size = new Size(700, 660);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedSingle;
