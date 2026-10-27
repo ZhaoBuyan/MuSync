@@ -1937,17 +1937,36 @@ internal sealed class SettingsForm : Form
         settings.HideMusicWhenPaused = _hidePausedMusicCheckBox.Checked;
         settings.BrowserMediaSyncEnabled = _browserMediaCheckBox.Checked;
         settings.BrowserExtensionEnabled = _browserExtensionCheckBox.Checked;
-        if (int.TryParse(_browserExtensionPortBox.Text.Trim(), out var extPort) && extPort is >= 1 and <= 65535)
+
+        // 端口：只在合法时接受；非法时**保留原值并明确告诉用户**，不能静默丢弃
+        string? portWarning = null;
+        var portText = _browserExtensionPortBox.Text.Trim();
+        if (int.TryParse(portText, out var extPort) && extPort is >= 1 and <= 65535)
         {
             settings.BrowserExtensionPort = extPort;
-
-        // 令牌：留空表示不校验（默认），两端填一致才会生效
-        settings.BrowserExtensionToken = _browserExtensionTokenBox.Text.Trim();
         }
+        else
+        {
+            // 不弹模态框：保存动作里弹窗会打断"连点应用"的节奏，也会让自动化测试卡住。
+            // 把提示写到端口旁边的状态标签上（就在同一行，用户一定看得见），并把输入框回填成生效值。
+            Logger.Warn($"[设置] 扩展监听端口非法（\"{portText}\"），保留原值 {settings.BrowserExtensionPort}");
+            _browserExtensionPortBox.Text = settings.BrowserExtensionPort.ToString();
+            portWarning = Loc.L($"端口需 1–65535，已保留 {settings.BrowserExtensionPort}",
+                                $"Port must be 1–65535, kept {settings.BrowserExtensionPort}");
+        }
+
+        // 令牌：留空表示不校验（默认），两端填一致才会生效。
+        // ⚠️ 必须放在端口校验之外：端口填错不该连带令牌也不保存。
+        settings.BrowserExtensionToken = _browserExtensionTokenBox.Text.Trim();
         // 立刻生效：端口/开关变了就重启监听，不用等下一拍
         BrowserExtensionBridge.Ensure(
             settings.BrowserMediaSyncEnabled && settings.BrowserExtensionEnabled, settings.BrowserExtensionPort, settings.BrowserExtensionToken);
         UpdateBrowserExtensionStatus();
+        if (portWarning is not null && _browserExtensionStatusLabel is not null)
+        {
+            _browserExtensionStatusLabel.ForeColor = Color.Firebrick;
+            _browserExtensionStatusLabel.Text = portWarning;
+        }
         // 数据源按界面上的填写回写（名称重复/含大括号的条目会被 CollectDataSources 过滤掉）
         settings.DataSources = CollectDataSources();
         settings.AppSyncEnabled = _enableAppSyncCheckBox.Checked;
