@@ -166,8 +166,6 @@ internal sealed class BrowserMedia : IMusicPlayer
     }
 
     /// <summary>会话诊断日志的节流：会话组合不变时最多每 60 秒记一次。</summary>
-    private static readonly TimeSpan SessionLogInterval = TimeSpan.FromSeconds(60);
-    private static DateTime _lastSessionLogUtc = DateTime.MinValue;
     private static string _lastSessionSignature = "";
 
     /// <summary>
@@ -188,10 +186,11 @@ internal sealed class BrowserMedia : IMusicPlayer
             parts.Add($"{s.AppId}[{state},{kind}]");
         }
         var signature = string.Join(" | ", parts);
-        var now = DateTime.UtcNow;
-        if (signature == _lastSessionSignature && now - _lastSessionLogUtc < SessionLogInterval) return;
+        // 只在会话**组合发生变化**时记一条：这条以前按 60 秒重复输出，
+        // 一台机器一天能刷几十上百行相同的"系统会话 1 个：QQMusic.exe[暂停,非浏览器]"，
+        // 对排查没帮助，还把真正有用的线索淹掉了。
+        if (signature == _lastSessionSignature) return;
         _lastSessionSignature = signature;
-        _lastSessionLogUtc = now;
         Logger.Info($"[浏览器媒体] 系统会话 {sessions.Count} 个：{(sessions.Count == 0 ? "(无)" : signature)}");
     }
 
