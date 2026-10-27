@@ -1922,6 +1922,34 @@ internal sealed class SettingsForm : Form
         _aboutVersionLabel.Text = Loc.L($"版本：MuSync {versionText}", $"Version: MuSync {versionText}");
     }
 
+    /// <summary>
+    /// 把「浏览器扩展增强」的端口与令牌落到配置里。
+    /// <para>
+    /// 抽成纯函数是为了能单测：它以前被写在 <c>SaveSettings</c> 中间，还曾经把令牌赋值嵌进
+    /// "端口合法才保存"的 <c>if</c> 里 —— 端口填错时令牌会跟着一起丢掉，而且没有任何提示。
+    /// </para>
+    /// </summary>
+    /// <param name="settings">目标配置（调用方传入，测试里可以给一份临时配置）。</param>
+    /// <param name="portText">界面上填的端口原文。</param>
+    /// <param name="tokenText">界面上填的令牌原文（留空 = 不校验）。</param>
+    /// <returns>端口非法时返回给用户看的提示文案；合法返回 null。</returns>
+    internal static string? ApplyExtensionSettings(ConfigData settings, string? portText, string? tokenText)
+    {
+        // 令牌：与端口合法性**无关**，无论端口是否合法都要保存
+        settings.BrowserExtensionToken = (tokenText ?? "").Trim();
+
+        var trimmedPort = (portText ?? "").Trim();
+        if (int.TryParse(trimmedPort, out var port) && port is >= 1 and <= 65535)
+        {
+            settings.BrowserExtensionPort = port;
+            return null;
+        }
+
+        // 非法端口：保留原值，并返回提示（由调用方显示）
+        return Loc.L($"端口需 1–65535，已保留 {settings.BrowserExtensionPort}",
+                     $"Port must be 1–65535, kept {settings.BrowserExtensionPort}");
+    }
+
     private void SaveSettings()
     {
         var settings = Configurations.Instance.Settings;
@@ -1938,26 +1966,16 @@ internal sealed class SettingsForm : Form
         settings.BrowserMediaSyncEnabled = _browserMediaCheckBox.Checked;
         settings.BrowserExtensionEnabled = _browserExtensionCheckBox.Checked;
 
-        // 端口：只在合法时接受；非法时**保留原值并明确告诉用户**，不能静默丢弃
-        string? portWarning = null;
-        var portText = _browserExtensionPortBox.Text.Trim();
-        if (int.TryParse(portText, out var extPort) && extPort is >= 1 and <= 65535)
-        {
-            settings.BrowserExtensionPort = extPort;
-        }
-        else
+        // 端口与令牌：落库逻辑抽成纯函数（见 ApplyExtensionSettings），这里只负责 UI 反馈
+        var portWarning = ApplyExtensionSettings(settings, _browserExtensionPortBox.Text, _browserExtensionTokenBox.Text);
+        if (portWarning is not null)
         {
             // 不弹模态框：保存动作里弹窗会打断"连点应用"的节奏，也会让自动化测试卡住。
             // 把提示写到端口旁边的状态标签上（就在同一行，用户一定看得见），并把输入框回填成生效值。
-            Logger.Warn($"[设置] 扩展监听端口非法（\"{portText}\"），保留原值 {settings.BrowserExtensionPort}");
+            Logger.Warn($"[设置] 扩展监听端口非法（\"{_browserExtensionPortBox.Text.Trim()}\"），保留原值 {settings.BrowserExtensionPort}");
             _browserExtensionPortBox.Text = settings.BrowserExtensionPort.ToString();
-            portWarning = Loc.L($"端口需 1–65535，已保留 {settings.BrowserExtensionPort}",
-                                $"Port must be 1–65535, kept {settings.BrowserExtensionPort}");
         }
 
-        // 令牌：留空表示不校验（默认），两端填一致才会生效。
-        // ⚠️ 必须放在端口校验之外：端口填错不该连带令牌也不保存。
-        settings.BrowserExtensionToken = _browserExtensionTokenBox.Text.Trim();
         // 立刻生效：端口/开关变了就重启监听，不用等下一拍
         BrowserExtensionBridge.Ensure(
             settings.BrowserMediaSyncEnabled && settings.BrowserExtensionEnabled, settings.BrowserExtensionPort, settings.BrowserExtensionToken);
