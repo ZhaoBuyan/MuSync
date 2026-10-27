@@ -62,7 +62,7 @@ MuSync（BrowserExtensionBridge，只监听 127.0.0.1）
 
 ## 4. 在 MuSync 里启用
 
-1. MuSync → **设置 → 同步 → 浏览器扩展增强（实验性）**
+1. MuSync → **设置 → 数据源 → 浏览器扩展增强（实验性）**
 2. 勾选 **启用**
 3. **监听端口**保持 `47564`（与 `background.js` 里的 `MUSYNC_PORT` 一致；要改就两边一起改）
 4. 同一组里的状态行会显示：

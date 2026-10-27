@@ -53,7 +53,7 @@ internal static class Program
     }
 
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         // 全局异常兜底（UI 线程 / 后台线程 / 未观察任务）
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -130,6 +130,18 @@ internal static class Program
             ShowMinimizeToTrayNotification();
         // 消息循环空闲后再启动登录流程，避免启动阶段阻塞 UI（最长 15 秒白屏的问题）
         Application.Idle += OnApplicationIdle;
+          // --settings：启动后直接把设置窗口摆出来（排查 / 演示用，不影响正常运行逻辑）
+          var wantsSettings = false;
+          foreach (var arg in args)
+          {
+              if (string.Equals(arg, "--settings", StringComparison.OrdinalIgnoreCase)) wantsSettings = true;
+          }
+          if (wantsSettings)
+          {
+              using var settingsForm = new SettingsForm();
+              settingsForm.StartPosition = FormStartPosition.CenterScreen;
+              settingsForm.ShowDialog();
+          }
         Application.Run();
         cts.Cancel();
         _steamManager.ClearStatus();

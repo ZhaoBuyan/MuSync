@@ -263,54 +263,8 @@ internal sealed class SettingsForm : Form
             _enableAppSyncCheckBox, _syncNonGameCheckBox, _pauseWhenPlayingGameCheckBox
         ]);
 
-        // 浏览器扩展增强单独一组：它和"同步哪些东西"是两件事，挤在开关组里会显得局促
-        var extensionGroup = CreateGroupBox(
-            Loc.L("浏览器扩展增强（实验性）", "Browser extension bridge (experimental)"), 10, 178, 650, 120);
-        _browserExtensionCheckBox = CreateCheckBox(Loc.L("启用", "Enable"), 20, 32);
-        _browserExtensionCheckBox.CheckedChanged += (_, _) => UpdateBrowserExtensionStatus();
-        var browserExtensionGetButton = new Button
-        {
-            Text = Loc.L("获取扩展（打开浏览器）", "Get extension (opens browser)"),
-            Location = new Point(96, 28),
-            Size = new Size(190, 28),
-            BackColor = Color.White
-        };
-        browserExtensionGetButton.Click += (_, _) => OpenUrl(ExtensionPageUrl);
-        var browserExtensionPortLabel = new Label
-        {
-            Text = Loc.L("监听端口", "Port"),
-            Location = new Point(310, 34),
-            AutoSize = true
-        };
-        _browserExtensionPortBox = new TextBox
-        {
-            Location = new Point(382, 30),
-            Width = 84,
-            Text = "47564"
-        };
-        _browserExtensionStatusLabel = new Label
-        {
-            Location = new Point(20, 66),
-            Size = new Size(610, 20),
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8)
-        };
-        var browserExtensionHint = new Label
-        {
-            Location = new Point(20, 90),
-            Size = new Size(610, 22),
-            ForeColor = Color.FromArgb(150, 110, 40),
-            Font = new Font("Microsoft YaHei", 8),
-            Text = Loc.L(
-                "按 Win+A 看不到媒体控件，就说明浏览器没把播放状态交给系统 —— 请点「获取扩展」。",
-                "If Win+A shows no media controls, the browser is not publishing playback to Windows — click \"Get extension\".")
-        };
-        extensionGroup.Controls.AddRange([
-            _browserExtensionCheckBox, browserExtensionGetButton, browserExtensionPortLabel,
-            _browserExtensionPortBox, _browserExtensionStatusLabel, browserExtensionHint
-        ]);
 
-        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 310, 650, 182);
+        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 182, 650, 182);
         var priorityLabel = new Label
         {
             AutoSize = true,
@@ -353,7 +307,7 @@ internal sealed class SettingsForm : Form
         _playerPriorityMoveButtons.AddRange([moveUpButton, moveDownButton]);
         priorityGroup.Controls.AddRange([priorityLabel, priorityHint, _playerPriorityList, moveUpButton, moveDownButton]);
 
-        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 500, 650, 90);
+        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 376, 650, 90);
         var speedLabel = new Label { Text = Loc.L("进度刷新档位:", "Update rate:"), Location = new Point(20, 32), AutoSize = true };
         _syncSpeedCombo = new ComboBox
         {
@@ -374,14 +328,14 @@ internal sealed class SettingsForm : Form
 
         var lxHint = new Label
         {
-            Location = new Point(10, 598),
-            Size = new Size(650, 44),
+            Location = new Point(10, 474),
+            Size = new Size(650, 40),
             ForeColor = Color.FromArgb(150, 110, 40),
             Font = new Font("Microsoft YaHei", 8.5f),
             Text = Loc.L("洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，并允许来自局域网的访问。", "LX Music users: please enable \"Open API service\" under LX Music → Settings → Open API, and allow LAN access.")
         };
 
-        page.Controls.AddRange([switchGroup, extensionGroup, priorityGroup, speedGroup, lxHint]);
+        page.Controls.AddRange([switchGroup, priorityGroup, speedGroup, lxHint]);
         return page;
     }
 
@@ -1034,12 +988,62 @@ internal sealed class SettingsForm : Form
 
     private TabPage CreateDataSourcesPage()
     {
-        var page = new TabPage(Loc.L("数据源", "Data sources")) { BackColor = Color.White };
+        var page = new TabPage(Loc.L("数据源", "Data sources")) { BackColor = Color.White, AutoScroll = true };
+
+        // 浏览器扩展增强放在「数据源」页：它和心率那些 HTTP 源本质一样 —— 都是"从外部收数据"，
+        // 而不是"同步哪些东西"的开关。放这里用户在配心率时一眼就能看到。
+        var extensionGroup = CreateGroupBox(
+            Loc.L("浏览器扩展增强（实验性）", "Browser extension bridge (experimental)"), 10, 8, 650, 120);
+        _browserExtensionCheckBox = CreateCheckBox(Loc.L("启用", "Enable"), 20, 32);
+        _browserExtensionCheckBox.CheckedChanged += (_, _) => UpdateBrowserExtensionStatus();
+        var browserExtensionGetButton = new Button
+        {
+            Text = Loc.L("获取扩展（打开浏览器）", "Get extension (opens browser)"),
+            Location = new Point(96, 28),
+            Size = new Size(190, 28),
+            BackColor = Color.White
+        };
+        browserExtensionGetButton.Click += (_, _) => OpenUrl(ExtensionPageUrl);
+        var browserExtensionPortLabel = new Label
+        {
+            Text = Loc.L("监听端口", "Port"),
+            Location = new Point(310, 34),
+            AutoSize = true
+        };
+        _browserExtensionPortBox = new TextBox
+        {
+            Location = new Point(382, 30),
+            Width = 84,
+            Text = "47564"
+        };
+        _browserExtensionStatusLabel = new Label
+        {
+            Location = new Point(20, 66),
+            Size = new Size(610, 20),
+            ForeColor = Color.Gray,
+            Font = new Font("Microsoft YaHei", 8)
+        };
+        var browserExtensionHint = new Label
+        {
+            Location = new Point(20, 90),
+            Size = new Size(610, 22),
+            ForeColor = Color.FromArgb(150, 110, 40),
+            Font = new Font("Microsoft YaHei", 8),
+            Text = Loc.L(
+                "按 Win+A 看不到媒体控件，就说明浏览器没把播放状态交给系统 —— 请点「获取扩展」。",
+                "If Win+A shows no media controls, the browser is not publishing playback to Windows — click \"Get extension\".")
+        };
+        extensionGroup.Controls.AddRange([
+            _browserExtensionCheckBox, browserExtensionGetButton, browserExtensionPortLabel,
+            _browserExtensionPortBox, _browserExtensionStatusLabel, browserExtensionHint
+        ]);
+        page.Controls.Add(extensionGroup);
+
 
         var intro = new Label
         {
             AutoSize = true,
-            Location = new Point(10, 8),
+            Location = new Point(10, 140),
             MaximumSize = new Size(660, 0),
             ForeColor = Color.DimGray,
             Text = Loc.L(
@@ -1054,7 +1058,7 @@ internal sealed class SettingsForm : Form
         var addButton = new Button
         {
             Text = Loc.L("添加数据源", "Add source"),
-            Location = new Point(10, 74),
+            Location = new Point(10, 206),
             Size = new Size(110, 28)
         };
         addButton.Click += (_, _) => AddDataSourceRow(new DataSourceConfig
@@ -1070,7 +1074,7 @@ internal sealed class SettingsForm : Form
         var testButton = new Button
         {
             Text = Loc.L("测试当前填写", "Test as filled"),
-            Location = new Point(128, 74),
+            Location = new Point(128, 206),
             Size = new Size(120, 28)
         };
         _dataSourceTestButton = testButton;
@@ -1079,7 +1083,7 @@ internal sealed class SettingsForm : Form
         _dataSourceHint = new Label
         {
             AutoSize = true,
-            Location = new Point(258, 80),
+            Location = new Point(258, 212),
             ForeColor = Color.DimGray,
             Text = Loc.L("提示：音乐类服务关闭时其积木会展开为空。", "Tip: blocks expand to nothing while the service is down.")
         };
@@ -1087,8 +1091,8 @@ internal sealed class SettingsForm : Form
 
         _dataSourcesPanel = new Panel
         {
-            Location = new Point(10, 108),
-            Size = new Size(660, 300),
+            Location = new Point(10, 240),
+            Size = new Size(660, 264),
             AutoScroll = true,
             BackColor = Color.White
         };
