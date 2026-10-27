@@ -101,6 +101,12 @@ jobs:
           # 许可证随包：Release 资产里也要有（只下 exe 的人也能在同一页拿到）
           cp LICENSE THIRD-PARTY-NOTICES.md dist/
 
+      - name: Package browser extension
+        run: |
+          # 扩展单独出一个 zip：不然用户得克隆仓库才能「加载解压缩的扩展」
+          ( cd extension && zip -qr ../dist/MuSync-Browser-Extension.zip . )
+          ls -l dist/MuSync-Browser-Extension.zip
+
       - name: Verify tag matches csproj version
         run: |
           TAG="${GITHUB_REF_NAME#v}"
@@ -131,7 +137,7 @@ jobs:
           #    直接重定向会把星号带进 SHA256SUMS.txt 和 Release 表格里。
           (
             cd dist
-            for f in MuSync.exe MuSync-lite.exe MuSync-Setup.exe; do
+            for f in MuSync.exe MuSync-lite.exe MuSync-Setup.exe MuSync-Browser-Extension.zip; do
               printf '%s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$f"
             done > SHA256SUMS.txt
           )
