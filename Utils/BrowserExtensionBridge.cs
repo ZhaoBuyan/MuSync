@@ -39,6 +39,9 @@ internal sealed record BrowserExtensionSnapshot(
 internal static class BrowserExtensionBridge
 {
     /// <summary>请求头上限（含请求行），超过直接断开。</summary>
+    /// <summary>单个连接的读取超时：静默连接（连上却不发数据）不能永久占住处理任务。</summary>
+    private static readonly TimeSpan ClientReadTimeout = TimeSpan.FromSeconds(10);
+
     private const int MaxHeaderBytes = 8 * 1024;
 
     /// <summary>请求体上限：一条播放状态远小于此。</summary>
@@ -191,6 +194,10 @@ internal static class BrowserExtensionBridge
 
     private static async Task HandleClientAsync(TcpClient client, CancellationToken token)
     {
+            // 读取超时：静默连接会把这个处理任务连同 socket 一直挂着（以前没有超时）。
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(ClientReadTimeout);
+            token = timeoutCts.Token;
         using (client)
         {
             try

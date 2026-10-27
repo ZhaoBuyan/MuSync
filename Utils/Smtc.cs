@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
@@ -29,20 +30,65 @@ internal static class Smtc
         string AppId, bool IsPlaying, string Title, string? Artist, string? Album, double Position, double Duration,
         IRandomAccessStreamReference? Thumbnail = null, DateTimeOffset LastUpdatedTime = default);
 
-    /// <summary>取会话管理器；失败返回 null（调用方自行决定退避）。</summary>
-    public static async Task<GlobalSystemMediaTransportControlsSessionManager?> RequestManagerAsync()
+    /// <summary>
+    /// 缓存的会话管理器；<see cref="ManagerMaxAge"/> 或显式 <see cref="InvalidateManager"/> 后才会重建。
+    /// <para>
+    /// ⚠️ 这里曾经是"每次轮询都重新 RequestAsync"，理由是实测发现缓存的会话管理器会假死
+    /// （先返回 N 个会话，之后一直返回 0 个，重新请求又正常）。但那个写法有真实代价：
+    /// 每次 RequestAsync 都会新建一整套 WinRT/COM 包装（只能等终结器回收）。
+    /// 实测一晚上（10.9 小时）堆积 31,995 个 <c>WinRT.ObjectReference</c>，终结器线程常年满载，
+    /// 线程池被拖到饥饿并不断注入线程 —— 线程数涨到 1500+，峰值吃 3.8 个核。
+    /// </para>
+    /// <para>
+    /// 现在的折中：**默认复用**，只在两种情况下重建 ——
+    /// <list type="number">
+    /// <item>调用方给出确凿的"假死"信号（见 <c>BrowserMedia.DescribeAsync</c>：本来有浏览器会话、
+    /// 突然连续几轮变成 0 个，且确实有浏览器进程在跑）；</item>
+    /// <item>超过 <see cref="ManagerMaxAge"/>（10 分钟）兜底换新，避免长期复用同一个对象。</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    /// <param name="forceRefresh">true = 丢弃缓存重建（调用方已判定管理器可能假死）。</param>
+    public static async Task<GlobalSystemMediaTransportControlsSessionManager?> RequestManagerAsync(bool forceRefresh = false)
     {
+        var cached = Volatile.Read(ref _cachedManager);
+        if (!forceRefresh && cached is not null && DateTime.UtcNow - _cachedAtUtc < ManagerMaxAge) return cached;
+
+        await ManagerGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            return await GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask()
+            // 双检：等锁期间别的调用可能已经重建过了
+            cached = Volatile.Read(ref _cachedManager);
+            if (!forceRefresh && cached is not null && DateTime.UtcNow - _cachedAtUtc < ManagerMaxAge) return cached;
+
+            var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask()
                 .ConfigureAwait(false);
+            Volatile.Write(ref _cachedManager, manager);
+            _cachedAtUtc = DateTime.UtcNow;
+            return manager;
         }
         catch (Exception ex)
         {
+            // 失败时清空缓存，让下一次调用重新尝试（调用方另有退避）
+            Volatile.Write(ref _cachedManager, null);
             Debug.WriteLine($"[SMTC] 取会话管理器失败: {ex.Message}");
             return null;
         }
+        finally
+        {
+            ManagerGate.Release();
+        }
     }
+
+    /// <summary>丢弃缓存的会话管理器：下一次 <see cref="RequestManagerAsync"/> 会重新请求。</summary>
+    public static void InvalidateManager() => Volatile.Write(ref _cachedManager, null);
+
+    private static GlobalSystemMediaTransportControlsSessionManager? _cachedManager;
+    private static DateTime _cachedAtUtc = DateTime.MinValue;
+    private static readonly SemaphoreSlim ManagerGate = new(1, 1);
+
+    /// <summary>缓存管理器的最大存活时间：到期无条件换新，兜底防止长期复用同一个对象。</summary>
+    private static readonly TimeSpan ManagerMaxAge = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// 把会话压成纯数据快照，**并顺手把封面缩略图的引用一并取出**。

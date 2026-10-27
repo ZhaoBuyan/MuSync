@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using MuSync.Models;
@@ -137,32 +138,83 @@ internal sealed class BrowserMedia : IMusicPlayer
     private static readonly string[] BrowserProcessNamesForPath = BrowserAppIdPrefixes;
 
     /// <summary>
-    /// 取会话快照。**每次都重新获取会话管理器**，不再长期缓存它。
+    /// 取会话快照。**复用** WinRT 会话管理器，只在确凿的"假死"信号出现时才重建。
     /// <para>
-    /// ⚠️ 实测教训（两次踩同一个坑）：缓存的会话管理器在被反复调用后会失效 ——
-    /// 同一个管理器先返回 2 个会话，之后**持续返回 0 个**，而重新 RequestAsync 拿到的又是好的。
-    /// 主循环的节奏（233ms）正好踩中它。
-    /// 第一版靠"列表为空就重建 + 限频 5 秒"补救，但**两次重建之间仍会返回空**：
-    /// 实测 60 拍里有 27 拍"系统明明是 Playing、读取器却是 null"，
-    /// 表现为状态被其它播放器反复顶掉又切回来。
-    /// 现在改为每次重新获取管理器，从根上消除失效窗口；配合按配置间隔才真正读取（默认 1 秒），
-    /// 开销与原来同一量级（原来每拍都在读会话）。
+    /// 历史（两次都踩在同一个坑的两边）：
+    /// <list type="number">
+    /// <item>长期缓存管理器 → 实测会假死：先返回 2 个会话，之后**持续返回 0 个**，重新请求又正常；
+    /// 表现为状态被别的播放器反复顶掉。</item>
+    /// <item>改成**每次轮询都重新请求** → 稳定了，但代价极大：10.9 小时堆积 31,995 个
+    /// <c>WinRT.ObjectReference</c>，终结器线程常年满载、线程池饥饿并注入线程，
+    /// 线程数涨到 1500+、峰值吃 3.8 个核。</item>
+    /// </list>
+    /// 现在的做法：默认复用，只有"**本来有浏览器会话，突然连续几轮变成 0 个，而且确实有浏览器进程在跑**"
+    /// 才判定假死并重建（另外管理器自身还有 10 分钟兜底换新）。
+    /// 这样既不会重现"读不到"，也不会每秒制造一堆 WinRT 对象。
     /// </para>
     /// </summary>
     private async Task<List<Smtc.SessionSnapshot>> DescribeAsync()
     {
-        var manager = await Smtc.RequestManagerAsync().ConfigureAwait(false);
+        var forceRefresh = _forceManagerRefresh;
+        _forceManagerRefresh = false;
+
+        var manager = await Smtc.RequestManagerAsync(forceRefresh).ConfigureAwait(false);
         if (manager == null)
         {
             _managerFailedAtUtc = DateTime.UtcNow;
+            Smtc.InvalidateManager();
             return [];
         }
         _managerFailedAtUtc = DateTime.MinValue;
+
         // 这里**不再用 appIdFilter 过滤**：诊断需要看到"系统里到底有哪些会话、哪些没被认成浏览器"。
         // 过滤交给挑选阶段（PickBest 里仍会 IsBrowserAppId 判定），行为不变。
         var sessions = await Smtc.DescribeAsync(manager).ConfigureAwait(false);
         LogSessions(sessions);
+
+        var hasBrowserSession = false;
+        foreach (var s in sessions) { if (IsBrowserAppId(s.AppId)) { hasBrowserSession = true; break; } }
+        if (_staleness.Note(hasBrowserSession, hasBrowserSession || IsAnyBrowserProcessRunning()))
+        {
+            _forceManagerRefresh = true;
+            Logger.Info("[浏览器媒体] 会话列表从有到无，判定管理器假死，下一轮重建（不再每拍重建，避免 WinRT 对象堆积）");
+        }
         return sessions;
+    }
+
+    /// <summary>"管理器假死"的判定状态（纯逻辑，可单测）。</summary>
+    internal readonly ManagerStalenessTracker _staleness = new();
+
+    /// <summary>下一轮是否强制重建会话管理器。</summary>
+    private bool _forceManagerRefresh;
+
+    /// <summary>
+    /// 是否有任何已知浏览器进程在运行（决定"没有会话"是否可疑）。
+    /// <para>
+    /// <see cref="BrowserProcessNames"/> 里的名字**不带 `.exe`**（与 <see cref="BrowserTable"/> 同源），
+    /// 而 <see cref="Process.ProcessName"/> 同样不带扩展名，可以直接比；
+    /// 枚举一次全部进程再比对，比按 20 个名字逐个 GetProcessesByName 便宜。
+    /// </para>
+    /// </summary>
+    private static bool IsAnyBrowserProcessRunning()
+    {
+        var known = new HashSet<string>(BrowserProcessNames, StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var process in Process.GetProcesses())
+            {
+                using (process)
+                {
+                    try
+                    {
+                        if (known.Contains(process.ProcessName)) return true;
+                    }
+                    catch { /* 个别进程读不到名字，忽略 */ }
+                }
+            }
+        }
+        catch { /* 枚举失败按"没在跑"处理，宁可少重建一次 */ }
+        return false;
     }
 
     /// <summary>会话诊断日志的节流：会话组合不变时最多每 60 秒记一次。</summary>

@@ -10,6 +10,12 @@ namespace MuSync.Utils;
 /// </summary>
 internal static class Logger
 {
+    /// <summary>线程数告警阈值：正常几十，超过基本可判定泄漏。</summary>
+    private const int ThreadCountWarnThreshold = 300;
+
+    /// <summary>线程数告警的节流时刻（每 10 分钟最多一条）。</summary>
+    private static DateTime _lastThreadWarnUtc = DateTime.MinValue;
+
     private static readonly object SyncRoot = new();
     private static readonly string LogDirectory = ResolveLogDirectory();
     private static string _currentDate = "";
@@ -98,7 +104,17 @@ internal static class Logger
             var workingSet = process.WorkingSet64 / 1024.0 / 1024.0;
             var privateBytes = process.PrivateMemorySize64 / 1024.0 / 1024.0;
             var gcHeap = GC.GetTotalMemory(false) / 1024.0 / 1024.0;
-            Info($"[Memory] 工作集 {workingSet:F1} MB | 私有 {privateBytes:F1} MB | GC 堆 {gcHeap:F1} MB");
+                var threads = process.Threads.Count;
+                Info($"[Memory] 工作集 {workingSet:F1} MB | 私有 {privateBytes:F1} MB | GC 堆 {gcHeap:F1} MB | 线程 {threads}");
+                // 线程数自检：正常应在几十以内。历史上出过一次 WinRT 会话管理器被每秒重建，
+                // 终结器满载 + 线程池饥饿并注入线程，线程数涨到 1500+、峰值吃 3.8 个核。
+                // 留一条 WARN，同类问题将来一眼可见，不必再抓 dump。
+                if (threads > ThreadCountWarnThreshold &&
+                    DateTime.UtcNow - _lastThreadWarnUtc > TimeSpan.FromMinutes(10))
+                {
+                    _lastThreadWarnUtc = DateTime.UtcNow;
+                    Warn($"[Memory] 线程数异常增长：{threads} 个（阈值 {ThreadCountWarnThreshold}），疑有泄漏");
+                }
         }
         catch
         {
