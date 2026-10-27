@@ -11,13 +11,10 @@ dist-setup/
 commit-msg.txt
 
 # 本地规划文件（不推送，仅本地参考）
-ROADMAP.md
 
 # 事故档案（本地保留，不推送）：现象 / 证据 / 根因 / 处置 / 遗留
-INCIDENTS.md
 
 # 酷狗逆向笔记（本地保留，不推送）
-docs/kugou-reverse-notes.md
 
 # 本地数据双保险（正常位于 %LocalAppData%\MuSync，即使被拷进项目目录也不会被 git 跟踪）
 config.json
@@ -25,5 +22,5 @@ config.json.bak
 logs/
 *.log
 cm-serverlist.bin
-# 歌词内存探测笔记（本地，不推送）
-docs/lyrics-probe-notes.md
+# 开发过程档案（决策史 / 事故 / 逆向 / 探测笔记）：本地保留，永不推送
+docs/archive/
