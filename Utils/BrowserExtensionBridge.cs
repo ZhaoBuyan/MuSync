@@ -402,8 +402,46 @@ internal static class BrowserExtensionBridge
     {
         if (!root.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String) return "";
         var text = value.GetString() ?? "";
+        text = SanitizeText(text);
         if (text.Length > MaxTextLength) text = text[..MaxTextLength];
         return text.Trim();
+    }
+
+    /// <summary>
+    /// 清洗上报文本：把控制字符（换行、制表、以及其它 C0/C1 控制符）替换成空格，并压掉连续空白。
+    ///
+    /// <para>
+    /// 为什么必须做：这些文本最终会进 Steam 状态。网页标题是**别人可控**的内容 ——
+    /// 一个带 <c>\r\n</c> 或零宽控制符的标题会让状态显示错乱，也可能被用来伪装成别的行。
+    /// 只保留可打印字符是最省事也最安全的做法（emoji 等正常字符不受影响）。
+    /// </para>
+    /// </summary>
+    private static string SanitizeText(string text)
+    {
+        if (text.Length == 0) return text;
+
+        var needsWork = false;
+        foreach (var c in text)
+        {
+            // C0（含 \r \n \t）、DEL、C1 都算控制字符
+            if (char.IsControl(c))
+            {
+                needsWork = true;
+                break;
+            }
+        }
+        if (!needsWork) return text;
+
+        var builder = new StringBuilder(text.Length);
+        var lastWasSpace = false;
+        foreach (var c in text)
+        {
+            var printable = char.IsControl(c) ? ' ' : c;
+            if (printable == ' ' && lastWasSpace) continue;
+            builder.Append(printable);
+            lastWasSpace = printable == ' ';
+        }
+        return builder.ToString().Trim();
     }
 
     private static double ReadNumber(JsonElement root, string name)

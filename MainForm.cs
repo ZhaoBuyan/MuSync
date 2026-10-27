@@ -1211,7 +1211,14 @@ internal class MainForm : Form
         if (info is not { } playerInfo || string.IsNullOrEmpty(playerInfo.Url)) return;
         try
         {
-            Process.Start(new ProcessStartInfo(playerInfo.Url) { UseShellExecute = true });
+            // 只允许 http(s)：这个地址是从播放器内存里读出来的字符串，
+            // 直接交给 Shell 会把本地路径/自定义协议当成"执行"而不是"打开网页"
+            if (!SafeUrl.TryOpenInBrowser(playerInfo.Url, out var openError))
+            {
+                    if (openError is null) Logger.Warn($"打开歌曲链接被拒绝（不是 http/https 地址）: {playerInfo.Url}");
+                    else Logger.Error($"打开歌曲链接失败: {openError.Message}");
+                return;
+            }
         }
         catch (Exception ex)
         {

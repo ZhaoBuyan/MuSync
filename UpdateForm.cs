@@ -374,7 +374,10 @@ internal sealed class UpdateForm : Form
     {
         try
         {
-            Process.Start(new ProcessStartInfo(_info.Url) { UseShellExecute = true });
+            if (!SafeUrl.TryOpenInBrowser(_info.Url, out _))
+            {
+                Logger.Warn($"[Update] 拒绝打开非 http(s) 的更新地址: {_info.Url}");
+            }
         }
         catch (Exception ex)
         {
