@@ -96,24 +96,26 @@ internal sealed class HttpDataSource
     /// </summary>
     internal string? RefreshIfDue(DataSourceConfig source, CancellationToken token)
     {
-        if (!source.Enabled || string.IsNullOrWhiteSpace(source.Url) || string.IsNullOrWhiteSpace(source.Name))
-        {
-            Display = null;
-            return null;
-        }
-
-        // 配置变了（换地址 / 改取值 / 改显示 / 改间隔）就立刻生效：
-        // 否则旧实例的 _nextAttemptUtc 会把新配置压住 —— 把 3600 秒改成 1 秒后仍要等一小时。
+        // ① 配置指纹（**含启用状态**）：停用/启用同样是一次配置变化，必须让旧请求失效、调度归零。
+        // 以前启用判断在这个块之前就直接 return 了，于是"停用 → 启用"不会重置 _nextAttemptUtc，
+        // 长间隔的源重新启用后仍要等旧计划（最长一小时）。
         var fingerprint = ConfigFingerprint(source);
         if (fingerprint != _configFingerprint)
         {
             _configFingerprint = fingerprint;
-            Interlocked.Increment(ref _generation);
+            Interlocked.Increment(ref _generation);   // 停用前的在途请求回来也不会再写显示缓存
             Display = null;
             LastSuccessUtc = DateTime.MinValue;
             LastError = null;
             _nextAttemptUtc = DateTime.MinValue;
             _loggedFailure = false;
+        }
+
+        // ② 停用 / 没填地址 / 没填名字：没有可请求的东西
+        if (!source.Enabled || string.IsNullOrWhiteSpace(source.Url) || string.IsNullOrWhiteSpace(source.Name))
+        {
+            Display = null;
+            return null;
         }
 
         var now = DateTime.UtcNow;
@@ -181,7 +183,7 @@ internal sealed class HttpDataSource
     /// </para>
     /// </summary>
     internal static string ConfigFingerprint(DataSourceConfig source) =>
-        string.Join("|", source.Url, source.ValuePath, source.Format, SourceIntervalSeconds(source));
+        string.Join("|", source.Enabled, source.Url, source.ValuePath, source.Format, SourceIntervalSeconds(source));
 
     private static int SourceIntervalSeconds(DataSourceConfig source) =>
         source.RefreshSeconds > 0 ? source.RefreshSeconds : 1;

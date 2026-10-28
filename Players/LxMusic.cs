@@ -17,8 +17,8 @@ internal sealed class LxMusic : IMusicPlayer
     private const double PollIntervalMs = 1000;
 
     private readonly HttpClient _httpClient;
-    private readonly string? _apiBaseUrl;
-    private readonly bool _isEnabled;
+    private string? _apiBaseUrl;
+    private bool _isEnabled;
     private string? _lastSongTitle;
     private string? _lastSongArtist;
     private string _currentSongId = Guid.NewGuid().ToString();
@@ -26,9 +26,27 @@ internal sealed class LxMusic : IMusicPlayer
     private DateTime _lastRequestUtc = DateTime.MinValue;
     private DateTime _lastSuccessUtc = DateTime.MinValue;
 
+    /// <summary>最近一次尝试重读配置的时刻（配置读不到时每 10 秒重试，别每拍都读文件）。</summary>
+    private DateTime _lastConfigReadUtc = DateTime.MinValue;
+    private static readonly TimeSpan ConfigRetryDelay = TimeSpan.FromSeconds(10);
     public LxMusic(int pid)
     {
         _httpClient = HttpClientManager.SharedClient;
+        TryLoadConfig();
+    }
+
+    /// <summary>
+    /// 读取 LX Music 的配置，判断开放 API 是否可用。
+    /// <para>
+    /// 为什么需要"可重入"：配置文件可能尚未生成、正在写入/被占用、或当时用户还没打开开放 API。
+    /// 以前只在构造函数读一次，读失败就把整个播放器实例永久判为不可用 ——
+    /// 用户按提示打开开放 API 后也不会自己恢复，只能重启 MuSync。
+    /// </para>
+    /// </summary>
+    /// <returns>true = 配置可用。</returns>
+    private bool TryLoadConfig()
+    {
+        _lastConfigReadUtc = DateTime.UtcNow;
         try
         {
             var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -37,31 +55,33 @@ internal sealed class LxMusic : IMusicPlayer
             {
                 Debug.WriteLine("[LX Music] Config file not found.");
                 _isEnabled = false;
-                return;
+                return false;
             }
             var configJson = File.ReadAllText(configPath);
             var config = JsonSerializer.Deserialize<LxMusicConfig>(configJson);
             if (config?.Setting is { Enable: true, Port: not null } settings)
             {
-                _apiBaseUrl = $"http://localhost:{settings.Port}";
+                var baseUrl = $"http://localhost:{settings.Port}";
+                if (baseUrl != _apiBaseUrl)
+                {
+                    Logger.Info($"[LX Music] 开放 API 已就绪：{baseUrl}");
+                }
+                _apiBaseUrl = baseUrl;
                 _isEnabled = true;
                 Debug.WriteLine($"[LX Music] API enabled on port: {settings.Port}");
+                return true;
             }
-            else
-            {
-                _isEnabled = false;
-                Debug.WriteLine("[LX Music] OpenAPI is disabled or could not be read from config file.");
-                if (config?.Setting != null)
-                {
-                    Debug.WriteLine(
-                        $"[LX Music] Debug Info: Found Enable={config.Setting.Enable}, Port={config.Setting.Port ?? "null"}");
-                }
-            }
+            _isEnabled = false;
+            _apiBaseUrl = null;
+            Debug.WriteLine("[LX Music] OpenAPI is disabled or could not be read from config file.");
+            return false;
         }
         catch (Exception e)
         {
-            Debug.WriteLine($"[ERROR] Failed to initialize LX Music player: {e.Message}");
+            // 文件占用 / 正在写入 / JSON 暂时不完整：下次重试，不把实例判死
+            Debug.WriteLine($"[LX Music] 读取配置失败（稍后重试）: {e.Message}");
             _isEnabled = false;
+            return false;
         }
     }
 
@@ -72,7 +92,13 @@ internal sealed class LxMusic : IMusicPlayer
 
     public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
-        if (!_isEnabled || string.IsNullOrEmpty(_apiBaseUrl)) return null;
+        // 配置随时可能就绪（LX 刚启动 / 用户刚打开开放 API / 文件从占用中恢复）：
+        // 不可用时按 10 秒节流重读，而不是把这台播放器永久判死。
+        if (!_isEnabled || string.IsNullOrEmpty(_apiBaseUrl))
+        {
+            if (DateTime.UtcNow - _lastConfigReadUtc < ConfigRetryDelay) return null;
+            if (!TryLoadConfig()) return null;
+        }
         var nowUtc = DateTime.UtcNow;
         // 节流窗口内直接返回上次成功状态，避免每秒多次 HTTP 请求
         if (_lastInfoCache is { } cached && (nowUtc - _lastRequestUtc).TotalMilliseconds < PollIntervalMs)

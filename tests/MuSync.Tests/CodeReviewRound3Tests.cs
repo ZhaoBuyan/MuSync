@@ -109,4 +109,14 @@ public class CodeReviewRound3Tests
 
         Assert.Equal(expected, print);
     }
+    [Fact]
+    public void ConfigFingerprint_ChangesWhenEnabledToggles()
+    {
+        // R5：停用 / 重新启用也是一次配置变化，必须让旧的「下一次请求时间」作废
+        var enabled = HttpDataSource.ConfigFingerprint(Source("http://x/y", seconds: 3600));
+        var disabled = Source("http://x/y", seconds: 3600);
+        disabled.Enabled = false;
+
+        Assert.NotEqual(enabled, HttpDataSource.ConfigFingerprint(disabled));
+    }
 }

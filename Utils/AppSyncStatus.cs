@@ -52,7 +52,8 @@ internal static class AppSyncStatus
         bool manualPause,
         string? activeAppDisplay,
         bool hasActiveAppRule,
-        bool activeAppRuleConfirmed)
+        bool activeAppRuleConfirmed,
+        bool activeAppRuleEnabled = false)
     {
         if (!syncEnabled)
         {
@@ -69,7 +70,10 @@ internal static class AppSyncStatus
             return new AppSyncStatusResult(AppSyncPanelState.PausedManual,
                 Loc.L("同步已手动暂停", "Sync paused manually"));
         }
-        if (hasActiveAppRule && !activeAppRuleConfirmed)
+        // 只有"识别到但还没启用（不会推送）"才算待确认。
+        // 自动识别到的程序会以 Enabled=true、IsUserConfirmed=false 参与同步 —— 那种情况是在正常推送，
+        // 面板却报"待确认/未检测到程序"，用户会以为坏了。
+        if (hasActiveAppRule && !activeAppRuleConfirmed && !activeAppRuleEnabled)
         {
             return new AppSyncStatusResult(AppSyncPanelState.PendingConfirmation,
                 Loc.L("待确认：请在设置 → 程序中确认分类", "Pending — confirm it in Settings → Apps"));

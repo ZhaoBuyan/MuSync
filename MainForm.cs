@@ -279,7 +279,9 @@ internal class MainForm : Form
             manualPause: Program.GetSteamManager()?.ManualPause == true,
             activeAppDisplay: display,
             hasActiveAppRule: (activeRule ?? pendingRule) != null,
-            activeAppRuleConfirmed: (activeRule ?? pendingRule)?.IsUserConfirmed == true);
+            activeAppRuleConfirmed: (activeRule ?? pendingRule)?.IsUserConfirmed == true,
+            // 自动识别会创建"已启用但未手动确认"的规则，那种情况是在正常推送，不能算待确认
+            activeAppRuleEnabled: (activeRule ?? pendingRule)?.Enabled == true);
 
         var state = status.State;
         if (state == AppSyncPanelState.NotDetected)
@@ -290,15 +292,16 @@ internal class MainForm : Form
         else if (state == AppSyncPanelState.PendingConfirmation)
         {
             // 命中规则但还没确认分类：显示程序名，并明确告知「不会推送到 Steam」
-            if (pendingRule == null)
+            var ruleForName = pendingRule ?? activeRule;
+            if (ruleForName == null)
             {
                 _appNameLabel.Text = Loc.L("未检测到程序", "No app detected");
                 _appCategoryLabel.Text = "";
             }
             else
             {
-                var categoryText = AppSyncStatus.CategoryTextOf(pendingRule.Category);
-                _appNameLabel.Text = AppRuleManager.DisplayNameOf(pendingRule);
+                var categoryText = AppSyncStatus.CategoryTextOf(ruleForName.Category);
+                _appNameLabel.Text = AppRuleManager.DisplayNameOf(ruleForName);
                 _appCategoryLabel.Text = Loc.L($"分类：{categoryText}（未确认）", $"Category: {categoryText} (unconfirmed)");
             }
         }
