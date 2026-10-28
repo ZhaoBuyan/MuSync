@@ -783,9 +783,30 @@ internal class SteamSessionManager : IDisposable
 
     private void CallbackLoop(CancellationToken token)
     {
+        // ⚠️ 这里必须用**无超时**的异步等待。
+        // 以前用 `RunWaitCallbacks(TimeSpan.FromSeconds(1))`：队列里没有回调时，SK2 内部的
+        // `DataflowBlock.Receive(block, timeout)` 会**抛 TimeoutException**（由 Dataflow 的
+        // Common.InitializeStackTrace 创建），SK2 自己 catch 掉当作"这一秒没回调"。
+        // 后果：每秒白抛一次异常（实测异常率因此稳定在 3 次/秒，含内部重抛），
+        // 而且回调最多晚 1 秒才被处理。改成带取消令牌的无限等待：没回调就睡着，有回调立刻醒。
         while (!token.IsCancellationRequested && _isRunning)
         {
-            _callbackManager?.RunWaitCallbacks(TimeSpan.FromSeconds(1));
+            try
+            {
+                var manager = _callbackManager;
+                if (manager == null) break;
+                manager.RunWaitCallbackAsync(token).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                break;   // 正常退出：取消令牌触发了
+            }
+            catch (Exception ex)
+            {
+                // 单次等待失败不应终止整个泵：记一条，稍后继续
+                Logger.Warn($"[SteamSession] 回调循环异常（将继续）: {ex.Message}");
+                Thread.Sleep(200);
+            }
         }
     }
 
