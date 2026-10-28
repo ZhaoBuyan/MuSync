@@ -37,6 +37,9 @@ internal sealed class HttpDataSource
     /// <summary>成功读到值之间的最大间隔；超过即视为"数据已过期"（对端停了）。</summary>
     private static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(10);
 
+    /// <summary>过期阈值的宽限：覆盖一次请求超时 + 一次失败退避，避免对端慢一拍就判过期。</summary>
+    private const double StaleGraceSeconds = 10;
+
     /// <summary>
     /// 共用的 HTTP 客户端。
     /// <para>
@@ -94,12 +97,17 @@ internal sealed class HttpDataSource
         }
 
         var now = DateTime.UtcNow;
-        // 数据过期（对端停了）就不再显示，避免把一个陈旧数值一直挂在状态里
-        if (Display != null && LastSuccessUtc != DateTime.MinValue && now - LastSuccessUtc > StaleAfter)
+        // 数据过期（对端停了）就不再显示，避免把陈旧数值一直挂在状态里。
+        //
+        // ⚠️ 阈值必须**跟着配置的刷新间隔走**：以前固定 10 秒，而设置页允许 1~3600 秒。
+        // 配 60 秒时，第 11 秒数据就被判过期清空，直到下次请求回来才恢复 —— 表现为积木每
+        // 分钟闪一下、大部分时间是空的。现在取 max(StaleAfter, 刷新间隔 + 宽限)，
+        // 宽限覆盖一次请求超时 + 一次退避，够对端慢一拍也不会闪。
+        var refreshSeconds = SourceIntervalSeconds(source);
+        if (Display != null && IsStale(now, LastSuccessUtc, refreshSeconds))
         {
             Display = null;
         }
-
         // 未到期，或上一轮还没回来（对端慢）：直接给当前值，不排队、不叠加请求
         if (now < _nextAttemptUtc) return Display;
         if (Interlocked.CompareExchange(ref _refreshInFlight, 1, 0) != 0) return Display;
@@ -125,6 +133,21 @@ internal sealed class HttpDataSource
 
         return Display;
     }
+
+    /// <summary>
+    /// 数据多久没更新算"过期"。阈值**跟着刷新间隔走**：
+    /// <c>max(StaleAfter, 刷新间隔 + 宽限)</c>。
+    /// <para>
+    /// 以前固定 10 秒，而设置页允许 1~3600 秒：配 60 秒时，第 11 秒就被判过期清空，
+    /// 直到下次请求回来才恢复 —— 表现为积木每分钟闪一下、大部分时间是空的。
+    /// </para>
+    /// </summary>
+    internal static TimeSpan StaleWindowFor(int refreshSeconds) =>
+        TimeSpan.FromSeconds(Math.Max(StaleAfter.TotalSeconds, refreshSeconds + StaleGraceSeconds));
+
+    /// <summary>这份数据是否已经过期（纯函数，便于单测）。</summary>
+    internal static bool IsStale(DateTime nowUtc, DateTime lastSuccessUtc, int refreshSeconds) =>
+        lastSuccessUtc != DateTime.MinValue && nowUtc - lastSuccessUtc > StaleWindowFor(refreshSeconds);
 
     private static int SourceIntervalSeconds(DataSourceConfig source) =>
         source.RefreshSeconds > 0 ? source.RefreshSeconds : 1;

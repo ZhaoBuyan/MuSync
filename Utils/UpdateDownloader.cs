@@ -146,22 +146,18 @@ internal static class UpdateDownloader
         var partPath = finalPath + ".part";
         try
         {
-            if (File.Exists(finalPath) && FileSizesMatch(finalPath, asset.Size))
+            // 缓存命中也要走**同一个校验入口**（大小 + SHA-256 + 签名）：
+            // 只比大小会复用被人替换过、或摘要与发布不符的包。
+            if (EvaluateCachedPackage(asset, version, out _, out var cachedWarning, out _, directory) ==
+                CachedPackageVerdict.Usable)
             {
-                // 已存在也要验签名：磁盘上这份可能是上次留下的、也可能被人替换过
-                var existing = BinarySignature.Check(finalPath, out var existingHResult);
-                if (!BinarySignature.MustReject(existing))
+                Logger.Info($"[Update] 更新包已存在且校验通过，跳过下载: {finalPath}");
+                return new DownloadResult
                 {
-                    Logger.Info($"[Update] 更新包已存在，跳过下载: {finalPath}（签名: {existing}）");
-                    return new DownloadResult
-                    {
-                        Status = DownloadStatus.Completed,
-                        FilePath = finalPath,
-                        WarningMessage = BinarySignature.WarningFor(existing)
-                    };
-                }
-                Logger.Warn($"[Update] 本地更新包签名无效（hresult=0x{existingHResult:X8}），删除后重新下载");
-                TryDelete(finalPath);
+                    Status = DownloadStatus.Completed,
+                    FilePath = finalPath,
+                    WarningMessage = cachedWarning
+                };
             }
             var targetDir = Path.GetDirectoryName(finalPath);
             if (!string.IsNullOrEmpty(targetDir)) Directory.CreateDirectory(targetDir);

@@ -23,7 +23,13 @@ internal sealed record BrowserExtensionSnapshot(
     string Site,
     DateTime ReceivedUtc,
     /// <summary>页面是否在前台（老版本扩展不发这个字段时为 false）。</summary>
-    bool IsVisible = false);
+    bool IsVisible = false,
+    /// <summary>
+    /// 页面实例标识（扩展 1.2.1 起上报）。同一标签换集 / 改标题时保持不变，
+    /// 用来区分"同站点同标题的两个标签" —— 标题会重复，它不是身份。
+    /// 老版本扩展不发这个字段，此时为空串，判定退回"站点 + 标题"（与之前行为一致）。
+    /// </summary>
+    string SourceId = "");
 
 /// <summary>
 /// 浏览器扩展增强的本机接收器：浏览器扩展把当前播放状态 POST 到 <c>127.0.0.1:端口</c>，
@@ -498,6 +504,7 @@ internal static class BrowserExtensionBridge
                   // 页面是否在前台：前台新开的视频要能接过后台的直播，
                   // 但两个都在后台时仍保持在位者（避免每秒互相顶掉）。老版本扩展不发 → false
                   IsVisible: ReadBool(root, "visible"),
+                  SourceId: ReadString(root, "sourceId"),
                 ReceivedUtc: DateTime.UtcNow);
         }
         catch (JsonException)
@@ -576,9 +583,19 @@ internal static class BrowserExtensionBridge
             //   · 新来的在播、在位者已暂停 → 让新来的接管（用户切页面 / 切集）
             //   · 在位者已过期（超过粘性窗口没上报）→ 让新来的接管
             //   · 其它情况（都在播）→ 保持在位者，避免每秒互相顶掉
-            var samePage = incumbent is not null &&
+            // "同一个页面"的判定：两边都带 SourceId 时以它为身份（标题只是可变元数据）；
+            // 老版本扩展没有这个字段，退回"站点 + 标题"，行为与之前一致。
+            bool samePage;
+            if (incumbent is not null && incumbent.SourceId.Length > 0 && snapshot.SourceId.Length > 0)
+            {
+                samePage = string.Equals(incumbent.SourceId, snapshot.SourceId, StringComparison.Ordinal);
+            }
+            else
+            {
+                samePage = incumbent is not null &&
                            string.Equals(incumbent.Site, snapshot.Site, StringComparison.OrdinalIgnoreCase) &&
                            string.Equals(incumbent.Title, snapshot.Title, StringComparison.Ordinal);
+            }
             var incumbentFresh = incumbent is not null &&
                                  DateTime.UtcNow - incumbent.ReceivedUtc <= IncumbentStickiness;
             var accept = incumbent is null || samePage || !incumbentFresh ||
@@ -619,7 +636,8 @@ internal static class BrowserExtensionBridge
     }
 
     /// <summary>当前快照的 JSON（供 <c>GET /status</c> 与设置页诊断用）。</summary>
-    private static string DescribeCurrent()
+    /// <summary>当前快照的 JSON。internal 供测试在指定区域设置下直接调用（服务端文化）。
+    internal static string DescribeCurrent()
     {
         BrowserExtensionSnapshot? snapshot;
         int port;
@@ -639,6 +657,7 @@ internal static class BrowserExtensionBridge
                + $"\"data\":{{\"title\":{JsonSerializer.Serialize(snapshot.Title, StatusJson)},\"playing\":{snapshot.IsPlaying.ToString().ToLowerInvariant()},"
                // site / visible 供排查多标签取舍：两个标签都在播时靠 visible 决定谁上台
                + $"\"site\":{JsonSerializer.Serialize(snapshot.Site, StatusJson)},"
+               + $"\"sourceId\":{JsonSerializer.Serialize(snapshot.SourceId, StatusJson)},"
                + $"\"visible\":{snapshot.IsVisible.ToString().ToLowerInvariant()},"
                + $"\"ageSeconds\":{age.ToString("F1", CultureInfo.InvariantCulture)}}}}}";
     }

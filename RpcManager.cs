@@ -535,6 +535,19 @@ internal class RpcManager(SteamStatusManager steamManager)
                 {
                     // 自定义数据源与音乐同频刷新（同步方法，网络请求在后台，不阻塞本拍）
                     RefreshDataSources(token);
+
+                    // 数据源（心率这类）的值变了就得重新合成一次状态 —— 这条不能只挂在"正在播放"上：
+                    // 常驻状态、仅程序、暂停中的音乐同样会用积木，以前这些场景下值变了也不会刷新。
+                    // 正在播放的情况本来每拍都会推，这里跳过即可（避免一拍推两次）。
+                    var blocksSignature = DynamicBlocksSignature(CurrentDynamicBlocks());
+                    if (blocksSignature != _lastDynamicBlocksSignature)
+                    {
+                        _lastDynamicBlocksSignature = blocksSignature;
+                        if (ResolveActiveState().State?.LastPolledInfo is not { Pause: false })
+                        {
+                            await SynchronizeActiveSourceAsync(force: true);
+                        }
+                    }
                     await UpdateProgressForActivePlayers(currentTime);
                     _lastProgressUpdateTime = currentTime;
                 }
@@ -738,6 +751,24 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// 线程安全的积木快照：设置页 / 积木编辑器（UI 线程）读它，不会撞上主循环改写字典。
     /// </summary>
     internal IReadOnlyDictionary<string, string> TryGetDynamicBlocksSnapshot() => BuildDynamicBlocks(snapshot: true);
+
+    /// <summary>
+    /// 把一组自定义积木值压成一个可比较的签名（键排序后拼串）。
+    /// <para>
+    /// 用途：判断"数据源的值到底变没变"。变了就该重新合成一次 Steam 状态 ——
+    /// 以前这个刷新只挂在"正在播放的音乐"上，于是常驻状态、仅程序、暂停中的音乐都不刷新。
+    /// </para>
+    /// </summary>
+    internal static string DynamicBlocksSignature(IReadOnlyDictionary<string, string> blocks)
+    {
+        if (blocks.Count == 0) return "";
+        var builder = new System.Text.StringBuilder();
+        foreach (var pair in blocks.OrderBy(p => p.Key, StringComparer.Ordinal))
+        {
+            builder.Append(pair.Key).Append('=').Append(pair.Value).Append('\u0001');
+        }
+        return builder.ToString();
+    }
 
     private IReadOnlyDictionary<string, string> BuildDynamicBlocks(bool snapshot)
     {
@@ -1255,6 +1286,9 @@ internal class RpcManager(SteamStatusManager steamManager)
     private static DateTime _lastBrowserGateLogUtc = DateTime.MinValue;
     /// <summary>"浏览器媒体有效配置"这条日志是否已记过（每进程一次）。</summary>
     private static bool _browserConfigLogged;
+
+    /// <summary>上一次看到的"自定义积木值"签名：用于发现数据源变化（与是否在播放无关）。</summary>
+    private string _lastDynamicBlocksSignature = "";
     private static bool _lastBrowserRunning;
     private static readonly TimeSpan BrowserCheckInterval = TimeSpan.FromSeconds(5);
 

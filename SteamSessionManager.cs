@@ -562,6 +562,8 @@ internal class SteamSessionManager : IDisposable
     {
         Success,
         Rejected,
+          /// <summary>服务器/网络暂时不可用（服务不可用、限流、超时）：令牌应保留，等下一轮。</summary>
+          Transient,
         NetworkLost,
         Timeout
     }
@@ -581,12 +583,36 @@ internal class SteamSessionManager : IDisposable
                     LoginError = null;
                     continue;
                 }
-                return LogOnWaitResult.Rejected;
+                  // 只有"凭据本身无效"才判 Rejected；服务暂时不可用 / 限流 / 超时算 Transient，
+                  // 让调用方保留令牌等下一轮重连（以前一律 Rejected，会误删用户的登录状态）。
+                  return IsCredentialFailure(_lastLogOnResult) ? LogOnWaitResult.Rejected : LogOnWaitResult.Transient;
             }
             if (!IsConnected) return LogOnWaitResult.NetworkLost;
         }
         return LogOnWaitResult.Timeout;
     }
+
+    /// <summary>
+    /// 这个登录结果是否**明确说明凭据无效**（令牌失效 / 密码错 / 账号被封这类，重试没有意义）。
+    /// <para>
+    /// 反过来，服务暂时不可用、限流、服务器超时、连接被顶替都属于"过一会儿就好"，
+    /// 不能被当成令牌失效 —— 否则用户会因为一次 Steam 抖动而丢掉保存的登录状态，被迫重新登录。
+    /// 默认返回 false（宁可多留一次令牌，也不要误删）。
+    /// </para>
+    /// </summary>
+    internal static bool IsCredentialFailure(EResult? result) => result switch
+    {
+        EResult.InvalidPassword => true,
+        EResult.InvalidLoginAuthCode => true,
+        EResult.AccountLoginDeniedNeedTwoFactor => true,
+        EResult.AccessDenied => true,
+        EResult.Expired => true,
+        EResult.Revoked => true,
+        EResult.AccountDisabled => true,
+        EResult.Banned => true,
+        EResult.InvalidSignature => true,
+        _ => false
+    };
 
     private async Task<bool> ReconnectToAnotherCmAsync()
     {

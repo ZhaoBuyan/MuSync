@@ -20,6 +20,17 @@
   let lastSentAt = 0;
   const bound = new WeakSet();
 
+  // 本页面的稳定标识：同一标签即使标题/换集变化也保持不变，用来把"同站点同标题的两个标签"
+  // 区分开。否则两个标签都开着同一个视频时，MuSync 会把它们当成同一个页面，播放状态与进度互相覆盖。
+  const sourceId = (() => {
+    try {
+      if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+    } catch {
+      // 老浏览器没有 randomUUID，退回时间 + 随机数
+    }
+    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  })();
+
   function pickMediaElement() {
     const all = Array.from(document.querySelectorAll("video, audio"));
     if (all.length === 0) return null;
@@ -74,6 +85,8 @@
       // 页面是否在前台：MuSync 用它决定"前台新开的视频要不要接管后台挂着的直播"。
       // 两个都在后台时仍保持在位者，避免多标签每秒互相顶掉。
       visible: document.visibilityState === "visible",
+      // 页面实例标识：同站点同标题的两个标签靠它区分（标题会重复，它不是身份）
+      sourceId,
     };
   }
 
