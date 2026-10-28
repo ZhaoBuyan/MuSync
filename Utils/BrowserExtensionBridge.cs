@@ -635,6 +635,9 @@ internal static class BrowserExtensionBridge
         var age = (DateTime.UtcNow - snapshot.ReceivedUtc).TotalSeconds;
         return $"{{\"listening\":{(IsRunning ? "true" : "false")},\"port\":{port},\"error\":{JsonSerializer.Serialize(error, StatusJson)},"
                + $"\"data\":{{\"title\":{JsonSerializer.Serialize(snapshot.Title, StatusJson)},\"playing\":{snapshot.IsPlaying.ToString().ToLowerInvariant()},"
+               // site / visible 供排查多标签取舍：两个标签都在播时靠 visible 决定谁上台
+               + $"\"site\":{JsonSerializer.Serialize(snapshot.Site, StatusJson)},"
+               + $"\"visible\":{snapshot.IsVisible.ToString().ToLowerInvariant()},"
                + $"\"ageSeconds\":{age:F1}}}}}";
     }
 
