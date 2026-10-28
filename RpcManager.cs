@@ -1352,6 +1352,7 @@ internal class RpcManager(SteamStatusManager steamManager)
             state.Player = playerFactory(pid);
         }
         // 单次读取加超时：某个播放器卡住时本轮跳过、下一轮继续（LX Music 走 HTTP，其余为内存读取）
+        // 单次读取加超时：某个播放器卡住时本轮跳过、下一轮继续（LX Music 走 HTTP，其余为内存读取）
         var currentInfo = await state.Player.GetPlayerInfoAsync().WaitAsync(StabilityConfig.PlayerPollTimeout);
         // 容忍单次读取失败：SMTC 一类来源会偶发读不到（元数据掉一拍）。
         // 若让 null 直接覆盖 LastPolledInfo，会连锁造成两种可见问题：

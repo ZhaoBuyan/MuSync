@@ -101,6 +101,18 @@ internal static class Smtc
     private static readonly TimeSpan SessionPropertyTimeout = TimeSpan.FromSeconds(1);
 
     /// <summary>
+    /// 读取会话元数据失败后的冷却（appId → 何时可以再试）。
+    /// <para>
+    /// 为什么需要：<c>TryGetMediaPropertiesAsync()</c> 是跨进程调用，对"已暂停/正在消失"的会话
+    /// 会**每拍都抛异常**（实测稳定 4~5 次/秒，CPU 看不出，但异常率一直在刷）。
+    /// 冷却期内直接跳过这个会话，省掉跨进程调用与异常构造。
+    /// </para>
+    /// </summary>
+    private static readonly Dictionary<string, DateTime> PropertyRetryAfterUtc = new(StringComparer.Ordinal);
+    private static readonly TimeSpan PropertyFailureCooldown = TimeSpan.FromSeconds(3);
+    private static readonly Lock PropertyCacheGate = new();
+
+    /// <summary>
     /// 把会话压成纯数据快照，**并顺手把封面缩略图的引用一并取出**。
     /// 读取失败的单个会话跳过，不影响其它。
     /// </summary>
@@ -136,15 +148,19 @@ internal static class Smtc
             InvalidateManager();
             return list;
         }
+        var currentAppId = "";
         foreach (var session in sessions)
         {
             try
             {
                 var appId = session.SourceAppUserModelId ?? "";
+                currentAppId = appId;
                 // 先按 AppId 过滤（同步廉价），命中才付异步读元数据的代价
                 if (appIdFilter != null && !appIdFilter(appId)) continue;
                 var playing = session.GetPlaybackInfo()?.PlaybackStatus ==
                               GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                // 冷却期内直接跳过：避免对"读不出元数据"的会话每拍都跨进程调用并抛异常
+                if (IsPropertyCoolingDown(appId)) continue;
                 var props = await session.TryGetMediaPropertiesAsync().AsTask()
                     .WaitAsync(SessionPropertyTimeout).ConfigureAwait(false);
                 var timeline = session.GetTimelineProperties();
@@ -162,6 +178,8 @@ internal static class Smtc
             catch (Exception ex)
             {
                 // 单个会话读取失败按"不可用"处理，不影响其它候选
+                // 同时进入冷却，避免每秒对同一个坏会话重复尝试（异常率就是这么刷出来的）
+                NotePropertyFailure(currentAppId);
                 Debug.WriteLine($"[SMTC] 读取会话失败: {ex.Message}");
             }
         }
@@ -223,5 +241,36 @@ internal static class Smtc
             if (sessions[i].AppId.StartsWith(appIdPrefix, StringComparison.OrdinalIgnoreCase)) return i;
         }
         return -1;
+    }
+
+    /// <summary>这个 appId 是否还在失败冷却期内（冷却期内跳过跨进程读取）。</summary>
+    private static bool IsPropertyCoolingDown(string appId)
+    {
+        if (appId.Length == 0) return false;
+        lock (PropertyCacheGate)
+        {
+            return PropertyRetryAfterUtc.TryGetValue(appId, out var retryAfter) && DateTime.UtcNow < retryAfter;
+        }
+    }
+
+    /// <summary>登记一次读取失败：3 秒内不再对这个 appId 尝试。</summary>
+    private static void NotePropertyFailure(string appId)
+    {
+        if (appId.Length == 0) return;
+        lock (PropertyCacheGate)
+        {
+            // 表很小（会话数级别），顺手清掉过期项，避免长期累积
+            if (PropertyRetryAfterUtc.Count > 32)
+            {
+                var now = DateTime.UtcNow;
+                var expired = new List<string>();
+                foreach (var pair in PropertyRetryAfterUtc)
+                {
+                    if (pair.Value < now) expired.Add(pair.Key);
+                }
+                foreach (var key in expired) PropertyRetryAfterUtc.Remove(key);
+            }
+            PropertyRetryAfterUtc[appId] = DateTime.UtcNow + PropertyFailureCooldown;
+        }
     }
 }

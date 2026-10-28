@@ -69,6 +69,10 @@ internal static class Program
         // 启动时清理旧日志（保留最近 7 天 / 20 MB 内，见 Logger.CleanupOldLogs）
         Logger.CleanupOldLogs();
         Logger.Info($"[Program] MuSync 启动（版本 {Application.ProductVersion}，PID {Environment.ProcessId}，{Environment.OSVersion.VersionString}）");
+
+        // 诊断：统计被 catch 住的异常（第一机会异常），每分钟汇总一条日志。
+        // 这类异常不会进日志，但每次抛都要抓栈 —— 实测线上稳定 5 次/秒，却查不到出处。
+        Utils.ExceptionProbe.Install();
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         using var mutex = new Mutex(true, "MuSyncMutex", out var isNewInstance);
