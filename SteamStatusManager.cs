@@ -41,12 +41,37 @@ internal class SteamStatusManager
         }
     }
 
+    /// <summary>
+    /// 是否允许推送状态（纯函数，便于单测）。
+    /// <para>
+    /// 以前这里漏了总开关 <see cref="ConfigData.EnableSteamSync"/>：用户关掉它、界面也显示"未启用"，
+    /// 切歌/切程序却仍然继续推送 —— 用户明确要求停止，程序却继续向好友展示活动。
+    /// </para>
+    /// </summary>
+    internal static bool ShouldPush(ConfigData config, bool isLoggedOn, bool isRealGameActive, bool manualPause)
+    {
+        if (!isLoggedOn) return false;
+        if (!config.EnableSteamSync) return false;
+        if (config.PauseWhenPlayingGame && isRealGameActive) return false;
+        if (manualPause) return false;
+        return true;
+    }
+
     public async Task UpdateStatusAsync(PlayerInfo? musicInfo, string playerName, string? appDisplay = null)
     {
         if (!_session.IsLoggedOn) return;
         var config = Configurations.Instance.Settings;
-        if (config.PauseWhenPlayingGame && _session.IsRealGameActive) return;
-        if (_manualPause) return;
+
+        // 总开关：关掉「启用 Steam 同步」之后**一个状态都不许再推**，并且要把已经推上去的清掉。
+        // 以前这里不看这个开关，用户关掉开关、界面也显示"未启用"，切歌/切程序仍然照推 ——
+        // 这是行为控制缺陷（用户明确要求停止，程序却继续向好友展示活动）。
+        // 注意清状态必须允许在"关闭"状态下执行，所以判断放在最前面、清完再返回。
+        if (!ShouldPush(config, _session.IsLoggedOn, _session.IsRealGameActive, _manualPause))
+        {
+            // 关闭总开关时允许清状态（ClearStatus 内部还会校验登录态），清完就什么都不做
+            ClearStatus();
+            return;
+        }
         var newName = ComposeStatus(musicInfo, appDisplay, config, DynamicBlockResolver?.Invoke());
         if (newName == null)
         {

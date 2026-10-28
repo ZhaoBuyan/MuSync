@@ -79,6 +79,12 @@ internal sealed class HttpDataSource
     private bool _loggedFailure;
     private int _refreshInFlight;
 
+    /// <summary>上一次见到的配置指纹（URL / 取值 / 显示 / 间隔）。变了就立刻重置调度。</summary>
+    private string _configFingerprint = "";
+
+    /// <summary>配置代际：配置一变就 +1，用于丢弃"旧配置发出的请求"回来的结果。</summary>
+    private int _generation;
+
     /// <summary>
     /// 到期就**在后台**发一次请求，**绝不阻塞调用方**；返回当前可用的显示文本（没有值时为 null）。
     /// <para>
@@ -94,6 +100,20 @@ internal sealed class HttpDataSource
         {
             Display = null;
             return null;
+        }
+
+        // 配置变了（换地址 / 改取值 / 改显示 / 改间隔）就立刻生效：
+        // 否则旧实例的 _nextAttemptUtc 会把新配置压住 —— 把 3600 秒改成 1 秒后仍要等一小时。
+        var fingerprint = ConfigFingerprint(source);
+        if (fingerprint != _configFingerprint)
+        {
+            _configFingerprint = fingerprint;
+            Interlocked.Increment(ref _generation);
+            Display = null;
+            LastSuccessUtc = DateTime.MinValue;
+            LastError = null;
+            _nextAttemptUtc = DateTime.MinValue;
+            _loggedFailure = false;
         }
 
         var now = DateTime.UtcNow;
@@ -149,18 +169,32 @@ internal sealed class HttpDataSource
     internal static bool IsStale(DateTime nowUtc, DateTime lastSuccessUtc, int refreshSeconds) =>
         lastSuccessUtc != DateTime.MinValue && nowUtc - lastSuccessUtc > StaleWindowFor(refreshSeconds);
 
+    /// <summary>
+    /// 影响"请求与显示"的配置指纹：URL / 取值表达式 / 显示格式 / 生效刷新间隔。
+    /// <para>
+    /// 变了就说明用户改过这条数据源，必须立刻重置调度（<c>_nextAttemptUtc</c>）并丢掉旧值 ——
+    /// 否则把 3600 秒改成 1 秒后仍要等一小时，界面上却已经显示新配置。
+    /// </para>
+    /// </summary>
+    internal static string ConfigFingerprint(DataSourceConfig source) =>
+        string.Join("|", source.Url, source.ValuePath, source.Format, SourceIntervalSeconds(source));
+
     private static int SourceIntervalSeconds(DataSourceConfig source) =>
         source.RefreshSeconds > 0 ? source.RefreshSeconds : 1;
 
     /// <summary>真正的网络请求（只在后台任务里跑）。</summary>
     private async Task FetchOnceAsync(DataSourceConfig source, CancellationToken token)
     {
+        // 记下发起时的配置代际：配置在这期间变了（用户改了地址/间隔），这次的结果就必须丢弃，
+        // 否则"旧配置的请求"回来会把新配置的值覆盖掉，而且用户完全看不出发生了什么。
+        var generation = Volatile.Read(ref _generation);
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, source.Url);
             using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseContentRead, token)
                 .ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+            if (!IsCurrentGeneration(generation)) return;
             LastRawBody = body;
 
             if (!response.IsSuccessStatusCode)
@@ -178,6 +212,7 @@ internal sealed class HttpDataSource
                 return;
             }
 
+            if (!IsCurrentGeneration(generation)) return;
             Display = ApplyDisplayFormat(source.Format, value);
             LastSuccessUtc = DateTime.UtcNow;
             LastError = null;
@@ -190,9 +225,13 @@ internal sealed class HttpDataSource
         }
         catch (Exception ex)
         {
+            if (!IsCurrentGeneration(generation)) return;
             Fail(ex is TaskCanceledException ? "请求超时" : ex.Message);
         }
     }
+
+    /// <summary>发起请求时的配置代际是否仍然是当前配置（纯读取，无需加锁）。</summary>
+    private bool IsCurrentGeneration(int generation) => Volatile.Read(ref _generation) == generation;
 
     /// <summary>「测试」按钮的结果：一次性的探测结果，用于界面显示与排查。</summary>
     internal readonly record struct ProbeResult(

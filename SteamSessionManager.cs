@@ -68,6 +68,9 @@ internal class SteamSessionManager : IDisposable
     /// </summary>
     private readonly SemaphoreSlim _loginGate = new(1, 1);
 
+    /// <summary>是否已经有一条"临时失败后的认证重试链"在跑（0/1，防止叠加）。</summary>
+    private int _authRetryScheduled;
+
     /// <summary>
     /// 最近一次令牌登录是否**被服务器明确拒绝**（令牌失效这类，重试没有意义，必须让用户重新登录）。
     /// <para>
@@ -451,6 +454,59 @@ internal class SteamSessionManager : IDisposable
     }
 
     /// <summary>
+    /// 认证因为**临时原因**失败（服务不可用 / 限流 / 超时）后，安排一条带退避的重试链。
+    /// <para>
+    /// 为什么必须有它：现有的自动重连只处理"CM 传输层没连上"；如果传输一直连着、只是登录被临时拒绝，
+    /// 就再没有任何东西会发起认证 —— 应用会一直停在"连接着但没登录"，服务恢复也不会自愈。
+    /// </para>
+    /// <para>
+    /// 退避 30 秒起，每次翻倍，上限 5 分钟，最多 8 次；连接断开、已登录、令牌被清或程序退出时立刻退出
+    /// （断开的情况交回原来的重连循环，两条链不会互相叠加：本方法有 _authRetryScheduled 门闩）。
+    /// </para>
+    /// </summary>
+    private void ScheduleAuthRetry()
+    {
+        if (Interlocked.CompareExchange(ref _authRetryScheduled, 1, 0) != 0) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var delay = TimeSpan.FromSeconds(30);
+                for (var attempt = 1; attempt <= 8; attempt++)
+                {
+                    await Task.Delay(delay, _cts.Token).ConfigureAwait(false);
+                    if (!_isRunning || IsLoggedOn) return;
+                    if (_steamClient?.IsConnected != true) return;   // 断开就交给重连循环
+
+                    var settings = Configurations.Instance.Settings;
+                    if (string.IsNullOrEmpty(settings.SteamRefreshToken)) return;   // 令牌已被清，需用户重新登录
+
+                    Logger.Info($"[SteamSession] 认证临时失败，第 {attempt} 次自动重试（{delay.TotalSeconds:F0} 秒退避后）");
+                    var ok = await LoginWithTokenAsync(settings.SteamUsername, settings.SteamRefreshToken).ConfigureAwait(false);
+                    if (ok || TokenLoginRejected) return;
+
+                    delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 300));
+                }
+                Logger.Warn("[SteamSession] 认证临时失败已自动重试 8 次仍未成功，等待下次连接变化或手动登录");
+            }
+            catch (OperationCanceledException)
+            {
+                // 程序退出：正常结束
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[SteamSession] 认证自动重试链异常结束: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _authRetryScheduled, 0);
+            }
+        }, _cts.Token);
+    }
+
+
+    /// <summary>
     /// 用保存的令牌登录。
     /// <para>
     /// 本方法**可被多个调用方并发调用**（启动流程 / 断线重连后的自动重登 / 登录窗口的自动登录），
@@ -519,7 +575,11 @@ internal class SteamSessionManager : IDisposable
         }
         if (waitResult != LogOnWaitResult.Rejected)
         {
-            // 网络断开/超时等非拒绝类失败：保留令牌，等自动重连后再试
+            // 网络断开/超时/服务器暂时不可用：保留令牌。
+            // ⚠️ 但"等自动重连"有个漏洞：重连循环只处理"CM 没连上"的情况，连接一直好着就永远
+            // 不会再发起认证 —— 表现为连接正常、却一直没登录，服务恢复后也不会自愈。
+            // 所以这里自己安排一条带退避的认证重试链（连接断开时它会提前退出，交回重连循环）。
+            ScheduleAuthRetry();
             Logger.Warn($"[SteamSession] 令牌登录未完成 ({waitResult})，保留令牌稍后自动重试");
             return false;
         }

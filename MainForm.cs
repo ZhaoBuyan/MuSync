@@ -67,6 +67,18 @@ internal class MainForm : Form
     private readonly string[] _playerNames;
     private readonly string[] _currentSongIds = new string[3];
     private readonly string[] _currentCoverUrls = ["", "", ""];
+
+    /// <summary>
+    /// 封面下载失败后的重试时刻（按播放器槽位）。
+    /// <para>
+    /// 以前失败时既不重置"已请求过的 URL"，也不安排重试：同一首歌一旦碰上网络抖动，
+    /// 封面就会整首空白（或残留上一首的图），只能等换歌才可能恢复。
+    /// </para>
+    /// </summary>
+    private readonly DateTime[] _coverRetryAt = new DateTime[3];
+
+    /// <summary>封面失败后的重试间隔（避免对端一直挂掉时反复打请求）。</summary>
+    private static readonly TimeSpan CoverRetryDelay = TimeSpan.FromSeconds(10);
     private readonly string[] _currentCacheKeys = ["", "", ""];
     private readonly PlayerInfo?[] _lastPlayerInfos = new PlayerInfo?[3];
     private readonly bool[] _lastActiveStates = new bool[3];
@@ -641,7 +653,9 @@ internal class MainForm : Form
                     ? playerInfo.Value.Cover
                     : $"{playerInfo.Value.Cover}_{currentSongId}";
                 // 缓存保护 key 延迟到新封面真正显示时再登记（见 LoadCoverAsyncWithUniqueKey），此间旧 key 保持保护状态
-                if (_currentCoverUrls[index] != playerInfo.Value.Cover)
+                // 同封面只在"没请求过"时才发起；失败过的按退避重试（见下方失败分支）
+                if (_currentCoverUrls[index] != playerInfo.Value.Cover &&
+                    DateTime.UtcNow >= _coverRetryAt[index])
                 {
                     _currentCoverUrls[index] = playerInfo.Value.Cover;
                     Logger.Diagnose(
@@ -1157,6 +1171,22 @@ internal class MainForm : Form
         try
         {
             var image = await ImageCacheManager.LoadImageAsync(forceCacheKey, coverUrl);
+            if (image is null)
+            {
+                // 下载失败（网络抖动 / 对端 404 / 超时）：把"已请求过这个 URL"的印象清掉，
+                // 并安排 10 秒后再试 —— 否则同一首歌的封面会整首保持空白。
+                if (IsHandleCreated)
+                {
+                    await InvokeAsync(() =>
+                    {
+                        if (coverUrl == _currentCoverUrls[index]) _currentCoverUrls[index] = "";
+                        _coverRetryAt[index] = DateTime.UtcNow + CoverRetryDelay;
+                        Logger.Diagnose($"封面下载失败，10 秒后重试: {coverUrl}");
+                    });
+                }
+                return;
+            }
+            _coverRetryAt[index] = DateTime.MinValue;
             if (IsHandleCreated && image != null)
             {
                 await InvokeAsync(() =>
