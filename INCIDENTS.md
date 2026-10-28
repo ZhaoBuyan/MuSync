@@ -18,3 +18,31 @@
 
 **没有改动 SteamKit2 的调用方式**（Sends 均正常）。只留下 `ExceptionProbe` 作为常驻诊断：
 每分钟在「有异常时」写一行汇总，无异常则不写。
+### 补充：最终根因与修复（同一份记录的可信结论）
+
+上面的"排除自家路径"之后继续追，最后定位到**我们的调用方式触发 SK2 的低效实现**：
+
+```
+CallbackLoop
+  → CallbackManager.RunWaitCallbacks(TimeSpan.FromSeconds(1))
+    → SteamClient.WaitForCallback(timeout)
+      → DataflowBlock.Receive(callbackQueue, timeout)   ← 队列空时**抛 TimeoutException**
+        → SK2 自己 catch，当作"这一轮没有回调"
+```
+
+用 IL 反射核对过 SteamKit2 3.4.0：`SteamClient.callbackQueue` 是 `BufferBlock<CallbackMsg>`，
+`WaitForCallback` 系列方法调用 `DataflowBlock.Receive/ReceiveAsync/TryReceive`，全项目只有它用 Dataflow。
+
+**修复（提交 `0e6f21c`）**：改用 `RunWaitCallbackAsync(token)`（无超时、靠取消令牌退出）。
+
+**实测对比：**
+| | 每分钟异常 | `TimeoutException | Dataflow` |
+|---|---|---|
+| 改前 | 300~310 | 177 |
+| 改后 | 130~137 | **0** |
+
+剩余 130/分钟 = 数据源 `127.0.0.1:9000` 未监听时的 HttpClient 超时（40）+ SK2 连接取消的配对计数（90），都属预期。
+
+**顺带收益**：回调（登录成功 / 断开）从"最多晚 1 秒"变成"立即处理"。
+
+**不上游提 PR**：SK2 就是这样实现的（用超时异常表示"没有消息"），本地绕开即可。

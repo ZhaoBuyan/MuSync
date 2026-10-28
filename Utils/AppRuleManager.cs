@@ -82,7 +82,7 @@ internal static class AppRuleManager
         try
         {
             var processName = Path.GetFileNameWithoutExtension(exeName);
-            using var process = Process.GetProcessesByName(processName).FirstOrDefault();
+            using var process = ProcessQuery.FirstRunning(processName);
             return process?.MainModule?.FileName ?? "";
         }
         catch
@@ -107,7 +107,7 @@ internal static class AppRuleManager
                     var processName = Path.GetFileNameWithoutExtension(rule.ExeName);
                     try
                     {
-                        if (Process.GetProcessesByName(processName).Length > 0)
+                        if (ProcessQuery.IsRunning(processName))
                         {
                             _cachedAlwaysExe = rule.ExeName;
                             break;

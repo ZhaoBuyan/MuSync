@@ -47,27 +47,37 @@ internal static class AppResource
     /// </summary>
     public static string? TryGetProcessPath(string processName)
     {
+        Process[] processes;
         try
         {
-            foreach (var process in Process.GetProcessesByName(processName))
-            {
-                using (process)
-                {
-                    try
-                    {
-                        var path = process.MainModule?.FileName;
-                        if (!string.IsNullOrEmpty(path)) return path;
-                    }
-                    catch
-                    {
-                        // 受保护 / 提权进程：跳过
-                    }
-                }
-            }
+            processes = Process.GetProcessesByName(processName);
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[AppResource] 获取 {processName} 路径失败: {ex.Message}");
+            return null;
+        }
+
+        // ⚠️ 枚举结果整体释放：以前只在循环体里 using 单个进程，
+        // 一旦命中就 return（或中途抛异常），剩下的对象要等 GC 终结器才关句柄。
+        try
+        {
+            foreach (var process in processes)
+            {
+                try
+                {
+                    var path = process.MainModule?.FileName;
+                    if (!string.IsNullOrEmpty(path)) return path;
+                }
+                catch
+                {
+                    // 受保护 / 提权进程：跳过
+                }
+            }
+        }
+        finally
+        {
+            MuSync.Utils.ProcessQuery.DisposeAll(processes);
         }
         return null;
     }

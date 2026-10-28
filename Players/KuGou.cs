@@ -65,23 +65,42 @@ internal sealed class KuGou : IMusicPlayer
     }
 
     /// <summary>酷狗主进程：全部 KuGou.exe 中能读到「酷狗音乐」标题窗口的那个。</summary>
+    /// <remarks>
+    /// ⚠️ 每个 <see cref="Process"/> 都占一个系统句柄。这里只返回命中的那一个，**其余必须释放**：
+    /// 以前直接 foreach 返回，其余对象要等 GC 终结器；酷狗活跃时本方法每 233ms 走一次，
+    /// 多个 KuGou.exe（主程序 + 辅助进程）时就是持续的句柄 churn。返回值的释放交给调用方（有 using）。
+    /// </remarks>
     public static Process? FindMainProcess()
     {
+        Process[] candidates;
         try
         {
-            foreach (var process in Process.GetProcessesByName("KuGou"))
+            candidates = Process.GetProcessesByName("KuGou");
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"[KuGou] 查找主进程失败: {e.Message}");
+            return null;
+        }
+
+        Process? selected = null;
+        try
+        {
+            foreach (var process in candidates)
             {
                 try
                 {
                     // 快路径：可见 / 最小化的主窗口
                     if (process.MainWindowTitle.Contains("酷狗音乐", StringComparison.Ordinal))
                     {
-                        return process;
+                        selected = process;
+                        break;
                     }
                     // 慢路径：窗口被隐藏（最小化到托盘）时枚举全部顶层窗口
                     if (FindWindowTitleForPid(process.Id) is not null)
                     {
-                        return process;
+                        selected = process;
+                        break;
                     }
                 }
                 catch
@@ -90,11 +109,23 @@ internal sealed class KuGou : IMusicPlayer
                 }
             }
         }
-        catch (Exception e)
+        finally
         {
-            Debug.WriteLine($"[KuGou] 查找主进程失败: {e.Message}");
+            // 只释放"没被选中的"：选中的那个交给调用方（using 负责释放）
+            foreach (var process in candidates)
+            {
+                if (ReferenceEquals(process, selected)) continue;
+                try
+                {
+                    process.Dispose();
+                }
+                catch
+                {
+                    // 单个释放失败不影响其它
+                }
+            }
         }
-        return null;
+        return selected;
     }
 
     // 酷狗读取不长期持有进程句柄（每轮开/关），无需释放资源

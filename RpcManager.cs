@@ -1103,7 +1103,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// <summary>LX Music：探测进程 + 轮询。返回是否检测到进程。</summary>
     private async Task<bool> PollLxMusicAsync(DateTime currentTime)
     {
-        var lxProcess = Process.GetProcessesByName("lx-music-desktop").FirstOrDefault();
+        using var lxProcess = Utils.ProcessQuery.FirstRunning("lx-music-desktop");
         if (lxProcess != null)
         {
             try
@@ -1334,7 +1334,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     {
         try
         {
-            return System.Diagnostics.Process.GetProcessesByName("TTPlayerRebuild").Length > 0;
+            return Utils.ProcessQuery.IsRunning("TTPlayerRebuild");
         }
         catch
         {
