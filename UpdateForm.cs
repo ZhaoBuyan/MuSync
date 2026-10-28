@@ -132,10 +132,18 @@ internal sealed class UpdateForm : Form
             _actionButton.Enabled = false;
             SetStatus(Loc.L("该版本未提供可直接下载的文件，请点「在浏览器中打开」手动下载。", "No direct download is available for this release. Use \"Open in browser\" to download it manually."), Color.DarkOrange);
         }
-        else if (UpdateDownloader.IsAlreadyDownloaded(_asset, info.Version, out var existingPath))
+        else
         {
-            _packagePath = existingPath;
-            SetDoneState(alreadyExisted: true);
+            // 磁盘上已有这个包：**必须重新校验**（大小 + 摘要 + 签名）。
+            // 以前这里只比较大小就直接进入"可安装"，重新打开窗口会绕过签名拒绝与未签名警告。
+            var verdict = UpdateDownloader.EvaluateCachedPackage(
+                _asset, info.Version, out var existingPath, out var cachedWarning, out _);
+            if (verdict == UpdateDownloader.CachedPackageVerdict.Usable)
+            {
+                _packagePath = existingPath;
+                _signatureWarning = cachedWarning;
+                SetDoneState(alreadyExisted: true);
+            }
         }
     }
 
@@ -180,19 +188,14 @@ internal sealed class UpdateForm : Form
     private async Task StartDownloadAsync()
     {
         if (_asset == null) return;
-        if (UpdateDownloader.IsAlreadyDownloaded(_asset, _info.Version, out var existing))
+        if (UpdateDownloader.EvaluateCachedPackage(
+                _asset, _info.Version, out var existing, out var existingWarning, out _) ==
+            UpdateDownloader.CachedPackageVerdict.Usable)
         {
-            // 磁盘上已有更新包：内容与签名不符就不直接用（DownloadAsync 会删掉它并重新下载）；
-            // 没有签名 / 链验证不了只提示，不阻断。
-            var existingSignature = BinarySignature.Check(existing, out var existingHResult);
-            if (!BinarySignature.MustReject(existingSignature))
-            {
-                _packagePath = existing;
-                _signatureWarning = BinarySignature.WarningFor(existingSignature);
-                SetDoneState(alreadyExisted: true);
-                return;
-            }
-            Logger.Warn($"[Update] 本地更新包签名无效（hresult=0x{existingHResult:X8}），改为重新下载");
+            _packagePath = existing;
+            _signatureWarning = existingWarning;
+            SetDoneState(alreadyExisted: true);
+            return;
         }
 
         _cts = new CancellationTokenSource();

@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -582,8 +583,9 @@ internal static class BrowserExtensionBridge
                                  DateTime.UtcNow - incumbent.ReceivedUtc <= IncumbentStickiness;
             var accept = incumbent is null || samePage || !incumbentFresh ||
                          (snapshot.IsPlaying && !incumbent!.IsPlaying) ||
-                           // 前台页面接管后台页面：后台挂着直播、前台开新视频时，直接丢弃会让人以为坏了
-                         (snapshot.IsVisible && !incumbent!.IsVisible);
+                           // 前台接管后台：**新来源也必须在播放**。否则"前台暂停的视频"会靠可见性
+                           // 抢走"后台正在播放"的来源，然后下一次后台又抢回来 —— 两份数据反复顶替，状态抖动。
+                           (snapshot.IsPlaying && snapshot.IsVisible && !incumbent!.IsVisible);
             if (!accept) return;
 
             _latest = snapshot;
@@ -638,7 +640,7 @@ internal static class BrowserExtensionBridge
                // site / visible 供排查多标签取舍：两个标签都在播时靠 visible 决定谁上台
                + $"\"site\":{JsonSerializer.Serialize(snapshot.Site, StatusJson)},"
                + $"\"visible\":{snapshot.IsVisible.ToString().ToLowerInvariant()},"
-               + $"\"ageSeconds\":{age:F1}}}}}";
+               + $"\"ageSeconds\":{age.ToString("F1", CultureInfo.InvariantCulture)}}}}}";
     }
 
     /// <summary>

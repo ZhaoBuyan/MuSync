@@ -70,6 +70,63 @@ internal static class UpdateDownloader
         return Path.Combine(directory ?? GetUpdatesDirectory(), $"{baseName}-v{version}.exe");
     }
 
+    /// <summary>
+    /// 磁盘上已缓存更新包的检查结论。
+    /// </summary>
+    internal enum CachedPackageVerdict
+    {
+        /// <summary>没有这个包、大小不对、摘要不符、或签名无效（无效者已被删除）。</summary>
+        NotUsable,
+        /// <summary>可以使用；<c>warning</c> 给出"未签名/无法验证链"的提示（可为空）。</summary>
+        Usable,
+    }
+
+    /// <summary>
+    /// 校验磁盘上**已经下载好**的更新包：大小 → SHA-256（有摘要时）→ 数字签名。
+    ///
+    /// <para>
+    /// 为什么必须集中成一个入口：以前"重新打开更新窗口"这条路径只比较了文件大小，
+    /// 既不看摘要也不看签名 —— 缓存文件被同样大小的内容替换过、或签名本身已损坏时，
+    /// 都会**直接进入可安装状态**，而且"未签名"的警告也不会再出现（因为警告是首次下载时填的）。
+    /// 构造函数与下载器的"已有包"分支现在都走这里，行为一致。
+    /// </para>
+    /// </summary>
+    /// <param name="asset">目标资产（提供大小与可选的 SHA-256 摘要）。</param>
+    /// <param name="version">版本号（决定文件名）。</param>
+    /// <param name="path">缓存包路径（即使不可用也会返回，便于调用方记日志）。</param>
+    /// <param name="warning">可用时返回的签名提示文案（未签名为非空）。</param>
+    /// <param name="signatureHResult">签名校验的原始 hresult（诊断用）。</param>
+    internal static CachedPackageVerdict EvaluateCachedPackage(
+        UpdateChecker.UpdateAsset asset, string version, out string path, out string warning, out int signatureHResult,
+        string? directory = null)
+    {
+        warning = "";
+        signatureHResult = 0;
+        path = GetPackagePath(asset, version, directory);
+
+        if (!File.Exists(path) || !FileSizesMatch(path, asset.Size)) return CachedPackageVerdict.NotUsable;
+
+        // 摘要（GitHub 提供的 sha256:）—— 有就一定要对得上；不一致说明文件被改过
+        if (!string.IsNullOrEmpty(asset.Digest) && !VerifySha256(path, asset.Digest))
+        {
+            Logger.Warn($"[Update] 本地更新包摘要不匹配，已删除并要求重新下载: {path}");
+            TryDelete(path);
+            return CachedPackageVerdict.NotUsable;
+        }
+
+        // 数字签名：无效必须硬拒（文件被动过 / 证书不受信任），未签名只给提示
+        var signature = BinarySignature.Check(path, out signatureHResult);
+        if (BinarySignature.MustReject(signature))
+        {
+            Logger.Warn($"[Update] 本地更新包签名无效（hresult=0x{signatureHResult:X8}），已删除并要求重新下载: {path}");
+            TryDelete(path);
+            return CachedPackageVerdict.NotUsable;
+        }
+
+        warning = BinarySignature.WarningFor(signature);
+        Logger.Info($"[Update] 复用本地更新包: {path}（签名: {signature}）");
+        return CachedPackageVerdict.Usable;
+    }
     /// <summary>该更新包是否已下载且大小匹配（避免重复下载）。</summary>
     public static bool IsAlreadyDownloaded(
         UpdateChecker.UpdateAsset asset, string version, out string path, string? directory = null)
@@ -257,7 +314,7 @@ internal static class UpdateDownloader
     /// 校验文件 SHA256 是否与 GitHub 提供的 digest 一致（格式 "sha256:..."）。
     /// digest 为空或无法识别时返回 true（跳过校验，由大小校验兜底）。
     /// </summary>
-    private static bool VerifySha256(string path, string digest)
+    internal static bool VerifySha256(string path, string digest)
     {
         const string prefix = "sha256:";
         if (string.IsNullOrEmpty(digest) || !digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
