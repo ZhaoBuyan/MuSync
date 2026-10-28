@@ -133,23 +133,27 @@ internal sealed class HttpDataSource
         if (Interlocked.CompareExchange(ref _refreshInFlight, 1, 0) != 0) return Display;
 
         _nextAttemptUtc = now.AddSeconds(SourceIntervalSeconds(source));
-        var snapshot = source;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await FetchOnceAsync(snapshot, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // Task.Run 里的异常绝不能逃逸（会变成未观察任务异常）
-                Debug.WriteLine($"[数据源] 后台刷新异常: {ex.Message}");
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _refreshInFlight, 0);
-            }
-        }, CancellationToken.None);
+          var snapshot = source;
+          // ⚠️ 代际必须在**排队前**固定下来：如果等任务真正开跑时才读 _generation，
+          // 期间用户改了配置（代际已 +1），旧任务会读到新代际 → 校验全部通过，
+          // 于是"旧地址的响应"被写进新配置的显示缓存里。
+          var queuedGeneration = Volatile.Read(ref _generation);
+          _ = Task.Run(async () =>
+          {
+              try
+              {
+                  await FetchOnceAsync(snapshot, queuedGeneration, token).ConfigureAwait(false);
+              }
+              catch (Exception ex)
+              {
+                  // Task.Run 里的异常绝不能逃逸（会变成未观察任务异常）
+                  Debug.WriteLine($"[数据源] 后台刷新异常: {ex.Message}");
+              }
+              finally
+              {
+                  Interlocked.Exchange(ref _refreshInFlight, 0);
+              }
+          }, CancellationToken.None);
 
         return Display;
     }
@@ -183,11 +187,10 @@ internal sealed class HttpDataSource
         source.RefreshSeconds > 0 ? source.RefreshSeconds : 1;
 
     /// <summary>真正的网络请求（只在后台任务里跑）。</summary>
-    private async Task FetchOnceAsync(DataSourceConfig source, CancellationToken token)
+    private async Task FetchOnceAsync(DataSourceConfig source, int generation, CancellationToken token)
     {
-        // 记下发起时的配置代际：配置在这期间变了（用户改了地址/间隔），这次的结果就必须丢弃，
+        // 代际由调用方在**排队时**固定并传入（不能在这里重新读 _generation，否则旧任务会认领新代际）。
         // 否则"旧配置的请求"回来会把新配置的值覆盖掉，而且用户完全看不出发生了什么。
-        var generation = Volatile.Read(ref _generation);
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, source.Url);

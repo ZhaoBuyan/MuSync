@@ -72,6 +72,17 @@ internal class SteamSessionManager : IDisposable
     private int _authRetryScheduled;
 
     /// <summary>
+    /// **只在本次运行内**有效的刷新令牌（不写磁盘）。
+    /// <para>
+    /// 用来把两件事分开：「是否记住到下次启动」与「本次运行期间断线后能不能自动重登」。
+    /// 以前不勾「记住我」时会把令牌直接清空，连当前进程内的断线恢复也一起没了 ——
+    /// 用户的理解是"不保存到下次启动"，不是"这次断了也别自动连回去"。
+    /// 显式注销、凭据被明确拒绝或程序退出时清空。
+    /// </para>
+    /// </summary>
+    private string _inMemoryRefreshToken = "";
+
+    /// <summary>
     /// 最近一次令牌登录是否**被服务器明确拒绝**（令牌失效这类，重试没有意义，必须让用户重新登录）。
     /// <para>
     /// ⚠️ 这是「要不要弹登录窗」的判据，不能只看 <see cref="LoginWithTokenAsync"/> 的返回值：
@@ -149,8 +160,8 @@ internal class SteamSessionManager : IDisposable
         if (!_reconnectPending || IsLoggedOn) return;
         _reconnectPending = false;
         var settings = Configurations.Instance.Settings;
-        if (string.IsNullOrEmpty(settings.SteamUsername) ||
-            string.IsNullOrEmpty(settings.SteamRefreshToken))
+        var effectiveToken = EffectiveRefreshToken();
+        if (string.IsNullOrEmpty(settings.SteamUsername) || string.IsNullOrEmpty(effectiveToken))
         {
             return;
         }
@@ -160,7 +171,7 @@ internal class SteamSessionManager : IDisposable
         {
             try
             {
-                await LoginWithTokenAsync(settings.SteamUsername, settings.SteamRefreshToken);
+                await LoginWithTokenAsync(settings.SteamUsername, effectiveToken);
             }
             catch (Exception ex)
             {
@@ -415,10 +426,12 @@ internal class SteamSessionManager : IDisposable
                 if (RememberSession)
                 {
                     settings.SteamRefreshToken = pollResult.RefreshToken;
+                    _inMemoryRefreshToken = pollResult.RefreshToken;
                 }
                 else
                 {
                     // 未勾选“记住我”：不保存令牌与 Guard 数据，下次启动需手动登录
+                    _inMemoryRefreshToken = pollResult.RefreshToken;   // 内存留一份，供本次运行内断线重登
                     settings.SteamRefreshToken = "";
                     settings.SteamGuardData = "";
                 }
@@ -464,6 +477,13 @@ internal class SteamSessionManager : IDisposable
     /// （断开的情况交回原来的重连循环，两条链不会互相叠加：本方法有 _authRetryScheduled 门闩）。
     /// </para>
     /// </summary>
+    /// <summary>本次运行真正可用的刷新令牌：磁盘上保存的优先，其次本次登录拿到的内存令牌。</summary>
+    private string EffectiveRefreshToken()
+    {
+        var saved = Configurations.Instance.Settings.SteamRefreshToken;
+        return string.IsNullOrEmpty(saved) ? _inMemoryRefreshToken : saved;
+    }
+
     private void ScheduleAuthRetry()
     {
         if (Interlocked.CompareExchange(ref _authRetryScheduled, 1, 0) != 0) return;
@@ -480,10 +500,11 @@ internal class SteamSessionManager : IDisposable
                     if (_steamClient?.IsConnected != true) return;   // 断开就交给重连循环
 
                     var settings = Configurations.Instance.Settings;
-                    if (string.IsNullOrEmpty(settings.SteamRefreshToken)) return;   // 令牌已被清，需用户重新登录
+                    var token = EffectiveRefreshToken();
+                    if (string.IsNullOrEmpty(token)) return;   // 令牌已被清（磁盘与内存都没有），需用户重新登录
 
                     Logger.Info($"[SteamSession] 认证临时失败，第 {attempt} 次自动重试（{delay.TotalSeconds:F0} 秒退避后）");
-                    var ok = await LoginWithTokenAsync(settings.SteamUsername, settings.SteamRefreshToken).ConfigureAwait(false);
+                    var ok = await LoginWithTokenAsync(settings.SteamUsername, token).ConfigureAwait(false);
                     if (ok || TokenLoginRejected) return;
 
                     delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 300));
@@ -588,6 +609,7 @@ internal class SteamSessionManager : IDisposable
         Debug.WriteLine("[SteamSession] Token 登录失败，清除已保存令牌");
         Logger.Warn("[SteamSession] Token 登录失败，已清除保存的令牌，需要重新登录");
         Configurations.Instance.Settings.SteamRefreshToken = "";
+        _inMemoryRefreshToken = "";   // 凭据已被明确拒绝：内存副本也一并清掉
         Configurations.Instance.Save();
         return false;
     }

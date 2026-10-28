@@ -580,7 +580,14 @@ internal class MainForm : Form
         var lastActive = _lastActiveStates[index];
         if (!forceRefresh && lastActive == isActive && lastError == RpcManager.ErrorCode.None)
         {
-            if (!isActive) return; 
+                if (!isActive) return;
+                // ⚠️ 内容没变也要放行一种情况：封面还在等重试。
+                // 否则暂停状态下（标题/封面/进度都不变）永远走不到下面的下载分支，
+                // 一次网络抖动就能让封面整首空白。
+                var coverRetryPending = !forceRefresh &&
+                    !string.IsNullOrEmpty(playerInfo?.Cover) &&
+                    playerInfo?.Cover != _currentCoverUrls[index] &&
+                    DateTime.UtcNow >= _coverRetryAt[index];
             if (lastInfo.HasValue && playerInfo.HasValue &&
                 lastInfo.Value.Title == playerInfo.Value.Title &&
                 lastInfo.Value.Artists == playerInfo.Value.Artists &&
@@ -591,7 +598,7 @@ internal class MainForm : Form
                 Math.Abs(lastInfo.Value.Schedule - playerInfo.Value.Schedule) < 0.5 && 
                 Math.Abs(lastInfo.Value.Duration - playerInfo.Value.Duration) < 0.5) 
             {
-                return;
+                    if (!coverRetryPending) return;
             }
         }
         _lastPlayerInfos[index] = playerInfo;
