@@ -265,6 +265,16 @@ tests/MuSync.Tests/            # xUnit 单元测试
 reference-yySync/              # 上游参考源码（MIT，不参与编译，仅对照）
 ```
 
+## 支持作者
+
+MuSync 一直免费：没有广告、没有遥测、没有付费版。如果它帮你省了些点击，想回点血的话：
+
+<p align="center">
+  <img src="docs/donate.jpg" width="280" alt="赵不言的微信赞赏码">
+</p>
+
+微信扫码即可，完全自愿 —— 提个 issue、给个 star 也一样有用。
+
 ## 许可与致谢
 
 MuSync 基于一条开源谱系构建（见上文「与上游项目的关系」），感谢每一位铺路者：
