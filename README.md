@@ -273,6 +273,16 @@ tests/MuSync.Tests/            # xUnit unit tests
 reference-yySync/              # upstream reference source (MIT; not compiled, for comparison only)
 ```
 
+## Supporting the project
+
+MuSync is free and stays free — no ads, no telemetry, no paid tier. If it saved you some clicks and you feel like giving something back:
+
+<p align="center">
+  <img src="docs/donate.jpg" width="280" alt="ZhaoBuyan's WeChat reward code">
+</p>
+
+Scan with WeChat. Entirely optional — a bug report, a feature suggestion or a star helps just as much.
+
 ## License & credits
 
 MuSync is built on an open-source lineage (see "Relationship to upstream" above), with thanks to everyone who paved the way:
