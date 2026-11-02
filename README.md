@@ -18,6 +18,8 @@ The interface works, but it is not good looking yet, and its **visual hierarchy*
 
 The direction we want: **use native Windows window chrome and controls**. No hand drawn borders, rounded corners or shadows. Instead, make the information readable through a left navigation pane, grouping, spacing and a clear type scale.
 
+`docs/UI-REDESIGN.md` turns that direction into concrete tokens, components and per-screen wireframes ("ON AIR 播出单"). Read it if you want to follow the same visual language; ignore it if you would rather propose something different — the two paragraphs above are the actual constraints.
+
 Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) to discuss (there is a "UI proposal" template), or send a PR.
 
 **Planning to touch code? Read [CONTRIBUTING.md](CONTRIBUTING.md) first** — build/test commands, the UI constraints above, and a few pitfalls that will otherwise cost you an afternoon (antivirus deleting the test assembly, the release binary being locked while running, and so on).
