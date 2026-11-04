@@ -23,6 +23,7 @@ internal static class Loc
         "洛雪音乐" or "LX Music" or "LxMusic" => L("洛雪音乐", "LX Music"),
         "酷狗音乐" or "KuGou" => L("酷狗音乐", "KuGou Music"),
         "千千静听" or "TTPlayer" => L("千千静听", "TTPlayer"),
+        "Spotify" => L("Spotify", "Spotify"),
         "浏览器媒体" or "Browser" => L("浏览器媒体", "Browser media"),
         _ => name
     };

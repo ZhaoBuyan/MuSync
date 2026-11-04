@@ -65,7 +65,7 @@ internal partial class MainForm : Form
     /// internal 供测试核对「每个键都有品牌色、都能被 Loc.PlayerName 翻译」——
     /// 千千静听接入时就漏了这两处（名字有、颜色与面板文案没有）。
     /// </summary>
-    internal static readonly string[] _playerKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
+    internal static readonly string[] _playerKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Spotify", "Browser"];
     /// <summary>
     /// 播放器品牌色（标题、歌名与面板图标共用）：网易云红 / QQ音乐绿 / 洛雪青绿 / 酷狗蓝 / 千千静听品牌蓝 / 浏览器媒体蓝。
     /// 与 <see cref="_playerKeys"/> **一一对应**；千千静听原先只在 GetPlayerAccentColor 里硬编码，
@@ -78,6 +78,8 @@ internal partial class MainForm : Form
         Color.FromArgb(0, 179, 134),
         Color.FromArgb(47, 110, 224),
         Color.FromArgb(38, 132, 214),
+        // Spotify 品牌绿（与 QQ 音乐的绿、洛雪的青绿拉开）
+        Color.FromArgb(30, 215, 96),
         // 浏览器媒体：Edge 品牌蓝偏青，与酷狗蓝区分得开
         Color.FromArgb(0, 120, 212)
     ];
@@ -960,6 +962,7 @@ internal partial class MainForm : Form
         "LxMusic" => "洛雪音乐",
         "KuGou" => "酷狗音乐",
         "TTPlayer" => "千千静听",
+        "Spotify" => "Spotify",
         "Browser" => "浏览器媒体",
         _ => ""
     };
@@ -985,6 +988,7 @@ internal partial class MainForm : Form
             "洛雪音乐" => GetProcessPathByName("lx-music-desktop"),
             "酷狗音乐" => KuGou.FindAppIconPath(),
             "千千静听" => GetProcessPathByName("TTPlayerRebuild"),
+            "Spotify" => GetProcessPathByName("Spotify"),
             // 浏览器媒体拿不到缩略图时同样用浏览器自己的图标占位（文档与更新日志都是这么承诺的）
             "浏览器媒体" => GetAnyBrowserPath(),
             _ => null

@@ -22,8 +22,9 @@ public class PlayerRegistryTests
     {
         // 六个来源：五个音乐播放器 + 浏览器媒体（视频）。
         // 浏览器媒体从"固定排最后、不进优先级列表"改成了与其它播放器平等参与优先级。
-        Assert.Equal(6, RpcManager.DefaultPlayerOrder.Length);
+        Assert.Equal(7, RpcManager.DefaultPlayerOrder.Length);
         Assert.Contains("TTPlayer", RpcManager.DefaultPlayerOrder);
+            Assert.Contains("Spotify", RpcManager.DefaultPlayerOrder);
         Assert.Contains("Browser", RpcManager.DefaultPlayerOrder);
     }
 

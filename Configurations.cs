@@ -147,7 +147,7 @@ internal class ConfigData
     /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsView.PlayerOrderKeys</c> 一致：
     /// 三处口径不同时运行期靠 Concat(Distinct) 补齐不会出错，但读代码的人会被绊住。
     /// </summary>
-    public List<string> PlayerPriority { get; set; } = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
+    public List<string> PlayerPriority { get; set; } = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Spotify", "Browser"];
 
     // —— 程序同步 ——
     /// <summary>程序同步总开关。</summary>

@@ -83,6 +83,8 @@ internal class RpcManager(SteamStatusManager steamManager)
     private readonly PlayerState _kuGouState = new();
     /// <summary>千千静听（TTPlayer 社区重制版）：走 SMTC，不读进程内存。</summary>
     private readonly PlayerState _ttPlayerState = new();
+    /// <summary>Spotify（Windows 桌面版）：走 SMTC，不读进程内存。</summary>
+    private readonly PlayerState _spotifyState = new();
     /// <summary>浏览器媒体（Edge / Chrome 等网页播放）：走 SMTC，需在设置里开启（默认关）。</summary>
     private readonly PlayerState _browserState = new();
     private DateTime _lastMemoryLogTime = DateTime.MinValue;
@@ -104,7 +106,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// 浏览器媒体刻意不在这里：它在 ResolveActiveState 里固定排最后，也不出现在设置页的优先级列表中
     /// （放进来会与 SettingsView.PlayerOrderKeys 的口径冲突）。
     /// </summary>
-    internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
+    internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Spotify", "Browser"];
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
     // 进度条推送间隔：跟随用户档位（快速 0.25s / 标准 0.5s / 省流 1s）
@@ -258,6 +260,7 @@ internal class RpcManager(SteamStatusManager steamManager)
             SnapshotOf(_lxMusicState, "洛雪音乐", active),
             SnapshotOf(_kuGouState, "酷狗音乐", active),
             SnapshotOf(_ttPlayerState, "千千静听", active),
+            SnapshotOf(_spotifyState, "Spotify", active),
             SnapshotOf(_browserState, "浏览器媒体", active)
         ];
 
@@ -337,6 +340,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         "LxMusic" => (_lxMusicState, "洛雪音乐"),
         "KuGou" => (_kuGouState, "酷狗音乐"),
         "TTPlayer" => (_ttPlayerState, "千千静听"),
+        "Spotify" => (_spotifyState, "Spotify"),
         // 浏览器媒体不进用户优先级列表：它排最后，且只有设置里开启时才参与
         "Browser" => (_browserState, "浏览器媒体"),
         _ => null
@@ -512,6 +516,15 @@ internal class RpcManager(SteamStatusManager steamManager)
                     var detected = await PollStepAsync("TTPlayer", currentTime, PollTTPlayerAsync);
                     anyPlayerActive |= detected;
                     anyPlayerPlaying |= detected && IsPlaying(_ttPlayerState);
+                    MarkStepAndCheckSuperseded(generation);
+                }
+
+                if (ShouldCheckPlayer(_spotifyState, activeSnapshot, currentTime))
+                {
+                    _spotifyState.LastCheckTime = currentTime;
+                    var detected = await PollStepAsync("Spotify", currentTime, PollSpotifyAsync);
+                    anyPlayerActive |= detected;
+                    anyPlayerPlaying |= detected && IsPlaying(_spotifyState);
                     MarkStepAndCheckSuperseded(generation);
                 }
 
@@ -1266,6 +1279,47 @@ internal class RpcManager(SteamStatusManager steamManager)
         return true;
     }
 
+
+    /// <summary>
+    /// Spotify（Windows 桌面版）：探测进程 + 读 SMTC 会话。
+    /// 与千千静听同构：不读内存、不需要 PID、不需要管理员权限；SMTC 拿不到就是"没在播放"。
+    /// </summary>
+    private async Task<bool> PollSpotifyAsync(DateTime currentTime)
+    {
+        if (!IsSpotifyRunning())
+        {
+            CleanupPlayerState(_spotifyState, "Spotify");
+            RecordPollSuccess(_spotifyState);
+            return false;
+        }
+        try
+        {
+            // SMTC 与进程无关，PID 传 0 占位
+            await PollAndUpdatePlayer(_spotifyState, "Spotify", 0,
+                _ => new SpotifySmtc(), currentTime);
+            RecordPollSuccess(_spotifyState);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Spotify] Error: {ex.Message}");
+            _spotifyState.LastError = ErrorCode.None;
+        }
+        return true;
+    }
+
+    /// <summary>Spotify 主进程是否在运行（商店版与安装版进程名都是 Spotify）。</summary>
+    private static bool IsSpotifyRunning()
+    {
+        try
+        {
+            return Utils.ProcessQuery.IsRunning("Spotify");
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// 浏览器媒体：读 SMTC 会话里浏览器正在播放的网页媒体。
     /// 与千千静听的区别：浏览器进程基本一直开着，所以"有没有在放"完全由 SMTC 会话决定；
@@ -1292,7 +1346,7 @@ internal class RpcManager(SteamStatusManager steamManager)
 
         if (!Configurations.Instance.Settings.BrowserMediaSyncEnabled)
         {
-            CleanupPlayerState(_browserState, "Browser");
+        CleanupPlayerState(_browserState, "Browser");
             RecordPollSuccess(_browserState);
             return false;
         }
@@ -1306,7 +1360,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                 Logger.Info("[浏览器媒体] 未发现受支持的浏览器进程，本轮跳过（支持 Edge / Chrome / Firefox / Brave / Vivaldi / Opera / "
                             + "360 / QQ / 搜狗 / UC / 猎豹 / 傲游 / Yandex / Arc / Zen 等；若你用的是其它浏览器，请把它的进程名反馈给我们）");
             }
-            CleanupPlayerState(_browserState, "Browser");
+        CleanupPlayerState(_browserState, "Browser");
             RecordPollSuccess(_browserState);
             return false;
         }
@@ -1600,6 +1654,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         // ⚠️ 必须一起清：漏掉它的话，主循环异常兜底清空其余源之后，
         // _browserState.LastPolledInfo 仍然非 null，于是下一拍立刻把浏览器的陈旧标题
         // 当作活跃源又推上去，把这次"兜底清除"当场撤销；实例与其缓存的封面也不会释放。
+        CleanupPlayerState(_spotifyState, "Spotify");
         CleanupPlayerState(_browserState, "Browser");
         _lastActiveState = null;
         _lastActiveInfoNull = true;
