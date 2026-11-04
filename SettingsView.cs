@@ -1150,7 +1150,7 @@ internal sealed partial class SettingsView : UserControl
         var toolGroup = CreateGroupBox(Loc.L("诊断工具", "Diagnostic tools"), 16, 232, 650, 328);
         var feedbackButton = new CueButton { Name = "ReportBugButton", Text = Loc.L("反馈问题", "Report a bug"), Location = new Point(20, 184), Size = new Size(152, 32) };
         feedbackButton.Click += (_, _) => OpenUrl(FeedbackLink.IssuesUrl);
-        var feedbackHint = new LinkLabel { Text = Loc.L("联系作者（邮箱见 GitHub 个人主页）", "Contact author (email on GitHub profile)"), Location = new Point(192, 190), Size = new Size(430, 24) };
+        var feedbackHint = new LinkLabel { Text = Loc.L("先提 Issue，再邮件联系（邮箱见个人主页）", "Open an issue first; email is on the profile"), Location = new Point(192, 190), Size = new Size(430, 24) };
         feedbackHint.Click += (_, _) => OpenUrl(FeedbackLink.AuthorUrl);
         toolGroup.Controls.AddRange([feedbackButton, feedbackHint]);
         var dumpHint = new Label

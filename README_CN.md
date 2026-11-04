@@ -196,7 +196,7 @@ Get-FileHash .\MuSync.exe -Algorithm SHA256
   配置读取失败时程序会自动备份（`config.json.bak`）并尽量保留其余设置。日志位于 `%LocalAppData%\MuSync\logs`（设置 → 诊断 → 「打开日志文件夹」一键直达）。
 
 - **遇到问题 / 想提建议**
-  欢迎到 [GitHub Issues](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) 反馈：缺陷和功能建议各有模板，附上设置 → 诊断 → 「复制诊断信息」的内容，定位会快很多。
+  欢迎到 [GitHub Issues](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) 反馈：缺陷和功能建议各有模板，附上设置 → 诊断 → 「复制诊断信息」的内容，定位会快很多。**请先开 Issue**：邮箱（见作者主页）只用于私下传递 Dump 或大文件，未开 Issue 直接发邮件的请求不保证回复。
 
 - **如何卸载**
   安装器版：从 Windows「设置 → 应用」或开始菜单的卸载项卸载；卸载只移除程序文件，配置与日志（`%LocalAppData%\MuSync`）会保留——想彻底清理再手动删除该文件夹。完整版 / lite 版：直接删除程序文件即可。

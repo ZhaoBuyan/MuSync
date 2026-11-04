@@ -203,7 +203,7 @@ Get-FileHash .\MuSync.exe -Algorithm SHA256
   If config parsing fails, the app backs it up automatically (`config.json.bak`) and keeps as much as it can. Logs are in `%LocalAppData%\MuSync\logs` (Settings → Diagnostics → "Open logs folder").
 
 - **Found a problem or have a suggestion?**
-  Please open a [GitHub Issue](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) — bug reports and feature requests have their own templates; attaching the output of Settings → Diagnostics → "Copy diagnostics" helps a lot.
+  Please open a [GitHub Issue](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) — bug reports and feature requests have their own templates; attaching the output of Settings → Diagnostics → "Copy diagnostics" helps a lot. **Open an issue first**: email (on the author profile) is only for privately sharing dumps or large files, and requests that arrive by email without an issue are not guaranteed a reply.
 
 - **How do I uninstall MuSync?**
   Installer edition: uninstall from Windows "Settings → Apps", or via the Start Menu shortcut. The uninstaller removes the program files only — your config and logs in `%LocalAppData%\MuSync` are kept; delete that folder for a complete cleanup. Full and lite editions: just delete the program file.
