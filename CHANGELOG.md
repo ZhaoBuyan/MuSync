@@ -18,7 +18,7 @@
 
 ### 支持
 
-- 如果 MuSync 帮到了你、手头也宽裕，欢迎赞助一下——赞赏码在 **README 最后**（微信扫码即可，完全自愿；提 issue、点 star 一样有用）。
+- 如果 MuSync 帮到了你、手头也宽裕，欢迎赞助一下——赞赏码见 [README 的「支持作者」一节](https://github.com/ZhaoBuyan/MuSync#supporting-the-project)（微信扫码即可，完全自愿；提 issue、点 star 一样有用）。
 
 ## [0.4.16] - 2026-11-04
 
