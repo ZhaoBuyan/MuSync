@@ -1,4 +1,6 @@
-# 安全与隐私说明（给使用者的完整交代）
+# 安全与隐私说明 / Security & privacy
+
+**中文** ｜ [English](#security--privacy)
 
 > 这份文档写给每一位准备把 Steam 账号授权给 MuSync 的人：
 > 它拿了你的账号做什么、读了什么、发了什么、**不做什么**、怎么验证、怎么撤销。
@@ -125,8 +127,167 @@
 原因很直接：Windows 的 Shell 会按协议分派 —— 把 `C:\...\x.exe` 或 `\\host\share\x.exe`
 交给它，结果不是"打开网页"而是"执行程序"。
 
----
-
----
-
 有任何想确认的细节，欢迎在 GitHub 仓库提 Issue，作者会公开回答。
+
+---
+
+# Security & Privacy
+
+[中文](#安全与隐私说明--security--privacy) ｜ **English**
+
+> This document is for anyone about to hand their Steam account to MuSync. It covers what MuSync
+> does with your account, what it reads, what it sends, **what it never does**, how to verify all of
+> it, and how to revoke access. No dodging the risks.
+
+## 1. Signing in: what happens to your username and password
+
+1. You type your account name and password into the sign-in box (Steam mobile authenticator / email
+   code are supported, same flow as signing in through a browser).
+2. MuSync signs in by talking **directly to Valve's servers** over the **official Steam networking
+   protocol** (the open-source SteamKit2 library). Your password never passes through a third party —
+   **this project has no author-run server and no intermediary service of any kind.**
+3. Once Valve's servers accept the sign-in, they issue a **refresh token**.
+4. The password's job is done: **it exists in memory only during sign-in and is never written to disk
+   or cached.**
+5. The token is stored on this machine in `%LocalAppData%\MuSync\config.json`, encrypted with **Windows
+   DPAPI** (the key is tied to your Windows account, so a copy of the file on another PC or user
+   account cannot be decrypted — it is useless there).
+6. If you leave **"Remember me" unchecked**, the token is not saved at all and you sign in again on
+   every launch.
+
+## 2. What the token is and what it can do (plainly)
+
+- A refresh token is roughly "this device's credential for signing in again without a password"; the
+  effect is that a new device shows up in your Steam account's **authorized devices** list.
+- Within that session it carries this account's network capabilities. MuSync's code **implements
+  exactly two actions**: staying signed in, and setting the "playing X" status text (all of it is
+  open source and auditable: `SteamSessionManager.cs` / `SteamStatusManager.cs`).
+- In theory any software holding the token could do more — which is why our advice to everyone is:
+  **only grant sign-in to open-source, auditable software**, and remove "MuSync" from your Steam
+  authorized devices whenever you like.
+
+## 3. What MuSync reads (local data — these five categories, nothing else)
+
+| What | Details | Why it is needed |
+|---|---|---|
+| Process memory of NetEase Cloud Music / QQ Music / KuGou Music | Track title, artist, playback position, etc. | These players expose no API, so playback state has to be read from memory. **Read-only: no writes, no injection, no modification.** |
+| LX Music local API | Playback state (local HTTP) | The open API the player itself provides. |
+| Windows system media transport controls (SMTC) | Track, artist, album, playback state and position | TTPlayer (community rebuild) publishes its playback info there, so reading the system interface is enough — **its process memory is never read.** |
+| Current foreground window | Process name, window title, fullscreen or not | To tell which app you are using — those three fields only. |
+| Its own runtime statistics | Memory usage, etc. | The performance panel in Settings; displayed locally only. |
+
+**Explicitly not done**: no keystroke capture, no screenshots, no injection, no reading browser or
+chat history, no scanning files on disk, and no reading other programs' data beyond the above.
+
+## 4. What it sends (network traffic: three active paths and one passive)
+
+**No author-run server. No statistics, no reporting, no telemetry of any kind.**
+
+1. **Valve's servers**: signing in, staying online, pushing the "playing X" status text — nothing else.
+2. **Album art CDNs**: album covers are downloaded from image URLs provided by NetEase Cloud Music /
+   QQ Music for display (images only; no personal information is sent).
+3. **GitHub Releases**: only when you run "Check for updates" — to look up the latest version and
+   download the update package (see section 9).
+
+**Custom data sources** (e.g. heart rate): MuSync requests the address you entered. You choose the
+destination; the author is not involved.
+
+**The passive path**: if you enable "browser extension enhancement", MuSync listens on a port on
+**127.0.0.1 only** and receives playback state from the browser extension — it is not reachable from
+outside the machine, and this path never initiates an outbound connection (see section 10).
+
+## 5. Will your account be affected (risks included)
+
+- **Session conflicts**: no. Steam allows multiple device sessions side by side (PC client + phone app
+  + this tool) without interfering with each other, and this tool does not require the Steam client to
+  be running.
+- **Ban risk (stated plainly)**: "a third-party client staying online" is the same mechanism used by
+  tools such as ArchiSteamFarm, which have been widely used for over a decade, and there is no public
+  case of a ban from a comparable tool. But Valve does not officially endorse third-party sign-in, so
+  **no 100% risk-free guarantee can be given** — please weigh that yourself.
+- **What friends can see**: only the "playing X" status text you configure (track or app name).
+  Nothing else.
+- **Antivirus warnings**: reading another process's memory can trigger false positives in some
+  antivirus products. That is expected, and the code is open for review. You can also turn music sync
+  off and use only "app sync", which reads no player memory at all.
+
+## 6. Verify it yourself (three minutes)
+
+1. **Watch the network**: open Resource Monitor (Task Manager → Performance → Open Resource Monitor)
+   → Network, and watch MuSync.exe's connections. You will only see Steam servers and the music
+   platform image CDNs.
+2. **Read the logs**: `%LocalAppData%\MuSync\logs\` contains a line-by-line log (connections,
+   sign-in, status pushes).
+3. **Read the source**: https://github.com/ZhaoBuyan/MuSync — sign-in, status pushing and encryption
+   are all open source.
+
+## 7. How to revoke access (anytime, completely)
+
+1. **In the app**: Settings → Sign out (clears the local token immediately).
+2. **On Steam's side (most thorough)**: Steam website → Account details → Authorized devices → remove
+   the device named **MuSync** (the local token stops working right after).
+3. **Full cleanup**: uninstall the program and delete `%LocalAppData%\MuSync`; every piece of data
+   (encrypted token and logs included) is gone.
+
+## 8. Where your data lives
+
+- **On this machine only**: `%LocalAppData%\MuSync\` (`config.json` is encrypted storage, `logs` holds
+  runtime logs).
+- No cloud, no backup sync. Deleting that folder erases every trace.
+
+## 9. How update packages are verified (since v0.4.11)
+
+Auto-update is the **only** feature that downloads and runs an executable, so its verification chain is
+documented separately:
+
+| Step | What happens |
+|---|---|
+| Source | GitHub Releases over HTTPS only; the URL comes from the GitHub API. |
+| Integrity | The `sha256:` digest returned by the GitHub API is checked; a mismatch is **discarded** with an error. |
+| Authenticity | The Authenticode signature is checked: **an invalid signature is a hard rejection** (the file was tampered with, or the certificate is untrusted). |
+| What if unsigned | Release packages are **not code-signed yet**, so an unsigned package only warns and **requires your explicit confirmation** before continuing. |
+| Download location | `%LocalAppData%\MuSync\updates\` (**your user profile**, not the shared Temp), written as `.part` first and renamed only after verification passes. |
+| Install | The installer runs silently with the usual UAC prompt; the app restarts when it finishes. |
+
+**Frankly**: the SHA-256 digest travels over the same TLS connection as the package, so a matching
+digest only proves **the transfer was intact**, not where the file came from. What actually resists
+forgery is the digital signature — and this project has no code-signing certificate yet, so the final
+protection is GitHub's HTTPS plus your own judgement. Each release page also publishes
+`SHA256SUMS.txt` so you can verify by hand (see section 6).
+
+## 10. The browser extension and the local port (since v0.4.13, off by default)
+
+For sites that never hand playback state to Windows at all, MuSync can open a port that **listens on
+this machine only**, so the browser extension can push playback state in:
+
+- Address: `http://127.0.0.1:47564/media` (**bound to 127.0.0.1 only** — unreachable from the router,
+  the LAN or the internet).
+- MuSync **never initiates outbound connections** on this path, and the extension only sends to this
+  machine; nothing is reported to any server.
+- The payload is only: title / artists / album / position / duration / playing state / site domain.
+- **Off by default**; if you do not tick the option, the port is never opened.
+
+**One thing that must be said plainly**: this port has **no authentication**. That means **any program
+on your machine** (malware included) can POST a title to it and make your Steam status show arbitrary
+text. That is an accepted trade-off for display-only data — it cannot touch your account, cannot see
+your password, and cannot trigger any download or execution. If that bothers you: **leave "browser
+extension enhancement" unticked and the port is never opened.**
+
+**It can be locked** (since v0.4.14): Settings has a "shared token" field. Once set, the extension must
+send the same value in the `X-MuSync-Token` header, otherwise every request gets a 401. The extension's
+options page has a matching "shared token" field — fill in the same value on both sides. Tokens are
+compared in constant time, so no prefix length leaks; leaving it empty means no check (the default,
+backwards compatible).
+
+## 11. Links only open over http(s)
+
+Some links in the interface come from **not fully trusted sources** (a song page URL, for example, is a
+string read out of a player's process memory). Since v0.4.14 every "open with the default program"
+address is validated first: **only absolute http/https URLs are handed to the system**; anything else
+(local paths, UNC shares, `file:`, custom protocols) is refused and logged.
+
+The reason is simple: the Windows Shell dispatches by protocol. Hand it `C:\...\x.exe` or
+`\\host\share\x.exe` and the result is not "open a web page" but "run a program".
+
+If you want to confirm any detail, open an issue in the GitHub repository — the author answers in
+public.
