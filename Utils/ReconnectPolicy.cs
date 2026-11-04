@@ -36,6 +36,22 @@ internal static class ReconnectPolicy
         return (nowUtc - lastActivityUtc).TotalSeconds >= stallThresholdSeconds;
     }
 
+    /// <summary>
+    /// 连续连接失败后该切到哪个协议（纯函数，便于单测）。返回 null 表示不切换、继续重试当前协议。
+    /// <para>
+    /// 以前只有单向的 TCP → WebSocket 回退：一旦切过去，之后即使代理关了、WebSocket 一直连不上，
+    /// 也永远不会回头试直连 —— 用户只能重启程序。现在两个方向都通，形成一个来回切换的循环。
+    /// </para>
+    /// </summary>
+    internal static string? NextProtocolFallback(string currentProtocol, bool allowWebSocketFallback) =>
+        currentProtocol switch
+        {
+            "Tcp" when allowWebSocketFallback => "WebSocket",
+            "Tcp" => null,                       // 设置里关掉了 WS 回退：只能在 TCP 上继续重试
+            "WebSocket" => "Tcp",                // WS 一直失败（例如代理关了）→ 回头试直连
+            _ => null
+        };
+
     /// <summary>循环在跑但已卡死（用于决定是否连同客户端一起重建，而不只是再起一轮）。</summary>
     internal static bool IsStalled(
         DateTime nowUtc, DateTime lastActivityUtc, bool loopRunning,

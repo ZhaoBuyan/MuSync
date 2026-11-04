@@ -153,14 +153,18 @@ internal class SteamSessionManager : IDisposable
         Logger.Info($"[SteamSession] 连接客户端已就绪（协议：{protocol}）");
     }
 
-    /// <summary>TCP 连接持续失败且允许回退时，改用 WebSocket (443 端口) 重连。</summary>
-    private bool TryFallbackToWebSocketIfNeeded()
+    /// <summary>连续连接失败时在两个协议之间来回切换（TCP ⇄ WebSocket），避免单向回退把用户锁死在一侧。</summary>
+    private bool TrySwitchProtocolIfNeeded()
     {
-        if (_currentProtocol != ProtocolTypes.Tcp) return false;
-        if (!Configurations.Instance.Settings.AllowWebSocketFallback) return false;
-        Logger.Warn("[SteamSession] TCP 连接持续失败，自动切换 WebSocket (443 端口) 重试");
+        var next = MuSync.Utils.ReconnectPolicy.NextProtocolFallback(
+            _currentProtocol.ToString(), Configurations.Instance.Settings.AllowWebSocketFallback);
+        if (next == null) return false;
+        var target = string.Equals(next, "WebSocket", StringComparison.OrdinalIgnoreCase)
+            ? ProtocolTypes.WebSocket
+            : ProtocolTypes.Tcp;
+        Logger.Warn($"[SteamSession] 连接持续失败，切换协议重试：{_currentProtocol} → {next}");
         _reconnectPending = true;
-        InitializeClient(ProtocolTypes.WebSocket);
+        InitializeClient(target);
         return true;
     }
 
@@ -219,7 +223,7 @@ internal class SteamSessionManager : IDisposable
             }
             if (!_isRunning || _steamClient?.IsConnected == true || _reconnectLoopRunning) return;
             Logger.Warn("[SteamSession] 首次连接超时，转入自动重连");
-            TryFallbackToWebSocketIfNeeded();
+            TrySwitchProtocolIfNeeded();
             StartReconnectLoop();
         }, _cts.Token);
     }
@@ -279,7 +283,7 @@ internal class SteamSessionManager : IDisposable
                 if (_steamClient?.IsConnected == true) return;
                 failedAttempts++;
                 // 连续多次失败：可能是当前网络对 TCP 27017 端口不友好，尝试切换到 WebSocket (443)
-                if (failedAttempts >= 3 && TryFallbackToWebSocketIfNeeded())
+                if (failedAttempts >= 3 && TrySwitchProtocolIfNeeded())
                 {
                     failedAttempts = 0;
                     delaySeconds = ReconnectInitialDelaySeconds;

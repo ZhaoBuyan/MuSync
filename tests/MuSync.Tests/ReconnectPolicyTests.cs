@@ -67,4 +67,30 @@ public class ReconnectPolicyTests
         Assert.True(ReconnectPolicy.StallThresholdSeconds > 60,
             $"StallThresholdSeconds={ReconnectPolicy.StallThresholdSeconds} 必须大于最大退避 60 秒");
     }
+    // ---------- 协议双向回退 ----------
+
+    [Theory]
+    [InlineData("Tcp", true, "WebSocket")]    // 直连失败且允许回退 → 试 WebSocket
+    [InlineData("Tcp", false, null)]          // 设置里关掉了 WebSocket 回退 → 继续重试直连
+    [InlineData("WebSocket", true, "Tcp")]    // WS 一直失败（代理关了）→ 回头试直连
+    [InlineData("WebSocket", false, "Tcp")]   // 关掉的是"回退到 WS"，WS 失败照样可以回直连
+    [InlineData("Unknown", true, null)]
+    public void NextProtocolFallback_AlternatesBothWays(string current, bool allowWebSocket, string? expected)
+    {
+        Assert.Equal(expected, ReconnectPolicy.NextProtocolFallback(current, allowWebSocket));
+    }
+
+    [Fact]
+    public void NextProtocolFallback_NeverReturnsSameProtocol()
+    {
+        // 返回自身会导致"切换"成死循环（重建客户端但协议不变）
+        foreach (var protocol in new[] { "Tcp", "WebSocket" })
+        {
+            foreach (var allow in new[] { true, false })
+            {
+                var next = ReconnectPolicy.NextProtocolFallback(protocol, allow);
+                if (next != null) Assert.NotEqual(protocol, next);
+            }
+        }
+    }
 }
