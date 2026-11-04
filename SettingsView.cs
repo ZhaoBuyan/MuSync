@@ -472,7 +472,7 @@ internal sealed partial class SettingsView : UserControl
     // ================= 同步页 =================
     private TabPage CreateSyncPage()
     {
-        var page = new TabPage(Loc.L("同步", "Sync")) { BackColor = Color.White, AutoScroll = true };
+        var page = new TabPage(Loc.L("同步设置", "Sync settings")) { BackColor = Color.White, AutoScroll = true };
 
         var switchGroup = CreateGroupBox(Loc.L("同步开关", "Sync options"), 16, 16, 650, 320);
         _enableSteamSyncCheckBox = CreateToggleSwitch(Loc.L("启用 Steam 同步（总开关）", "Enable Steam sync (master switch)"), 20, 32);
@@ -602,7 +602,7 @@ internal sealed partial class SettingsView : UserControl
     // ================= 显示页 =================
     private TabPage CreateStatusTextPage()
     {
-        var page = new TabPage(Loc.L("同步配置", "Status text")) { BackColor = Color.White };
+        var page = new TabPage(Loc.L("同步内容配置", "Status content")) { BackColor = Color.White };
 
         var templateGroup = CreateGroupBox(Loc.L("状态文本模板", "Status text template"), 16, 16, 650, 264);
 
