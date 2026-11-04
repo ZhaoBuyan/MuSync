@@ -309,11 +309,26 @@ internal class RpcManager(SteamStatusManager steamManager)
             var entry = GetPlayerEntry(key);
             if (entry is not { } pair) continue;
             if (pair.State is not { Player: not null, LastPolledInfo: not null }) continue;
+            // 浏览器媒体只在**正在播放**时参与：
+            // 用户要的是"看直播时状态显示直播标题"，而不是"浏览器开着一个暂停的标签页就一直占着状态"。
+            // 暂停的浏览器页在"暂停兜底"那一轮直接跳过，让位给音乐播放器。
+            if (!ParticipatesInPass(key, playingOnly)) continue;
             if (playingOnly && pair.State.LastPolledInfo is { Pause: true }) continue;
             return pair;
         }
         return (null, "");
     }
+
+    /// <summary>
+    /// 某个播放器是否参与这一轮仲裁（纯函数，便于单测）。
+    /// <para>
+    /// 规则：**浏览器媒体只在"正在播放"那一轮参与**。用户的原话是"看直播的时候要同步直播标题"，
+    /// 而不是"浏览器里留着一个暂停的标签页就一直占着状态"；因此浏览器暂停时直接让位给音乐播放器。
+    /// 其它播放器两轮都参与（暂停时仍显示当前曲目，由 HideMusicWhenPaused 决定推不推）。
+    /// </para>
+    /// </summary>
+    internal static bool ParticipatesInPass(string key, bool playingOnly) =>
+        playingOnly || !string.Equals(key, "Browser", StringComparison.OrdinalIgnoreCase);
 
     private (PlayerState State, string Name)? GetPlayerEntry(string key) => key switch
     {
