@@ -6,7 +6,7 @@ By [ZhaoBuyan](https://github.com/ZhaoBuyan)
 
 **Sync what you're listening to — and what you're running — to your Steam status, in real time.**
 
-Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer — download, sign in, done. Free forever. Runs on 64-bit Windows 10 / 11.
+Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer — and Spotify (experimental). Download, sign in, done. Free forever. Runs on 64-bit Windows 10 / 11.
 
 ![Steam friends list](docs/steam-preview.png)
 
@@ -41,7 +41,7 @@ Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer �
 
 ### Music sync
 
-- Supports NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer (community rebuild)
+- Supports NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer (community rebuild), plus Spotify on Windows (experimental — please report if the data looks off)
 - **Also syncs media playing in your browser** (Edge / Chrome / Brave / Vivaldi / Opera / Firefox …):
   when you play a video or audio in a browser, its title is synced. This goes through the Windows
   system media controls — no browser memory reads, no injection, no admin rights; the title is
@@ -52,7 +52,7 @@ Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer �
     turn on "Browser extension bridge (experimental)" under Settings → **Data sources**. Quick test: press
     **Win+A**; if the media flyout shows nothing, no program can see that playback. Within the same
     "browser media" slot, extension data wins over the system API whenever it is available
-- All six sources share **one priority list** (NetEase / QQ Music / LX / KuGou / TTPlayer / browser media)
+- All seven sources share **one priority list** (NetEase / QQ Music / LX / KuGou / TTPlayer / browser media / Spotify)
   which you can reorder in Settings → Sync with immediate effect
 - Multiple players running at once are arbitrated automatically: **whatever is playing wins**;
   when several are playing, your priority order decides
@@ -193,6 +193,8 @@ Get-FileHash .\MuSync.exe -Algorithm SHA256
 
 - **TTPlayer is not detected / which build do I need**
   You need the **community rebuild** ([Sonic853/TTPlayer](https://github.com/Sonic853/TTPlayer)). MuSync reads it through the Windows **System Media Transport Controls (SMTC)**, and the original 2011 TTPlayer 5.7.9 does not implement that interface, so it cannot be read or detected. Detection is based on the app identity (`Sonic853.TTPlayerRebuild`), so changing the build or renaming the executable does not affect it.
+- **Spotify is not detected**
+  MuSync reads Spotify through the Windows **System Media Transport Controls (SMTC)** — the same card you see in the volume flyout or when you press the media keys. Check two things: (1) with a track playing, does Windows show the Spotify card with title and cover? (2) both the Microsoft Store build and the installer from spotify.com are supported, so a missing cover or a wrong position is a data problem worth reporting. This support is **experimental**: it has not been verified against the real client yet, so please include your Spotify version and a screenshot of the media card when you report it. Spotify sits last in the priority list, so it never overrides another player that has content.
 
 - **Will my settings and login survive an upgrade?**
   Yes. Config and login token live in `%LocalAppData%\MuSync\config.json`, separate from the program files, and are picked up automatically after replacing the program (the token is DPAPI-encrypted, so the same PC and user won't need to sign in again).
@@ -257,7 +259,7 @@ RpcManager.cs                  # state arbitration and push (sync loop)
 SteamSessionManager.cs         # Steam connection and sign-in
 SteamStatusManager.cs          # Steam status text push
 Configurations.cs              # config load/save and encryption
-Players/                       # player readers (NetEase / QQ / LX Music / KuGou / TTPlayer)
+Players/                       # player readers (NetEase / QQ / LX Music / KuGou / TTPlayer / Spotify)
 Utils/                         # foreground watcher / classifier / template codec / updates / logging / DPAPI etc.
 Models/                        # data models
 Win32Api/                      # Win32 / process memory access
