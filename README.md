@@ -148,6 +148,8 @@ Rice Field ❤92                                                   ← plus a cu
 - Update check: on launch, then every 6 hours; new versions surface on the "Settings" button and tray menu; the update dialog can download directly — the full/lite editions use "Exit & open folder" for a manual replace, the installer edition updates with one click ("Update now")
 - The Diagnostics tab offers "Copy diagnostics" (one-click copy of the full state) and "Open logs folder"; logs live in `%LocalAppData%\MuSync\logs\` and are cleaned up automatically — only the last 7 days and up to 20 MB are kept
 
+![MuSync settings](docs/settings-preview.png)
+
 ## Editions & Upgrading
 
 > **Which edition?** We recommend **MuSync.exe** (full edition) — a portable single file, just double-click; **MuSync-Setup.exe** (installer edition) suits people who want zero maintenance — new versions auto-update with one click and no manual file replacement; **MuSync-lite.exe** is smaller but requires the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0). All three editions are functionally identical and share the same config & login.
