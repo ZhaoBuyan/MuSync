@@ -108,7 +108,13 @@ public class SettingsNavigationTests
             var tabs = Descendants(form).OfType<TabControl>().Single();
             var navigation = Descendants(form).OfType<ListBox>()
                 .Single(c => c.Name == "SettingsNavigation");
-            Assert.Equal(7, tabs.TabCount);
+            Assert.Equal(8, tabs.TabCount);
+            // 页序是产品决定的一部分（"同步配置"与"外观"必须相邻，且外观紧跟其后），
+            // 加页/挪页时要连这条一起改，避免导航与内容错位。
+            var expectedTitles = language == 0
+                ? new[] { "常规", "同步", "同步配置", "外观", "程序", "数据源", "诊断", "关于" }
+                : new[] { "General", "Sync", "Status text", "Appearance", "Apps", "Data sources", "Diagnostics", "About" };
+            Assert.Equal(expectedTitles, tabs.TabPages.Cast<TabPage>().Select(p => p.Text).ToArray());
             Assert.Equal(tabs.TabCount, navigation.Items.Count);
             for (var i = 0; i < tabs.TabCount; i++)
             {

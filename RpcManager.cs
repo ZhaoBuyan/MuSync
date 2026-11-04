@@ -359,7 +359,11 @@ internal class RpcManager(SteamStatusManager steamManager)
         var song = state == null ? null : InterpolatedInfoOf(state);
         if (song != null || appDisplay != null)
         {
-            Logger.Info($"[MuSync] 状态合成: 程序={appDisplay ?? "(无)"} 音乐={song?.Title ?? "(无)"}");
+            // ⚠️ 这条只记"识别到的输入"，**不是**最终推送文本：
+            // 最终文本由 SteamStatusManager 按模板合成，可能被截断，也可能因「暂停时隐藏」根本不推。
+            // 以前叫"状态合成"，排查时极易被误读成"已经推了这首"，实测误导过一次。
+            Logger.Info($"[MuSync] 状态输入: 程序={appDisplay ?? "(无)"} 音乐={song?.Title ?? "(无)"}"
+                + (song is { Pause: true } ? "（暂停，是否推送由「暂停时隐藏」决定）" : ""));
             await steamManager.UpdateStatusAsync(song, name, appDisplay);
         }
         else

@@ -124,7 +124,7 @@ public class ThemeAndRecoveryTests
         var view = main.Controls.OfType<SettingsView>().Single();
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
         var pages = (TabControl)typeof(SettingsView).GetField("_pages", flags)!.GetValue(view)!;
-        pages.SelectedIndex = 4;
+        pages.SelectedIndex = 5;   // 数据源页（加了"外观"页后索引右移）
         var field = typeof(SettingsView).GetField("_browserExtensionStatusLabel", flags)!;
         var original = field.GetValue(view);
         var timer = (Timer)typeof(SettingsView).GetField("_previewTimer", flags)!.GetValue(view)!;
@@ -136,7 +136,7 @@ public class ThemeAndRecoveryTests
         }
         finally { field.SetValue(view, original); }
         pages.SelectedIndex = 0;
-        pages.SelectedIndex = 4;
+        pages.SelectedIndex = 5;   // 数据源页（加了"外观"页后索引右移）
         Assert.True(timer.Enabled);
     }
 }

@@ -74,6 +74,16 @@ internal sealed partial class SettingsView : UserControl
     private ComboBox _themeCombo = null!;
     private CheckBox _backgroundFollowThemeCheck = null!;
     private int _refreshFailures;
+
+    // 页索引：加页 / 挪页时只改这里，别再散落魔法数字（顺序见构造函数的 TabPages.Add）
+    private const int PageGeneral = 0;
+    private const int PageSync = 1;
+    private const int PageStatusText = 2;
+    private const int PageAppearance = 3;
+    private const int PageApps = 4;
+    private const int PageDataSources = 5;
+    private const int PageDiagnostics = 6;
+    private const int PageAbout = 7;
     private double[]? _backgroundCropRect;
     private string _backgroundImagePath = "";
     private string _appearanceFontFamily = "";
@@ -182,7 +192,8 @@ internal sealed partial class SettingsView : UserControl
         _pages = tabs;
         tabs.TabPages.Add(CreateGeneralPage());
         tabs.TabPages.Add(CreateSyncPage());
-        tabs.TabPages.Add(CreateDisplayPage());
+        tabs.TabPages.Add(CreateStatusTextPage());
+        tabs.TabPages.Add(CreateAppearancePage());
         tabs.TabPages.Add(CreateAppsPage());
         tabs.TabPages.Add(CreateDataSourcesPage());
         tabs.TabPages.Add(CreateDiagnosticsPage());
@@ -589,9 +600,9 @@ internal sealed partial class SettingsView : UserControl
     }
 
     // ================= 显示页 =================
-    private TabPage CreateDisplayPage()
+    private TabPage CreateStatusTextPage()
     {
-        var page = new TabPage(Loc.L("显示", "Display")) { BackColor = Color.White };
+        var page = new TabPage(Loc.L("同步配置", "Status text")) { BackColor = Color.White };
 
         var templateGroup = CreateGroupBox(Loc.L("状态文本模板", "Status text template"), 16, 16, 650, 264);
 
@@ -725,14 +736,21 @@ internal sealed partial class SettingsView : UserControl
         ]);
 
         var persistentGroup = CreatePersistentStatusGroup();
-        var appearanceGroup = CreateAppearanceGroup();
         persistentGroup.Location = new Point(16, 488);
-        appearanceGroup.Location = new Point(16, 672);
         page.AutoScroll = true;
-        page.Controls.AddRange([templateGroup, previewGroup, persistentGroup, appearanceGroup]);
+        page.Controls.AddRange([templateGroup, previewGroup, persistentGroup]);
         return page;
     }
 
+    /// <summary>「外观」页：主题、颜色、字体、背景图。与状态文本分开，避免一页塞两件事。</summary>
+    private TabPage CreateAppearancePage()
+    {
+        var page = new TabPage(Loc.L("外观", "Appearance")) { BackColor = Color.White, AutoScroll = true };
+        var appearanceGroup = CreateAppearanceGroup();
+        appearanceGroup.Location = new Point(16, 16);
+        page.Controls.Add(appearanceGroup);
+        return page;
+    }
     /// <summary>「常驻状态」分组：无音乐 / 程序来源时推送的自定义文案（显示页内）。</summary>
     private GroupBox CreatePersistentStatusGroup()
     {
@@ -763,50 +781,50 @@ internal sealed partial class SettingsView : UserControl
     /// <summary>「外观」分组：自定义主界面的颜色 / 字体 / 背景（显示页内，可滚动查看）。</summary>
     private GroupBox CreateAppearanceGroup()
     {
-        var group = CreateGroupBox(Loc.L("外观", "Appearance"), 10, 472, 650, 440);
-        var themeLabel = new Label { Text = Loc.L("界面主题:", "Interface theme:"), Location = new Point(16, 376), AutoSize = true };
-        _themeCombo = new CueComboBox { Name = "ThemeSelector", Location = new Point(240, 368), Width = 244, DropDownStyle = ComboBoxStyle.DropDownList };
+        var group = CreateGroupBox(Loc.L("外观", "Appearance"), 10, 16, 650, 448);
+        var themeLabel = new Label { Text = Loc.L("界面主题:", "Interface theme:"), Location = new Point(16, 32), AutoSize = true };
+        _themeCombo = new CueComboBox { Name = "ThemeSelector", Location = new Point(240, 24), Width = 244, DropDownStyle = ComboBoxStyle.DropDownList };
         foreach (var palette in ThemePalettes.All) _themeCombo.Items.Add(palette);
-        var themeHint = new Label { Text = Loc.L("保存后应用，保留自定义背景", "Applies on save; keeps custom backgrounds"), Location = new Point(240, 404), Size = new Size(394, 24), Font = Theme.Caption, ForeColor = Theme.Muted };
+        var themeHint = new Label { Text = Loc.L("保存后应用，保留自定义背景", "Applies on save; keeps custom backgrounds"), Location = new Point(240, 60), Size = new Size(394, 24), Font = Theme.Caption, ForeColor = Theme.Muted };
         group.Controls.AddRange([themeLabel, _themeCombo, themeHint]);
 
         // 行 1：标题颜色 / 歌名颜色
-        var titleColorLabel = new Label { Text = Loc.L("标题颜色:", "Title color:"), Location = new Point(16, 40), AutoSize = true };
-        _titleFollowCheck = CreateToggleSwitch(Loc.L("跟随播放器", "Follow player"), 440, 32);
-        _titleColorButton = CreateColorButton(new Point(562, 32));
+        var titleColorLabel = new Label { Text = Loc.L("标题颜色:", "Title color:"), Location = new Point(16, 112), AutoSize = true };
+        _titleFollowCheck = CreateToggleSwitch(Loc.L("跟随播放器", "Follow player"), 440, 104);
+        _titleColorButton = CreateColorButton(new Point(562, 104));
         _titleColorButton.Name = "TitleColorSwatch";
-        var songColorLabel = new Label { Text = Loc.L("歌名颜色:", "Song title color:"), Location = new Point(16, 80), AutoSize = true };
-        _songFollowCheck = CreateToggleSwitch(Loc.L("跟随标题", "Follow title"), 440, 72);
-        _songColorButton = CreateColorButton(new Point(562, 72));
+        var songColorLabel = new Label { Text = Loc.L("歌名颜色:", "Song title color:"), Location = new Point(16, 152), AutoSize = true };
+        _songFollowCheck = CreateToggleSwitch(Loc.L("跟随标题", "Follow title"), 440, 144);
+        _songColorButton = CreateColorButton(new Point(562, 144));
         _songColorButton.Name = "SongColorSwatch";
 
         // 行 2：字体 / 背景色
-        var fontLabel = new Label { Text = Loc.L("主界面字体（8–16pt）:", "Main font (8–16pt):"), Location = new Point(16, 120), AutoSize = true };
+        var fontLabel = new Label { Text = Loc.L("主界面字体（8–16pt）:", "Main font (8–16pt):"), Location = new Point(16, 192), AutoSize = true };
         _fontButton = new CueButton
         {
             Name = "AppearanceFontSelector",
             Text = Loc.L("微软雅黑 9pt", "Microsoft YaHei 9pt"),
-            Location = new Point(240, 112),
+            Location = new Point(240, 184),
             Size = new Size(394, 32),
             BackColor = Color.White
         };
         _fontButton.Click += FontButton_Click;
-        var backgroundColorLabel = new Label { Text = Loc.L("背景色:", "Background color:"), Location = new Point(16, 160), AutoSize = true };
-        _backgroundColorButton = CreateColorButton(new Point(240, 152));
+        var backgroundColorLabel = new Label { Text = Loc.L("背景色:", "Background color:"), Location = new Point(16, 232), AutoSize = true };
+        _backgroundColorButton = CreateColorButton(new Point(240, 224));
         _backgroundColorButton.Name = "BackgroundColorSwatch";
-        _backgroundFollowThemeCheck = CreateToggleSwitch(Loc.L("跟随主题", "Use theme"), 440, 152);
-        var backgroundFollowLabel = new Label { Text = Loc.L("跟随主题", "Use theme"), Location = new Point(336, 160), AutoSize = true };
+        _backgroundFollowThemeCheck = CreateToggleSwitch(Loc.L("跟随主题", "Use theme"), 440, 224);
+        var backgroundFollowLabel = new Label { Text = Loc.L("跟随主题", "Use theme"), Location = new Point(336, 232), AutoSize = true };
         _backgroundFollowThemeCheck.CheckedChanged += (_, _) => _backgroundColorButton.Enabled = !_backgroundFollowThemeCheck.Checked;
         _themeCombo.SelectionChangeCommitted += (_, _) => _backgroundFollowThemeCheck.Checked = true;
         group.Controls.AddRange([_backgroundFollowThemeCheck, backgroundFollowLabel]);
 
         // 行 3：背景图 / 排版
-        var backgroundImageLabel = new Label { Text = Loc.L("背景图:", "Background image:"), Location = new Point(16, 200), AutoSize = true };
+        var backgroundImageLabel = new Label { Text = Loc.L("背景图:", "Background image:"), Location = new Point(16, 272), AutoSize = true };
         _backgroundImageLabel = new Label
         {
             Name = "BackgroundImageName",
             Text = Loc.L("（无）", "(None)"),
-            Location = new Point(240, 200),
+            Location = new Point(240, 344),
             Size = new Size(394, 24),
             ForeColor = Theme.Muted,
             AutoEllipsis = true
@@ -814,7 +832,7 @@ internal sealed partial class SettingsView : UserControl
         var chooseImageButton = new CueButton
         {
             Text = Loc.L("选择…", "Choose..."),
-            Location = new Point(240, 232),
+            Location = new Point(240, 304),
             Size = new Size(144, 32),
             BackColor = Color.White
         };
@@ -822,7 +840,7 @@ internal sealed partial class SettingsView : UserControl
         var clearImageButton = new CueButton
         {
             Text = Loc.L("清除", "Clear"),
-            Location = new Point(392, 232),
+            Location = new Point(392, 304),
             Size = new Size(96, 32),
             BackColor = Color.White
         };
@@ -832,10 +850,10 @@ internal sealed partial class SettingsView : UserControl
             _backgroundCropRect = null;
             UpdateBackgroundImageLabel();
         };
-        var layoutLabel = new Label { Text = Loc.L("图片布局:", "Image layout:"), Location = new Point(16, 280), AutoSize = true };
+        var layoutLabel = new Label { Text = Loc.L("图片布局:", "Image layout:"), Location = new Point(16, 352), AutoSize = true };
         _backgroundLayoutCombo = new CueComboBox
         {
-            Location = new Point(240, 272),
+            Location = new Point(240, 344),
             Width = 176,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
@@ -845,7 +863,7 @@ internal sealed partial class SettingsView : UserControl
         var resetButton = new CueButton
         {
             Text = Loc.L("恢复默认外观", "Reset appearance"),
-            Location = new Point(16, 328),
+            Location = new Point(16, 400),
             Size = new Size(176, 32),
             BackColor = Color.White
         };
@@ -857,8 +875,8 @@ internal sealed partial class SettingsView : UserControl
         _titleFollowCheck.CheckedChanged += (_, _) => UpdateAppearanceEnabled();
         _songFollowCheck.CheckedChanged += (_, _) => UpdateAppearanceEnabled();
 
-        var titleFollowLabel = new Label { Text = _titleFollowCheck.Text, Location = new Point(240, 40), AutoSize = true };
-        var songFollowLabel = new Label { Text = _songFollowCheck.Text, Location = new Point(240, 80), AutoSize = true };
+        var titleFollowLabel = new Label { Text = _titleFollowCheck.Text, Location = new Point(240, 112), AutoSize = true };
+        var songFollowLabel = new Label { Text = _songFollowCheck.Text, Location = new Point(240, 152), AutoSize = true };
         titleFollowLabel.Click += (_, _) => _titleFollowCheck.Checked = !_titleFollowCheck.Checked;
         songFollowLabel.Click += (_, _) => _songFollowCheck.Checked = !_songFollowCheck.Checked;
         _titleColorButton.AccessibleName = Loc.L("自定义标题颜色", "Custom title color");
@@ -1313,7 +1331,7 @@ internal sealed partial class SettingsView : UserControl
                 return;
             }
             var info = await (fetchUpdate ?? UpdateChecker.CheckAsync)();
-            if (IsDisposed || Disposing || !Visible || _pages.SelectedIndex != 6) return;
+            if (IsDisposed || Disposing || !Visible || _pages.SelectedIndex != PageAbout) return;
             if (info == null)
             {
                 MessageBox.Show(Loc.L("当前已是最新版本（或网络暂不可用，稍后再试）。", "You're on the latest version (or the network is unavailable — try again later)."), Loc.L("检查更新", "Check for updates"),
@@ -2347,8 +2365,8 @@ internal sealed partial class SettingsView : UserControl
     private void UpdateRefreshTimers()
     {
         if (_pages == null || _perfTimer == null || _previewTimer == null || IsDisposed || Disposing) return;
-        _perfTimer.Enabled = Visible && _pages.SelectedIndex is 0 or 5;
-        _previewTimer.Enabled = Visible && _pages.SelectedIndex is 2 or 4;
+        _perfTimer.Enabled = Visible && _pages.SelectedIndex is PageGeneral or PageDiagnostics;
+        _previewTimer.Enabled = Visible && _pages.SelectedIndex is PageStatusText or PageDataSources;
     }
 
     private void RefreshVisiblePage()
@@ -2363,7 +2381,7 @@ internal sealed partial class SettingsView : UserControl
         _perfTimer.Stop();
         _previewTimer.Stop();
         var message = Loc.L("刷新暂时停止，切换页面可重试；详情已写入日志。", "Refresh paused. Switch pages to retry; details are in the log.");
-        var label = _pages.SelectedIndex switch { 0 => _accountStatusLabel, 2 => _previewLabel, 4 => _dataSourceHint, _ => _memoryInfoLabel };
+        var label = _pages.SelectedIndex switch { PageGeneral => _accountStatusLabel, PageStatusText => _previewLabel, PageDataSources => _dataSourceHint, _ => _memoryInfoLabel };
         label.Text = message;
         label.ForeColor = Theme.OnAir;
     }
@@ -2373,13 +2391,13 @@ internal sealed partial class SettingsView : UserControl
         // 原先在数据源页也会重画隐藏的预览、账户和诊断，引发整窗重绘。
         switch (_pages.SelectedIndex)
         {
-            case 0: UpdateAccountStatus(); break;
-            case 2: UpdatePreview(); break;
-            case 4:
+            case PageGeneral: UpdateAccountStatus(); break;
+            case PageStatusText: UpdatePreview(); break;
+            case PageDataSources:
                 UpdateBrowserExtensionStatus();
                 RefreshDataSourceRuntimeStatus();
                 break;
-            case 5: RefreshMemoryInfo(); break;
+            case PageDiagnostics: RefreshMemoryInfo(); break;
         }
     }
 
@@ -2479,7 +2497,7 @@ internal sealed partial class SettingsView : UserControl
         SyncPresetFromFormats();
         LoadPriorityOrder();
         UpdateAccountStatus();
-        if (_pages.SelectedIndex == 5) RefreshMemoryInfo();
+        if (_pages.SelectedIndex == PageDiagnostics) RefreshMemoryInfo();
         var versionText = $"v{UpdateChecker.GetCurrentVersionText()}";
         _versionLabel.Text = Loc.L($"MuSync {versionText} ｜ 配置目录：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync", $"MuSync {versionText} | Config folder: {Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync");
         _aboutVersionLabel.Text = Loc.L($"版本：MuSync {versionText}", $"Version: MuSync {versionText}");
