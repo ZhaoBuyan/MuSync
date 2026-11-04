@@ -198,6 +198,9 @@ Get-FileHash .\MuSync.exe -Algorithm SHA256
 - **遇到问题 / 想提建议**
   欢迎到 [GitHub Issues](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) 反馈：缺陷和功能建议各有模板，附上设置 → 诊断 → 「复制诊断信息」的内容，定位会快很多。**请先开 Issue**：邮箱（见作者主页）只用于私下传递 Dump 或大文件，未开 Issue 直接发邮件的请求不保证回复。
 
+- **能不能直接发邮件，不开 Issue**
+  不行，请先开 Issue。邮箱（见作者主页）只在**已有 Issue**的前提下、用于私下传递 Dump 或大文件。没有 Issue 的邮件通常缺少版本号、复现步骤，别人也搜不到，所以不保证回复；先有 Issue 之后，邮件随时可以发，而且往往更快。
+
 - **如何卸载**
   安装器版：从 Windows「设置 → 应用」或开始菜单的卸载项卸载；卸载只移除程序文件，配置与日志（`%LocalAppData%\MuSync`）会保留——想彻底清理再手动删除该文件夹。完整版 / lite 版：直接删除程序文件即可。
 
