@@ -35,6 +35,18 @@ internal class SteamSessionManager : IDisposable
     private volatile bool _reconnectLoopRunning;
     private volatile bool _reconnectPending;
 
+    /// <summary>重连代际：监督者重建时递增，旧循环据此自行退出（避免两轮循环互相干扰）。</summary>
+    private int _reconnectGeneration;
+
+    /// <summary>重连循环最近一次活动（每轮开始连接前刷新）；监督者据此判断"卡死"。</summary>
+    private DateTime _reconnectActivityUtc = DateTime.MinValue;
+
+    /// <summary>每次 Connect 调用的等待上限：WebSocket 回退后它可能长时间不返回。</summary>
+    private const int ConnectTimeoutSeconds = 20;
+
+    /// <summary>监督者检查间隔。</summary>
+    private const int SupervisorIntervalSeconds = 30;
+
     public bool IsConnected => _steamClient?.IsConnected ?? false;
 
     /// <summary>当前连接协议（TCP / WebSocket），供诊断信息展示。</summary>
@@ -103,6 +115,7 @@ internal class SteamSessionManager : IDisposable
         _steamClient?.Connect();
         Debug.WriteLine("[SteamSession] 正在连接到 Steam...");
         StartFirstConnectWatchdog();
+        StartReconnectSupervisor();
     }
 
     /// <summary>初始化连接客户端（TCP 或 WebSocket 协议）。切换协议时重建客户端与回调订阅。</summary>
@@ -188,22 +201,7 @@ internal class SteamSessionManager : IDisposable
         Debug.WriteLine($"[SteamSession] 已断开连接 (UserInitiated={cb.UserInitiated})");
         Logger.Info($"[SteamSession] 已断开连接 (UserInitiated={cb.UserInitiated})");
         if (cb.UserInitiated || !_isRunning || _reconnectLoopRunning) return;
-        _reconnectLoopRunning = true;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await AutoReconnectLoopAsync(_cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                // 程序退出中，静默忽略
-            }
-            finally
-            {
-                _reconnectLoopRunning = false;
-            }
-        }, _cts.Token);
+        StartReconnectLoop();
     }
 
     /// <summary>启动 watchdog：首次连接长时间不成功（网络未就绪/服务器不可达）时自动进入退避重连。</summary>
@@ -220,75 +218,170 @@ internal class SteamSessionManager : IDisposable
                 return;
             }
             if (!_isRunning || _steamClient?.IsConnected == true || _reconnectLoopRunning) return;
-            _reconnectLoopRunning = true;
-            try
-            {
-                Logger.Warn("[SteamSession] 首次连接超时，转入自动重连");
-                TryFallbackToWebSocketIfNeeded();
-                await AutoReconnectLoopAsync(_cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                // 程序退出中，静默忽略
-            }
-            finally
-            {
-                _reconnectLoopRunning = false;
-            }
+            Logger.Warn("[SteamSession] 首次连接超时，转入自动重连");
+            TryFallbackToWebSocketIfNeeded();
+            StartReconnectLoop();
         }, _cts.Token);
     }
 
-    /// <summary>指数退避重连：反复 Connect 直到连上 Steam（无论是否已登录）。</summary>
-    private async Task AutoReconnectLoopAsync(CancellationToken token)
+    /// <summary>
+    /// 指数退避重连：反复 Connect 直到连上 Steam（无论是否已登录）。
+    /// <para>
+    /// 三重保护（2026-11-04 修复静默死亡）：
+    /// 1. 循环体整体 try/catch —— 任何异常都只记一条日志并继续，绝不带着 <c>_reconnectLoopRunning</c> 一起死掉；
+    /// 2. <c>Connect()</c> 带超时（它可能在 WebSocket 回退后阻塞）——超时只记日志并进入下一轮退避；
+    /// 3. 代际号 —— 监督者判定卡死时会递增代际，旧循环自己退出，不会与新循环抢。
+    /// </para>
+    /// </summary>
+    private async Task AutoReconnectLoopAsync(int generation, CancellationToken token)
     {
         var delaySeconds = ReconnectInitialDelaySeconds;
         var failedAttempts = 0;
-        while (_isRunning && !token.IsCancellationRequested && _steamClient?.IsConnected != true)
+        try
         {
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), token);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            if (!_isRunning || token.IsCancellationRequested || _steamClient?.IsConnected == true) return;
-            try
-            {
-                _reconnectPending = true;
-                Debug.WriteLine($"[SteamSession] 尝试自动重连 (下次失败退避 {delaySeconds}s)...");
-                Logger.Info($"[SteamSession] 尝试自动重连 (下次失败退避 {delaySeconds}s)...");
-                _steamClient?.Connect();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[SteamSession] 自动重连异常: {ex.Message}");
-                Logger.Error($"[SteamSession] 自动重连异常: {ex.Message}");
-            }
-            // 等待连接结果（最多约 8 秒）；连上即退出循环，令牌重登由 ConnectedCallback 触发
-            for (var i = 0; i < 30 && !token.IsCancellationRequested && _steamClient?.IsConnected != true; i++)
+            while (_isRunning && !token.IsCancellationRequested && generation == _reconnectGeneration
+                   && _steamClient?.IsConnected != true)
             {
                 try
                 {
-                    await Task.Delay(500, token);
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds), token);
                 }
                 catch (OperationCanceledException)
                 {
                     return;
                 }
+                if (!_isRunning || token.IsCancellationRequested || generation != _reconnectGeneration
+                    || _steamClient?.IsConnected == true) return;
+                _reconnectActivityUtc = DateTime.UtcNow;
+                try
+                {
+                    _reconnectPending = true;
+                    Logger.Info($"[SteamSession] 尝试自动重连 (下次失败退避 {delaySeconds}s，协议 {_currentProtocol})...");
+                    await ConnectWithTimeoutAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"[SteamSession] 自动重连异常: {ex.Message}");
+                }
+                // 等待连接结果（最多约 15 秒）；连上即退出循环，令牌重登由 ConnectedCallback 触发
+                for (var i = 0; i < 30 && !token.IsCancellationRequested && generation == _reconnectGeneration
+                     && _steamClient?.IsConnected != true; i++)
+                {
+                    try
+                    {
+                        await Task.Delay(500, token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                }
+                if (_steamClient?.IsConnected == true) return;
+                failedAttempts++;
+                // 连续多次失败：可能是当前网络对 TCP 27017 端口不友好，尝试切换到 WebSocket (443)
+                if (failedAttempts >= 3 && TryFallbackToWebSocketIfNeeded())
+                {
+                    failedAttempts = 0;
+                    delaySeconds = ReconnectInitialDelaySeconds;
+                    continue;
+                }
+                delaySeconds = Math.Min(delaySeconds * 2, ReconnectMaxDelaySeconds);
             }
-            if (_steamClient?.IsConnected == true) return;
-            failedAttempts++;
-            // 连续多次失败：可能是当前网络对 TCP 27017 端口不友好，尝试切换到 WebSocket (443)
-            if (failedAttempts >= 3 && TryFallbackToWebSocketIfNeeded())
-            {
-                failedAttempts = 0;
-                delaySeconds = ReconnectInitialDelaySeconds;
-                continue;
-            }
-            delaySeconds = Math.Min(delaySeconds * 2, ReconnectMaxDelaySeconds);
         }
+        catch (Exception ex)
+        {
+            // 兜底：循环自身不允许"无声消失"，否则界面会永远停在连接中
+            Logger.Error($"[SteamSession] 重连循环异常退出: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 带超时的 Connect：WebSocket 回退后 <c>Connect()</c> 可能长时间不返回，
+    /// 卡住的循环会让整个会话永久停在"正在连接"（实测 10 分钟无任何网络连接）。
+    /// </summary>
+    private async Task ConnectWithTimeoutAsync()
+    {
+        var client = _steamClient;
+        if (client == null) return;
+        var connectTask = Task.Run(() => client.Connect());
+        var finished = await Task.WhenAny(connectTask, Task.Delay(TimeSpan.FromSeconds(ConnectTimeoutSeconds)))
+            .ConfigureAwait(false);
+        if (finished != connectTask)
+        {
+            Logger.Warn($"[SteamSession] 连接调用 {ConnectTimeoutSeconds}s 未返回，按失败处理并进入下一轮退避");
+        }
+    }
+
+    /// <summary>拉起一轮重连（代际 +1，保证旧循环退出）。</summary>
+    private void StartReconnectLoop()
+    {
+        if (!_isRunning || _cts.IsCancellationRequested) return;
+        if (_steamClient?.IsConnected == true) return;
+        var generation = System.Threading.Interlocked.Increment(ref _reconnectGeneration);
+        _reconnectLoopRunning = true;
+        _reconnectActivityUtc = DateTime.UtcNow;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await AutoReconnectLoopAsync(generation, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // 程序退出中，静默忽略
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[SteamSession] 重连循环异常: {ex.Message}");
+            }
+            finally
+            {
+                if (generation == _reconnectGeneration) _reconnectLoopRunning = false;
+            }
+        }, _cts.Token);
+    }
+
+    /// <summary>
+    /// 重连监督者：每 30 秒判断一次"是否该拉起/重建重连"。
+    /// 它是重连链路的最后一道保险——即使循环被某次阻塞调用拖住或异常退出，也会在这里被发现。
+    /// </summary>
+    private void StartReconnectSupervisor()
+    {
+        _ = Task.Run(async () =>
+        {
+            while (_isRunning && !_cts.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(SupervisorIntervalSeconds), _cts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                try
+                {
+                    var now = DateTime.UtcNow;
+                    var connected = _steamClient?.IsConnected == true;
+                    if (!MuSync.Utils.ReconnectPolicy.ShouldSupervise(now, _reconnectActivityUtc, _isRunning,
+                            connected, _reconnectLoopRunning, _cts.IsCancellationRequested)) continue;
+                    var stalled = MuSync.Utils.ReconnectPolicy.IsStalled(now, _reconnectActivityUtc, _reconnectLoopRunning);
+                    Logger.Warn($"[SteamSession] 监督者接管：{(stalled ? "重连循环疑似卡死，重建客户端与循环" : "没有重连循环在跑，拉起一轮")}");
+                    if (stalled)
+                    {
+                        // 递增代际让卡住的循环自行退出，并用当前协议重建客户端（连接对象可能已损坏）
+                        System.Threading.Interlocked.Increment(ref _reconnectGeneration);
+                        _reconnectLoopRunning = false;
+                        InitializeClient(_currentProtocol);
+                    }
+                    StartReconnectLoop();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"[SteamSession] 重连监督者异常（将继续）: {ex.Message}");
+                }
+            }
+        }, _cts.Token);
     }
 
     private void OnLoggedOn(SteamUser.LoggedOnCallback cb)
