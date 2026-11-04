@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using MuSync.Models;
 namespace MuSync.Utils;
 
@@ -298,6 +299,13 @@ internal static class AppClassifier
     /// 让用户一眼看出分类建议来自本机库、不需要联网。
     /// </summary>
     public static int LibrarySize => KnownPrograms.Count + BuiltInIgnored.Count;
+
+    internal static IReadOnlyList<ProgramLibrary.Entry> GetLibraryEntries() =>
+        Array.AsReadOnly(KnownPrograms
+            .Where(pair => !IsBuiltInIgnored(pair.Key))
+            .Select(pair => new ProgramLibrary.Entry(pair.Key, pair.Value.Name, pair.Value.Category))
+            .OrderBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(entry => entry.ExeName, StringComparer.OrdinalIgnoreCase).ToArray());
 
     /// <summary>
     /// 给新发现的程序一个分类与显示名建议。

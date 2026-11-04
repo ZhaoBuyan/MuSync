@@ -10,8 +10,18 @@ using MuSync.Players;
 using MuSync.Utils;
 namespace MuSync;
 /// <summary>主窗口：音乐与程序面板的实时状态展示，含「设置」按钮 / 连接状态 / 更新提示。</summary>
-internal class MainForm : Form
+internal partial class MainForm : Form
 {
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Theme.ApplyWindowFrame(this);
+    }
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        _relayoutScheduled = false;
+        base.OnHandleDestroyed(e);
+    }
     private readonly Timer _updateTimer;
     // 下面这七个数组按「最多 3 块播放器面板」的容量声明，但主界面实际只创建第 0 块
     // （见 InitializeComponent 的 CreatePlayerPanel(0)）：当前设计是"只展示当前活跃源"，
@@ -22,13 +32,14 @@ internal class MainForm : Form
     private readonly Label[] _songTitleLabels = new Label[3];
     private readonly Label[] _artistLabels = new Label[3];
     private readonly Label[] _albumLabels = new Label[3];
-    private readonly Label[] _statusLabels = new Label[3];
+    private readonly PlaybackStatusLabel[] _statusLabels = new PlaybackStatusLabel[3];
     private readonly ProgressBar[] _progressBars = new ProgressBar[3];
     private readonly Label[] _progressLabels = new Label[3];
     private readonly Label[] _playerNameLabels = new Label[3];
     private Label _lastUpdateLabel = null!;
     private Label _steamStateLabel = null!;
     private Panel _appSyncPanel = null!;
+    private Label _appHeadingLabel = null!;
     private Label _appNameLabel = null!;
     private Label _appCategoryLabel = null!;
     private Label _appStatusLabel = null!;
@@ -37,6 +48,17 @@ internal class MainForm : Form
     private string _appIconPath = "";
     private FadingButton _settingsButton = null!;
     private bool _updateBadgeVisible;
+    private Label _outputPreview = null!;
+    private Label _outputHeading = null!;
+    private BudgetMeasure _outputBudget = null!;
+    private string _displayedOutput = "";
+    private DateTime _copyFeedbackExpiresUtc;
+    private SettingsView? _embeddedSettings;
+    private SettingsView? _settingsViewCache;
+    private bool _settingsSaved;
+    private bool _resumeSettingsDraft;
+    private (Control Control, bool Visible)[]? _overviewControls;
+    private string _overviewTitle = "";
     private GradientDivider? _appSyncDivider;
     /// <summary>
     /// 数据层播放器键（与 <c>RpcManager.DefaultPlayerOrder</c> 同口径），顺序即面板编号。
@@ -93,6 +115,10 @@ internal class MainForm : Form
     private string _lastMusicSourceName = "";
     public MainForm()
     {
+        SuspendLayout();
+        DoubleBuffered = true;
+        AutoScaleDimensions = new SizeF(96, 96);
+        AutoScaleMode = AutoScaleMode.Dpi;
         _playerNames = _playerKeys.Select(Loc.PlayerName).ToArray();
         InitializeComponent();
         SetupForm();
@@ -102,13 +128,16 @@ internal class MainForm : Form
         Resize += (_, _) => { SyncUpdateTimerState(); ScheduleRelayout(); };
         KeyPreview = true;
         KeyDown += MainForm_KeyDown;
+        ResumeLayout(true);
+        PerformAutoScale();
         // 启动时应用外观设置
         ApplyAppearance();
+        Shown += (_, _) => Application.Idle += PrepareSettingsWhenIdle;
     }
     private void InitializeComponent()
     {
         CreatePlayerPanel(0);
-        // 面板之间的渐变分隔线（半透明 → 透明）
+        // 内容区分隔线。
         _appSyncDivider = new GradientDivider
         {
             Location = new Point(10, 155),
@@ -120,8 +149,8 @@ internal class MainForm : Form
         _lastUpdateLabel = new Label
         {
             AutoSize = true,
-            Font = new Font("Microsoft YaHei", 8),
-            ForeColor = Color.Gray,
+            Font = Theme.Caption,
+            ForeColor = Theme.Muted,
             Location = new Point(10, 345),
             Size = new Size(150, 13),
             Text = Loc.L("最后更新: --:--:--", "Last update: --:--:--")
@@ -131,18 +160,33 @@ internal class MainForm : Form
             Text = Loc.L("设置", "Settings"),
             Size = new Size(75, 30),
             Location = new Point(516, 340),
-            ForeColor = Color.Black,
-            Font = new Font("Microsoft YaHei", 9)
+            ForeColor = Theme.Ink,
+            Font = Theme.Body
         };
         _settingsButton.Click += SettingsButton_Click;
         _steamStateLabel = new Label
         {
-            AutoSize = true,
-            Font = new Font("Microsoft YaHei", 8),
-            ForeColor = Color.Gray,
+            AutoSize = false, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleRight,
+            Font = Theme.Caption,
+            ForeColor = Theme.Muted,
             Location = new Point(170, 346)
         };
         Controls.AddRange([_lastUpdateLabel, _settingsButton, _steamStateLabel]);
+        _outputPreview = new Label
+        {
+            Text = Loc.L("尚无已推送状态", "No status has been pushed yet"),
+            Font = Theme.Output, ForeColor = Theme.Muted, AutoEllipsis = true,
+            Location = new Point(16, 326), Size = new Size(588, 32),
+            AccessibleName = Loc.L("已推送的 Steam 状态，点击复制", "Pushed Steam status, click to copy")
+        };
+        _outputPreview.Click += (_, _) => CopyOutput(Clipboard.SetText, DateTime.UtcNow);
+        _outputBudget = new BudgetMeasure { Location = new Point(16, 358), Width = 588 };
+        _outputHeading = new Label
+        {
+            Text = Loc.L("Steam 状态", "Steam status"),
+            Font = Theme.Section, ForeColor = Theme.Ink, AutoSize = true
+        };
+        Controls.AddRange([_outputHeading, _outputPreview, _outputBudget]);
     }
     /// <summary>第 4 面板：程序同步状态。</summary>
     private void CreateAppSyncPanel()
@@ -156,26 +200,29 @@ internal class MainForm : Form
         var titleLabel = new Label
         {
             AutoSize = true,
-            Font = new Font("Microsoft YaHei", 10, FontStyle.Bold),
-            ForeColor = Color.FromArgb(122, 120, 220),
-            Location = new Point(10, 15),
-            Text = Loc.L("程序同步", "App Sync")
+            Font = Theme.Caption,
+            ForeColor = Theme.Muted,
+            Location = new Point(16, 8),
+            Text = Loc.L("程序同步", "App sync")
         };
+        _appHeadingLabel = titleLabel;
         _appNameLabel = new Label
         {
-            AutoSize = true,
+            AutoSize = false,
+            AutoEllipsis = true,
+            Size = new Size(460, 28),
             MaximumSize = new Size(460, 0),
-            Font = new Font("Microsoft YaHei", 11, FontStyle.Bold),
-            ForeColor = Color.Black,
-            Location = new Point(100, 15),
+            Font = Theme.Section,
+            ForeColor = Theme.Ink,
+            Location = new Point(88, 32),
             Text = Loc.L("未检测到程序", "No app detected")
         };
         _appCategoryLabel = new Label
         {
             AutoSize = true,
             Font = new Font("Microsoft YaHei", 9),
-            ForeColor = Color.DarkGray,
-            Location = new Point(100, 50),
+            ForeColor = Theme.Muted,
+            Location = new Point(88, 64),
             Text = ""
         };
         _appStatusLabel = new Label
@@ -183,8 +230,8 @@ internal class MainForm : Form
             AutoSize = true,
             MaximumSize = new Size(460, 0),
             Font = new Font("Microsoft YaHei", 9),
-            ForeColor = Color.Gray,
-            Location = new Point(100, 80),
+            ForeColor = Theme.Muted,
+            Location = new Point(88, 88),
             Text = Loc.L("前台出现新程序会自动加入设置列表", "New foreground apps are added to the list automatically")
         };
         // 状态点：6px 自绘圆点，颜色 = 状态语义色（黄＝暂停 / 蓝＝待确认 / 绿＝已显示 / 灰＝待机）
@@ -193,7 +240,7 @@ internal class MainForm : Form
         {
             AutoSize = false,
             Size = new Size(7, 7),
-            Location = new Point(86, 85),
+            Location = new Point(74, 93),
             BackColor = Color.Transparent
         };
         _appStatusDot.Paint += (_, e) =>
@@ -204,20 +251,13 @@ internal class MainForm : Form
         };
         _appIconBox = new PictureBox
         {
-            Location = new Point(12, 45),
-            Size = new Size(52, 52),
+            Location = new Point(16, 40),
+            Size = new Size(56, 56),
             SizeMode = PictureBoxSizeMode.Zoom,
             BackColor = Color.Transparent
         };
-        var hintLabel = new Label
-        {
-            AutoSize = true,
-            Font = new Font("Microsoft YaHei", 8),
-            ForeColor = Color.Gray,
-            Location = new Point(10, 130),
-            Text = Loc.L("在 设置 → 程序同步设置 中管理分类与显示名", "Manage categories and display names in Settings → Apps")
-        };
-        panel.Controls.AddRange([titleLabel, _appNameLabel, _appCategoryLabel, _appStatusDot, _appStatusLabel, _appIconBox, hintLabel]);
+        _songUrlHint.SetToolTip(_appNameLabel, Loc.L("在 设置 → 程序 中管理分类与显示名", "Manage categories and display names in Settings → Apps"));
+        panel.Controls.AddRange([titleLabel, _appNameLabel, _appCategoryLabel, _appStatusDot, _appStatusLabel, _appIconBox]);
         _appSyncPanel = panel;
         Controls.Add(panel);
     }
@@ -331,27 +371,27 @@ internal class MainForm : Form
         };
         var coverPictureBox = new PictureBox
         {
-            Size = new Size(80, 80),
-            Location = new Point(10, 15),
+            Size = new Size(56, 56),
+            Location = new Point(16, 40),
             SizeMode = PictureBoxSizeMode.StretchImage,
-            BorderStyle = BorderStyle.FixedSingle,
-            BackColor = Color.LightGray
+            BorderStyle = BorderStyle.None,
+            BackColor = Theme.Inset
         };
         var playerNameLabel = new Label
         {
             AutoSize = true,
-            Font = new Font("Microsoft YaHei", 10, FontStyle.Bold),
-            ForeColor = playerColor,
-            Location = new Point(100, 15),
+            Font = Theme.Caption,
+            ForeColor = Theme.Muted,
+            Location = new Point(88, 16),
             Size = new Size(100, 15),
-            Text = _playerNames[index]
+            Text = Loc.L("音乐", "Music")
         };
         var textFlowPanel = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             AutoSize = true,
-            Location = new Point(100, 35),
+            Location = new Point(88, 48),
             Margin = new Padding(0),
             Padding = new Padding(0)
         };
@@ -359,8 +399,8 @@ internal class MainForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(240, 0),
-            Font = new Font("Microsoft YaHei", 11, FontStyle.Bold),
-            ForeColor = Color.Black,
+            Font = Theme.Heading,
+            ForeColor = Theme.Ink,
             Text = Loc.L("暂无播放", "Nothing playing"),
             Padding = new Padding(0, 0, 0, 5),
             Margin = new Padding(0)
@@ -370,7 +410,7 @@ internal class MainForm : Form
             AutoSize = true,
             MaximumSize = new Size(240, 0),
             Font = new Font("Microsoft YaHei", 9),
-            ForeColor = Color.DarkGray,
+            ForeColor = Theme.Muted,
             Text = "",
             Padding = new Padding(0, 0, 0, 5),
             Margin = new Padding(0)
@@ -380,7 +420,7 @@ internal class MainForm : Form
             AutoSize = true,
             MaximumSize = new Size(240, 0),
             Font = new Font("Microsoft YaHei", 9),
-            ForeColor = Color.DarkGray,
+            ForeColor = Theme.Muted,
             Text = "",
             Margin = new Padding(0)
         };
@@ -391,16 +431,16 @@ internal class MainForm : Form
             "双击打开歌曲页面（网易云 / QQ 音乐提供该链接）",
             "Double-click to open the song page (NetEase / QQ Music provide such a link)"));
         textFlowPanel.Controls.AddRange(songTitleLabel, artistLabel, albumLabel);
-        var statusLabel = new Label
+        var statusLabel = new PlaybackStatusLabel
         {
             AutoSize = true,
             Font = new Font("Microsoft YaHei", 9, FontStyle.Bold),
-            ForeColor = Color.Gray,
+            ForeColor = Theme.Muted,
             Location = new Point(350, 15),
             Size = new Size(80, 14),
             Text = Loc.L("未在播放", "Not playing")
         };
-        var progressBar = new ProgressBar
+        var progressBar = new CueProgressBar
         {
             Location = new Point(350, 40),
             Size = new Size(200, 18),
@@ -410,8 +450,8 @@ internal class MainForm : Form
         var progressLabel = new Label
         {
             AutoSize = true,
-            Font = new Font("Microsoft YaHei", 8),
-            ForeColor = Color.DarkGray,
+            Font = Theme.Data,
+            ForeColor = Theme.Muted,
             Location = new Point(350, 65),
             Size = new Size(100, 12),
             Text = "0:00 / 0:00"
@@ -431,14 +471,14 @@ internal class MainForm : Form
     }
     private void SetupForm()
     {
-        Text = Loc.L("MuSync - 状态同步", "MuSync - Music Sync");
+        Text = Loc.L("MuSync - 状态同步", "MuSync - Status Sync");
         Size = new Size(620, 430);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         MinimizeBox = true;
         ShowInTaskbar = true;
-        BackColor = Color.WhiteSmoke;
+        BackColor = Theme.Paper;
         Icon = AppResource.Icon;
         FormClosing += MainForm_FormClosing;
         VisibleChanged += (_, _) =>
@@ -464,10 +504,110 @@ internal class MainForm : Form
     }
     private void SettingsButton_Click(object? sender, EventArgs e)
     {
-        using var settingsForm = new SettingsForm();
-        settingsForm.ShowDialog(this);
-        // 设置关闭后重新应用外观（包含用户在「外观」分组里的修改）
-        ApplyAppearance();
+        ShowSettings();
+    }
+
+    internal void ShowSettings()
+    {
+        var watch = Stopwatch.StartNew();
+        if (!UiHealth.TryRun("show-settings", ShowSettingsCore))
+        {
+            UiHealth.TryRun("restore-overview", ReturnToOverviewCore);
+            return;
+        }
+        UiHealth.Transition("settings", watch, DeviceDpi, ClientSize.Width, ClientSize.Height);
+    }
+
+    private void ShowSettingsCore()
+    {
+        if (_embeddedSettings != null) { _embeddedSettings.BringToFront(); return; }
+        var reused = _settingsViewCache != null;
+        var settings = PrepareSettingsView();
+        if (reused && !_resumeSettingsDraft) settings.ReloadSettings();
+        _resumeSettingsDraft = false;
+        _overviewTitle = Text;
+        // 隐藏父窗口时 Visible 会连带返回 false；恢复后由 UpdateDisplay 重算条件面板。
+        _overviewControls = Controls.Cast<Control>().Where(c => c != settings).Select(c => (c, c.Visible || !Visible)).ToArray();
+        using var viewUpdate = new WindowUpdateScope(this, repaintChildren: false);
+        _embeddedSettings = settings;
+        _updateTimer.Stop();
+        Text = Loc.L("MuSync - 设置", "MuSync - Settings");
+        AcceptButton = settings.AcceptButton;
+        CancelButton = settings.CancelButton;
+        settings.BringToFront();
+        settings.Show();
+        foreach (var entry in _overviewControls) entry.Control.Hide();
+    }
+
+    private SettingsView PrepareSettingsView()
+    {
+        if (_settingsViewCache != null) return _settingsViewCache;
+        var settings = new SettingsView { Dock = DockStyle.Fill, Visible = false };
+        settings.ReturnRequested += ReturnToOverview;
+        settings.SettingsSaved += () =>
+        {
+            _settingsSaved = true;
+            UiHealth.TryRun("apply-theme", () => Theme.SwitchPalette(Configurations.Instance.Settings.UiTheme, this));
+            UiHealth.TryRun("apply-font", ApplyAppearanceFont);
+        };
+        Controls.Add(settings);
+        _settingsViewCache = settings;
+        return settings;
+    }
+
+    private void PrepareSettingsWhenIdle(object? sender, EventArgs e)
+    {
+        Application.Idle -= PrepareSettingsWhenIdle;
+        if (IsDisposed || !Visible) return;
+        UiHealth.TryRun("prepare-settings", () =>
+        {
+        var view = PrepareSettingsView();
+        // 在空闲时准备原生子控件，点击设置时不再付出首次建句柄的成本。
+        void Prepare(Control control)
+        {
+            _ = control.Handle;
+            foreach (Control child in control.Controls) Prepare(child);
+        }
+        Prepare(view);
+        });
+    }
+
+    private void ReturnToOverview()
+    {
+        var watch = Stopwatch.StartNew();
+        if (UiHealth.TryRun("return-overview", ReturnToOverviewCore))
+            UiHealth.Transition("overview", watch, DeviceDpi, ClientSize.Width, ClientSize.Height);
+    }
+
+    /// <summary>托盘导航到首页；暂存当前设置草稿，不等同于取消或保存。</summary>
+    internal void ShowOverview()
+    {
+        var hadSettings = _embeddedSettings != null;
+        ReturnToOverview();
+        if (hadSettings && _embeddedSettings == null) _resumeSettingsDraft = true;
+    }
+
+    private void ReturnToOverviewCore()
+    {
+        var settings = _embeddedSettings;
+        if (settings == null) return;
+        using var viewUpdate = new WindowUpdateScope(this, repaintChildren: false);
+        _embeddedSettings = null;
+        AcceptButton = null;
+        CancelButton = null;
+        // 保留不透明设置页作遮盖，先准备完整主页，再一次性露出。
+        settings.BringToFront();
+        if (_overviewControls != null)
+            foreach (var entry in _overviewControls) entry.Control.Visible = entry.Visible;
+        _overviewControls = null;
+        Text = _overviewTitle;
+        if (_settingsSaved)
+        {
+            ApplyAppearance();
+            _settingsSaved = false;
+        }
+        SyncUpdateTimerState();
+        settings.Hide();
     }
     private void UpdateUpdateBadge()
     {
@@ -485,8 +625,11 @@ internal class MainForm : Form
     }
     private void UpdateDisplay(bool forceRefresh = false)
     {
+        if (IsDisposed || Disposing) return;
         try
         {
+            UpdateOutputPreview(Program.GetSteamManager()?.LastPushedStatus ?? "", DateTime.UtcNow);
+            UpdateSteamStateLabel();
             var rpcManager = Program.GetRpcManager();
             if (rpcManager == null) return;
             var (currentInfo, currentName) = rpcManager.GetCurrentPlayerInfo();
@@ -500,8 +643,44 @@ internal class MainForm : Form
         }
         catch (Exception ex)
         {
+            UiHealth.Report("overview-refresh", ex);
             _lastUpdateLabel.Text = Loc.L($"更新失败: {ex.Message}", $"Update failed: {ex.Message}");
         }
+    }
+
+    internal void UpdateOutputPreview(string output, DateTime utcNow)
+    {
+        var changed = output != _displayedOutput;
+        if (output != _displayedOutput || utcNow >= _copyFeedbackExpiresUtc)
+            _outputBudget.Feedback = "";
+        if (output != _displayedOutput)
+        {
+            _displayedOutput = output;
+            _outputPreview.Text = output.Length > 0 ? output : Loc.L("尚无已推送状态", "No status has been pushed yet");
+            _outputPreview.ForeColor = output.Length > 0 ? Theme.Ink : Theme.Muted;
+            _outputPreview.Cursor = output.Length > 0 ? Cursors.Hand : Cursors.Default;
+            _outputPreview.AccessibleDescription = output;
+            _songUrlHint.SetToolTip(_outputPreview, output.Length > 0 ? Loc.L($"点击复制：{output}", $"Click to copy: {output}") : null);
+        }
+        _outputBudget.Value = System.Text.Encoding.UTF8.GetByteCount(output);
+        if (changed) RelayoutForSize();
+    }
+
+    internal bool CopyOutput(Action<string> writeClipboard, DateTime utcNow)
+    {
+        var output = _displayedOutput;
+        if (output.Length == 0) return false;
+        var success = false;
+        try { writeClipboard(output); success = true; }
+        catch (Exception ex) { Logger.Warn($"[UI] 复制状态失败: {ex.Message}"); }
+        // 原生剪贴板调用可能泵送消息；内容已变化时，不把旧内容的复制反馈贴到新内容上。
+        if (_displayedOutput == output)
+        {
+            _outputBudget.Feedback = success ? Loc.L("已复制", "Copied") : Loc.L("复制失败，请重试", "Copy failed. Retry");
+            _outputBudget.ForeColor = success ? Theme.Accent : Theme.OnAir;
+            _copyFeedbackExpiresUtc = utcNow.AddMilliseconds(1200);
+        }
+        return success;
     }
 
     /// <summary>界面每秒刷新是否该跑：窗口隐藏（托盘驻留）或最小化时停，恢复时由调用方补刷一次。</summary>
@@ -510,7 +689,7 @@ internal class MainForm : Form
     /// <summary>按 ShouldRunUiRefresh 的口径同步定时器状态；重新开跑时立刻补刷一次，避免看到旧数据。</summary>
     private void SyncUpdateTimerState()
     {
-        var shouldRun = ShouldRunUiRefresh(Visible, WindowState == FormWindowState.Minimized);
+        var shouldRun = _embeddedSettings == null && ShouldRunUiRefresh(Visible, WindowState == FormWindowState.Minimized);
         if (_updateTimer.Enabled == shouldRun) return;
         _updateTimer.Enabled = shouldRun;
         if (shouldRun) UpdateDisplay(forceRefresh: true);
@@ -525,27 +704,27 @@ internal class MainForm : Form
         if (!config.EnableSteamSync)
         {
             text = Loc.L("Steam 同步未启用", "Steam sync is disabled");
-            color = Color.Gray;
+            color = Theme.Muted;
         }
         else if (session == null)
         {
             text = Loc.L("Steam 服务未初始化", "Steam service not initialized");
-            color = Color.Red;
+            color = Theme.OnAir;
         }
         else if (!session.IsLoggedOn)
         {
             text = session.IsConnected ? Loc.L("Steam 未登录", "Not signed in to Steam") : Loc.L("正在连接 Steam...", "Connecting to Steam...");
-            color = session.IsConnected ? Color.Orange : Color.Gray;
+            color = session.IsConnected ? Theme.Warn : Theme.Muted;
         }
         else if (config.PauseWhenPlayingGame && Program.GetSteamManager()?.IsRealGameActive == true)
         {
-            text = Loc.L("正在玩真实游戏，音乐同步已暂停", "Playing a real game — music sync paused");
-            color = Color.Orange;
+            text = Loc.L("正在玩 Steam 游戏，状态同步已暂停", "Playing a Steam game — status sync paused");
+            color = Theme.Warn;
         }
         else
         {
-            text = Loc.L("Steam 已登录，同步中", "Signed in to Steam — syncing");
-            color = Color.Green;
+            var onAir = _displayedOutput.Length > 0 && Program.GetSteamManager()?.ManualPause != true;
+            (text, color) = SyncPresentation(onAir);
         }
         if (_steamStateLabel.Text != text)
         {
@@ -553,6 +732,9 @@ internal class MainForm : Form
             _steamStateLabel.ForeColor = color;
         }
     }
+    internal static (string Text, Color Color) SyncPresentation(bool syncing) => syncing
+        ? (Loc.L("● 同步中", "● Syncing"), Theme.Accent)
+        : (Loc.L("● 待机", "● Idle"), Theme.Muted);
     /// <summary>首页音乐面板：跟随当前活跃源（受播放器优先级与"正在播放优先"规则影响）。</summary>
     /// <summary>
     /// 字节封面的"变化指纹"（用于提前返回时的比较）。
@@ -625,12 +807,13 @@ internal class MainForm : Form
                 _currentSongIds[index] = currentSongId;
             }
             if (_songTitleLabels[index].Text != title) _songTitleLabels[index].Text = title;
-            var artistText = string.IsNullOrEmpty(artists) ? "" : $"🎤 {artists}";
+            var artistText = string.IsNullOrEmpty(artists) ? "" : $"{Loc.L("歌手", "Artist")} · {artists}";
             if (_artistLabels[index].Text != artistText) _artistLabels[index].Text = artistText;
-            var albumText = string.IsNullOrEmpty(album) ? "" : $"💿 {album}";
+            var albumText = string.IsNullOrEmpty(album) ? "" : $"{Loc.L("专辑", "Album")} · {album}";
             if (_albumLabels[index].Text != albumText) _albumLabels[index].Text = albumText;
-            var statusText = playerInfo.Value.Pause ? Loc.L("⏸️ 已暂停", "⏸️ Paused") : Loc.L("▶️ 正在播放", "▶️ Playing");
-            var statusColor = playerInfo.Value.Pause ? Color.Orange : Color.Green;
+            _statusLabels[index].Glyph = playerInfo.Value.Pause ? PlaybackGlyph.Pause : PlaybackGlyph.Play;
+            var statusText = playerInfo.Value.Pause ? Loc.L("已暂停", "Paused") : Loc.L("正在播放", "Playing");
+            var statusColor = playerInfo.Value.Pause ? Theme.Warn : Theme.Ink;
             if (_statusLabels[index].Text != statusText)
             {
                 _statusLabels[index].Text = statusText;
@@ -729,6 +912,7 @@ internal class MainForm : Form
             if (_songTitleLabels[index].Text != defaultTitle) _songTitleLabels[index].Text = defaultTitle;
             if (_artistLabels[index].Text != "") _artistLabels[index].Text = "";
             if (_albumLabels[index].Text != "") _albumLabels[index].Text = "";
+            _statusLabels[index].Glyph = PlaybackGlyph.None;
             string statusText;
             switch (lastError)
             {
@@ -748,7 +932,7 @@ internal class MainForm : Form
             if (_statusLabels[index].Text != statusText)
             {
                 _statusLabels[index].Text = statusText;
-                _statusLabels[index].ForeColor = lastError != RpcManager.ErrorCode.None ? Color.Red : Color.Gray;
+                _statusLabels[index].ForeColor = lastError != RpcManager.ErrorCode.None ? Theme.OnAir : Theme.Muted;
             }
             if (_progressBars[index].Value != 0) _progressBars[index].Value = 0;
             if (_progressLabels[index].Text != "0:00 / 0:00") _progressLabels[index].Text = "0:00 / 0:00";
@@ -762,7 +946,7 @@ internal class MainForm : Form
             _placeholderIconPaths[index] = "";
             _placeholderImages[index]?.Dispose();
             _placeholderImages[index] = null;
-            if (_playerNameLabels[index].ForeColor != Color.Gray) _playerNameLabels[index].ForeColor = Color.Gray;
+            if (_playerNameLabels[index].ForeColor != Color.Gray) _playerNameLabels[index].ForeColor = Theme.Muted;
             _currentSongIds[index] = string.Empty;
             _currentCoverUrls[index] = string.Empty;
             _currentCacheKeys[index] = string.Empty;
@@ -918,26 +1102,6 @@ internal class MainForm : Form
     // ================= 背景图比例跟随 =================
 
     /// <summary>当前背景图（含裁剪区）的宽高比；无图时用基准 620×430。</summary>
-    private float _backgroundAspect = BackgroundGeometry.BaseAspect;
-
-    /// <summary>从配置读取背景图比例（只读图片头，不加载像素数据）。</summary>
-    private static float GetConfiguredBackgroundAspect()
-    {
-        var settings = Configurations.Instance.Settings;
-        var path = settings.AppearanceBackgroundImage;
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return BackgroundGeometry.BaseAspect;
-        try
-        {
-            using var stream = File.OpenRead(path);
-            using var probe = Image.FromStream(stream, false, false);
-            return BackgroundGeometry.Aspect(probe.Width, probe.Height, settings.BackgroundCropRect);
-        }
-        catch
-        {
-            return BackgroundGeometry.BaseAspect;
-        }
-    }
-
     /// <summary>按归一化裁剪区裁出背景图（无裁剪 / 参数非法时返回整图副本）。</summary>
     private static Bitmap ExtractCropped(Image source, double[]? crop)
     {
@@ -948,19 +1112,10 @@ internal class MainForm : Form
         return bitmap;
     }
 
-    /// <summary>按背景图比例设置窗口客户区尺寸（变化时保持窗口中心，且不出屏幕）。</summary>
+    /// <summary>概览与设置共用窗口尺寸，变化时保持中心并限制在工作区。</summary>
     private void ApplyWindowSizing()
     {
-        int maxHeight;
-        try
-        {
-            maxHeight = BackgroundGeometry.MaxClientHeight(Screen.FromControl(this).WorkingArea.Height);
-        }
-        catch
-        {
-            maxHeight = BackgroundGeometry.MaxClientHeight(1080);
-        }
-        var target = BackgroundGeometry.DesiredClientSize(_backgroundAspect, maxHeight);
+        var target = Theme.FitWindowClientSize(this);
         if (ClientSize == target) return;
         var center = new Point(Left + (Width / 2), Top + (Height / 2));
         ClientSize = target;
@@ -976,13 +1131,21 @@ internal class MainForm : Form
 
     private bool _relayoutScheduled;
 
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        ApplyWindowSizing();
+        ScheduleRelayout();
+    }
+
     /// <summary>
     /// 延后一拍再重排：Resize 事件触发时 ClientSize 可能还是旧值或退化值（0），
     /// 当场用它会把 0 宽传给面板 —— 面板 0 宽时渐变画刷会抛异常（v0.4.2 实测崩溃点）。
     /// </summary>
     private void ScheduleRelayout()
     {
-        if (!IsHandleCreated || IsDisposed)
+        if (IsDisposed || Disposing) return;
+        if (!IsHandleCreated)
         {
             RelayoutForSize();
             return;
@@ -997,48 +1160,114 @@ internal class MainForm : Form
             RelayoutForSize();
         }
 
-        BeginInvoke(Apply);
+        try { BeginInvoke(Apply); }
+        catch (InvalidOperationException) { _relayoutScheduled = false; }
     }
 
     /// <summary>按当前客户区尺寸重排控件（面板左右铺满，底部栏贴底）。</summary>
     private void RelayoutForSize()
     {
         // 最小化 / 布局中途 ClientSize 可能是退化值（0 甚至负）：夹到设计下限，别把 0 宽传给子面板
-        var w = Math.Max(BackgroundGeometry.MinClientWidth, ClientSize.Width);
-        var h = Math.Max(BackgroundGeometry.MinClientHeight, ClientSize.Height);
+        var scale = DeviceDpi / 96f;
+        Point P(int x, int y) => new((int)Math.Round(x * scale), (int)Math.Round(y * scale));
+        Size S(int width, int height) => new((int)Math.Round(width * scale), (int)Math.Round(height * scale));
+        Rectangle R(int x, int y, int width, int height) => new(P(x, y), S(width, height));
+        var w = Math.Max(BackgroundGeometry.MinClientWidth, (int)Math.Round(ClientSize.Width / scale));
+        var h = Math.Max(BackgroundGeometry.MinClientHeight, (int)Math.Round(ClientSize.Height / scale));
+        int Line(Control control, int minimum) => Math.Max(minimum, (int)Math.Ceiling(control.Font.Height / scale) + 4);
 
         var musicPanel = _playerPanels[0];
         if (musicPanel != null)
         {
-            musicPanel.Location = new Point(0, 0);
-            musicPanel.Size = new Size(w, 155);
+            musicPanel.Location = P(0, 0);
+            musicPanel.Size = S(w, 136);
         }
 
         // 音乐面板右列（状态 / 进度 / 时间）贴着右边
-        var rightColumnX = w - 270;
-        _statusLabels[0].Location = new Point(rightColumnX, 15);
-        _progressBars[0].Location = new Point(rightColumnX, 44);
-        _progressLabels[0].Location = new Point(rightColumnX, 65);
-        var textMax = new Size(Math.Max(160, w - 380), 0);
-        _songTitleLabels[0].MaximumSize = textMax;
-        _artistLabels[0].MaximumSize = textMax;
-        _albumLabels[0].MaximumSize = textMax;
+        var rightColumnX = w - 200;
+        _statusLabels[0].Location = P(rightColumnX, 20);
+        var progressTop = Math.Max(52, 20 + Line(_statusLabels[0], 16) + 12);
+        _progressBars[0].Bounds = R(rightColumnX, progressTop, 168, 6);
+        _progressLabels[0].Location = P(rightColumnX, progressTop + 24);
+        var textMax = new Size(Math.Max(160, w - 320), 0);
+        var titleHeight = Line(_songTitleLabels[0], 40);
+        _songTitleLabels[0].AutoSize = false;
+        _songTitleLabels[0].AutoEllipsis = true;
+        _songTitleLabels[0].Padding = Padding.Empty;
+        _songTitleLabels[0].MaximumSize = S(textMax.Width, titleHeight);
+        _songTitleLabels[0].Size = S(textMax.Width, titleHeight);
+        var textTop = Math.Max(48, 16 + Line(_playerNameLabels[0], 16) + 12);
+        _songTitleLabels[0].Parent!.Location = P(88, textTop);
+        var musicHeight = textTop + titleHeight + 16;
+        foreach (var label in new[] { _artistLabels[0], _albumLabels[0] })
+        {
+            label.Padding = Padding.Empty;
+            label.AutoSize = false;
+            label.AutoEllipsis = true;
+            var lineHeight = Line(label, 22);
+            label.MaximumSize = S(textMax.Width, lineHeight);
+            label.Size = S(textMax.Width, lineHeight);
+            musicHeight += lineHeight;
+            label.ForeColor = Theme.Muted;
+        }
+        musicHeight = Math.Max(136, Math.Max(musicHeight, progressTop + 24 + Line(_progressLabels[0], 16) + 16));
+        if (musicPanel != null) musicPanel.Height = S(0, musicHeight).Height;
 
         if (_appSyncDivider != null)
         {
-            _appSyncDivider.Location = new Point(10, 155);
-            _appSyncDivider.Size = new Size(Math.Max(100, w - 40), 5);
+            _appSyncDivider.Location = P(16, musicHeight);
+            _appSyncDivider.Size = S(Math.Max(100, w - 32), 1);
         }
-        _appSyncPanel.Location = new Point(0, 160);
-        _appSyncPanel.Size = new Size(w, 155);
+        _appSyncPanel.Location = P(0, musicHeight + 16);
         var appTextMax = new Size(Math.Max(160, w - 160), 0);
-        _appNameLabel.MaximumSize = appTextMax;
-        _appStatusLabel.MaximumSize = appTextMax;
+        var appNameTop = Math.Max(32, 8 + Line(_appHeadingLabel, 16) + 8);
+        var appNameHeight = Line(_appNameLabel, 28);
+        _appNameLabel.MaximumSize = S(appTextMax.Width, appNameHeight);
+        _appNameLabel.Location = P(88, appNameTop);
+        _appNameLabel.Height = S(0, appNameHeight).Height;
+        _appNameLabel.Width = S(appTextMax.Width, 0).Width;
+        var categoryTop = appNameTop + appNameHeight + 4;
+        var categoryHeight = Line(_appCategoryLabel, 22);
+        _appCategoryLabel.AutoSize = false;
+        _appCategoryLabel.AutoEllipsis = true;
+        _appCategoryLabel.Bounds = R(88, categoryTop, appTextMax.Width, categoryHeight);
+        var appStatusTop = categoryTop + categoryHeight + 4;
+        var appStatusHeight = Line(_appStatusLabel, 22);
+        _appStatusLabel.AutoSize = false;
+        _appStatusLabel.AutoEllipsis = true;
+        _appStatusLabel.MaximumSize = S(appTextMax.Width, appStatusHeight);
+        _appStatusLabel.Bounds = R(88, appStatusTop, appTextMax.Width, appStatusHeight);
+        _appStatusDot.Location = P(74, appStatusTop + (appStatusHeight - 7) / 2);
+        _appSyncPanel.Size = S(w, Math.Max(112, appStatusTop + appStatusHeight + 12));
 
         // 底部栏贴底
-        _lastUpdateLabel.Location = new Point(10, h - 85);
-        _settingsButton.Location = new Point(w - 104, h - 90);
-        _steamStateLabel.Location = new Point(170, h - 84);
+        _outputHeading.AutoSize = false;
+        _outputHeading.AutoEllipsis = true;
+        var measured = TextRenderer.MeasureText(_outputPreview.Text, _outputPreview.Font,
+            new Size((int)Math.Round((w - 32) * scale), 1000), TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+        var naturalWidth = TextRenderer.MeasureText(_outputPreview.Text, _outputPreview.Font,
+            new Size(10000, 1000), TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
+        // GDI 的 WordBreak 测量可能把连续字符当成整词；至少预留按实际宽度折行的高度。
+        var wrappedLines = Math.Max(1, (int)Math.Ceiling(naturalWidth / ((w - 32) * (double)scale)));
+        var outputHeight = Math.Clamp((int)Math.Ceiling(Math.Max(measured.Height, wrappedLines * _outputPreview.Font.Height) / scale) + 4,
+            24, Math.Max(56, Line(_outputPreview, 24) * 3));
+        var actionHeight = Line(_settingsButton, 30) + 4;
+        var actionWidth = Math.Max(88, (int)Math.Ceiling(TextRenderer.MeasureText(_settingsButton.Text, _settingsButton.Font).Width / scale) + 24);
+        var actionTop = h - 10 - actionHeight;
+        var budgetHeight = Line(_outputBudget, 24);
+        var budgetTop = actionTop - 8 - budgetHeight;
+        var outputTop = budgetTop - 8 - outputHeight;
+        var headingHeight = Math.Max(Line(_outputHeading, 24), Line(_steamStateLabel, 24));
+        var headingWidth = Math.Clamp((int)Math.Ceiling(TextRenderer.MeasureText(_outputHeading.Text, _outputHeading.Font).Width / scale) + 8, 152, w / 3);
+        _outputHeading.Bounds = R(16, outputTop - headingHeight - 6, headingWidth, headingHeight);
+        _steamStateLabel.Bounds = R(32 + headingWidth, outputTop - headingHeight - 6, w - headingWidth - 48, headingHeight);
+        _outputPreview.Bounds = R(16, outputTop, w - 32, outputHeight);
+        _outputBudget.Bounds = R(16, budgetTop, w - 32, budgetHeight);
+        _lastUpdateLabel.AutoSize = false;
+        _lastUpdateLabel.AutoEllipsis = true;
+        _lastUpdateLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _lastUpdateLabel.Bounds = R(16, actionTop, w - actionWidth - 48, actionHeight);
+        _settingsButton.Bounds = R(w - actionWidth - 16, actionTop, actionWidth, actionHeight);
     }
 
     /// <summary>应用外观设置（背景色 / 背景图 / 字体）；启动与设置关闭后调用。</summary>
@@ -1050,7 +1279,7 @@ internal class MainForm : Form
             // 背景色
             BackColor = settings.AppearanceBackgroundColorArgb is int backgroundArgb
                 ? Color.FromArgb(backgroundArgb)
-                : Color.WhiteSmoke;
+                : Theme.Paper;
 
             // 背景图（替换前释放旧图，避免句柄泄漏）
             var oldBackground = BackgroundImage;
@@ -1082,20 +1311,9 @@ internal class MainForm : Form
             // 子控件透明化：让半透明面板透出背景（文本/图片不挡底）
             ApplyChildTransparency();
 
-            // 字体（仅在用户显式设置过时应用）
-            if (!string.IsNullOrWhiteSpace(settings.AppearanceFontFamily) || settings.AppearanceFontSize > 0)
-            {
-                var family = string.IsNullOrWhiteSpace(settings.AppearanceFontFamily)
-                    ? (Font?.FontFamily.Name ?? "Microsoft YaHei")
-                    : settings.AppearanceFontFamily;
-                var size = settings.AppearanceFontSize > 0 ? settings.AppearanceFontSize : (Font?.Size ?? 9f);
-                // ⚠️ 交给 ApplyFontRecursive 的 Font 由它负责释放（它会 Dispose 被替换下来的旧字体）——
-                // 每次设置窗关闭都会走这里，不释放就是每次泄漏一个 Font（GDI 对象）。
-                ApplyFontRecursive(this, new Font(family, size));
-            }
+            ApplyAppearanceFont();
 
-            // 比例跟随：窗口客户区随背景图（含裁剪区）比例调整，并重排控件
-            _backgroundAspect = GetConfiguredBackgroundAspect();
+            // 背景仍按所选布局显示，窗口尺寸与设置保持一致。
             ApplyWindowSizing();
             RelayoutForSize();
         }
@@ -1118,6 +1336,9 @@ internal class MainForm : Form
         }
         _lastUpdateLabel.BackColor = Color.Transparent;
         _steamStateLabel.BackColor = Color.Transparent;
+        _outputHeading.BackColor = Color.Transparent;
+        _outputPreview.BackColor = Color.Transparent;
+        _outputBudget.BackColor = Color.Transparent;
     }
 
     private static void MakeTransparentRecursive(Control control)
@@ -1132,36 +1353,6 @@ internal class MainForm : Form
             {
                 MakeTransparentRecursive(child);
             }
-        }
-    }
-
-    /// <summary>
-    /// 当前应用到界面的自定义字体（由本类持有并负责释放）。
-    /// <para>
-    /// ⚠️ 必须记住它：ApplyFontRecursive 只是把同一个 Font 赋给所有控件，控件不会替你释放；
-    /// 每次设置窗关闭都会重新应用一次外观，不记就是每次泄漏一个 Font（GDI 对象）。
-    /// </para>
-    /// </summary>
-    private Font? _appliedFont;
-
-    private void ApplyFontRecursive(Control parent, Font font)
-    {
-        // 释放上一份（它已从所有控件上被替换下来）
-        var previous = _appliedFont;
-        _appliedFont = font;
-        if (previous != null && !ReferenceEquals(previous, font))
-        {
-            try { previous.Dispose(); } catch { /* 已释放或正在绘制：忽略 */ }
-        }
-        ApplyFontRecursiveCore(parent, font);
-    }
-
-    private static void ApplyFontRecursiveCore(Control parent, Font font)
-    {
-        foreach (Control child in parent.Controls)
-        {
-            child.Font = font;
-            if (child.HasChildren) ApplyFontRecursiveCore(child, font);
         }
     }
 
@@ -1181,13 +1372,14 @@ internal class MainForm : Form
         try
         {
             var image = await ImageCacheManager.LoadImageAsync(forceCacheKey, coverUrl);
+            if (IsDisposed || Disposing) return;
             if (image is null)
             {
                 // 下载失败（网络抖动 / 对端 404 / 超时）：把"已请求过这个 URL"的印象清掉，
                 // 并安排 10 秒后再试 —— 否则同一首歌的封面会整首保持空白。
                 if (IsHandleCreated)
                 {
-                    await InvokeAsync(() =>
+                    await UpdateCoverUiAsync(() =>
                     {
                         if (coverUrl == _currentCoverUrls[index]) _currentCoverUrls[index] = "";
                         _coverRetryAt[index] = DateTime.UtcNow + CoverRetryDelay;
@@ -1199,7 +1391,7 @@ internal class MainForm : Form
             _coverRetryAt[index] = DateTime.MinValue;
             if (IsHandleCreated && image != null)
             {
-                await InvokeAsync(() =>
+                await UpdateCoverUiAsync(() =>
                 {
                     if (coverUrl == _currentCoverUrls[index])
                     {
@@ -1233,10 +1425,11 @@ internal class MainForm : Form
         }
         catch (Exception ex)
         {
+            if (IsDisposed || Disposing) return;
             Logger.Error($"Failed to load cover image with timestamp: {ex.Message}");
             if (IsHandleCreated)
             {
-                await InvokeAsync(() =>
+                await UpdateCoverUiAsync(() =>
                 {
                     var pictureBox = _coverPictureBoxes[index];
                     pictureBox.Image = null;
@@ -1245,13 +1438,21 @@ internal class MainForm : Form
             }
         }
     }
+    private async Task UpdateCoverUiAsync(Action update)
+    {
+        if (IsDisposed || Disposing || !IsHandleCreated) return;
+        try
+        {
+            await InvokeAsync(() => { if (!IsDisposed && !Disposing) update(); });
+        }
+        catch (InvalidOperationException) when (IsDisposed || Disposing || !IsHandleCreated) { }
+    }
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
         // 显示后再按真实客户区重排一次（构造期的尺寸可能还没落定）
         RelayoutForSize();
-        _updateTimer.Start();
-        UpdateDisplay(true);
+        SyncUpdateTimerState();
     }
     /// <summary>双击歌曲标题时用默认浏览器打开歌曲链接（仅网易云/QQ 音乐提供）。</summary>
     private void OpenSongUrl(int index)
@@ -1292,9 +1493,27 @@ internal class MainForm : Form
     {
         if (disposing)
         {
+            Application.Idle -= PrepareSettingsWhenIdle;
             _updateTimer.Dispose();
-            _appliedFont?.Dispose();
-            _appliedFont = null;
+            _songUrlHint.Dispose();
+            if (_appIconBox != null)
+            {
+                var icon = _appIconBox.Image;
+                _appIconBox.Image = null;
+                icon?.Dispose();
+            }
+            var background = BackgroundImage;
+            BackgroundImage = null;
+            background?.Dispose();
+            for (var i = 0; i < _placeholderImages.Length; i++)
+            {
+                if (_coverPictureBoxes[i] is PictureBox cover) cover.Image = null;
+                _placeholderImages[i]?.Dispose();
+                _placeholderImages[i] = null;
+            }
+            foreach (var font in _appearanceFonts) font.Dispose();
+            _appearanceFonts.Clear();
+            _defaultFonts.Clear();
         }
         base.Dispose(disposing);
     }

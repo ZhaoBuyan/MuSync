@@ -140,10 +140,14 @@ internal static class UpdateDownloader
         string version,
         IProgress<DownloadProgress>? progress,
         CancellationToken cancellationToken,
-        string? directory = null)
+        string? directory = null,
+        TimeSpan? transferTimeout = null)
     {
         var finalPath = GetPackagePath(asset, version, directory);
         var partPath = finalPath + ".part";
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(transferTimeout ?? TransferTimeout);
+        var transferToken = deadline.Token;
         try
         {
             // 缓存命中也要走**同一个校验入口**（大小 + SHA-256 + 签名）：
@@ -165,13 +169,13 @@ internal static class UpdateDownloader
             TryDelete(partPath);
 
             using var response = await Http
-                .GetAsync(asset.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .GetAsync(asset.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, transferToken)
                 .ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
             var total = asset.Size > 0 ? asset.Size : response.Content.Headers.ContentLength ?? 0;
 
             var sizeMismatch = false;
-            await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+            await using (var source = await response.Content.ReadAsStreamAsync(transferToken).ConfigureAwait(false))
             await using (var target = new FileStream(
                              partPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
             {
@@ -181,9 +185,9 @@ internal static class UpdateDownloader
                 progress?.Report(new DownloadProgress(0, total));
                 while (true)
                 {
-                    var read = await source.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    var read = await source.ReadAsync(buffer.AsMemory(), transferToken).ConfigureAwait(false);
                     if (read <= 0) break;
-                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                    await target.WriteAsync(buffer.AsMemory(0, read), transferToken).ConfigureAwait(false);
                     received += read;
                     var now = DateTime.UtcNow;
                     if (now - lastReport >= ReportInterval)
@@ -192,7 +196,7 @@ internal static class UpdateDownloader
                         progress?.Report(new DownloadProgress(received, total));
                     }
                 }
-                await target.FlushAsync(cancellationToken).ConfigureAwait(false);
+                await target.FlushAsync(transferToken).ConfigureAwait(false);
                 progress?.Report(new DownloadProgress(received, total));
                 sizeMismatch = total > 0 && received != total;
             }
@@ -238,6 +242,7 @@ internal static class UpdateDownloader
             var warning = BinarySignature.WarningFor(signature);
             Logger.Info($"[Update] 数字签名状态: {signature}（hresult=0x{signatureHResult:X8}）");
 
+            transferToken.ThrowIfCancellationRequested();
             File.Move(partPath, finalPath, overwrite: true);
             Logger.Info($"[Update] 更新包下载完成: {finalPath}");
             var cleanupDir = Path.GetDirectoryName(finalPath);
@@ -250,6 +255,12 @@ internal static class UpdateDownloader
         catch (OperationCanceledException)
         {
             TryDelete(partPath);
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                Logger.Warn("[Update] 更新包传输超时，临时文件已清理");
+                return new DownloadResult { Status = DownloadStatus.Failed,
+                    ErrorMessage = Loc.L("下载超时，请检查网络后重试", "Download timed out. Check your connection and retry.") };
+            }
             Logger.Info("[Update] 下载已取消，临时文件已清理");
             return new DownloadResult { Status = DownloadStatus.Canceled };
         }
@@ -331,8 +342,8 @@ internal static class UpdateDownloader
         }
         catch (Exception ex)
         {
-            Logger.Warn($"[Update] SHA256 校验出错（忽略校验）: {ex.Message}");
-            return true;
+            Logger.Warn($"[Update] SHA256 校验失败（无法读取文件）: {ex.Message}");
+            return false;
         }
     }
 

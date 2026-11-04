@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -6,14 +6,14 @@ using System.Windows.Forms;
 
 namespace MuSync.Utils;
 
-/// <summary>顶部实心半透明、底边渐隐到透明的面板（音乐 / 程序信息板）。</summary>
+/// <summary>音乐 / 程序内容面板：无渐变，继承主窗口底色或背景图。</summary>
 internal sealed class FadingBottomPanel : Panel
 {
-    private readonly int _solidHeight;
+
 
     public FadingBottomPanel(int solidHeight = 125)
     {
-        _solidHeight = solidHeight;
+
         SetStyle(
             ControlStyles.SupportsTransparentBackColor |
             ControlStyles.UserPaint |
@@ -27,34 +27,16 @@ internal sealed class FadingBottomPanel : Panel
     {
         // 退化尺寸（最小化 / 布局中途）下不绘制：0 宽高的矩形会让 LinearGradientBrush 抛异常
         if (Width <= 0 || Height <= 0) return;
-        var solid = Math.Clamp(_solidHeight, 0, Height);
-        int topFade = Math.Min(20, Math.Max(0, Height - solid) / 2);
-        if (topFade > 0)
+        if (Parent?.BackgroundImage == null)
         {
-            var topRect = new Rectangle(0, 0, Width, topFade);
-            using var topBrush = new LinearGradientBrush(
-                topRect, Color.FromArgb(0, 255, 255, 255), Color.FromArgb(200, 255, 255, 255),
-                LinearGradientMode.Vertical);
-            e.Graphics.FillRectangle(topBrush, topRect);
-        }
-        if (solid > topFade)
-        {
-            using var solidBrush = new SolidBrush(Color.FromArgb(200, 255, 255, 255));
-            e.Graphics.FillRectangle(solidBrush, 0, topFade, Width, solid - topFade);
-        }
-        if (Height > solid)
-        {
-            var fadeRect = new Rectangle(0, solid, Width, Height - solid);
-            using var fadeBrush = new LinearGradientBrush(
-                fadeRect, Color.FromArgb(200, 255, 255, 255), Color.Transparent,
-                LinearGradientMode.Vertical);
-            e.Graphics.FillRectangle(fadeBrush, fadeRect);
+            using var surface = new SolidBrush(Parent?.BackColor ?? Theme.Paper);
+            e.Graphics.FillRectangle(surface, ClientRectangle);
         }
         base.OnPaint(e);
     }
 }
 
-/// <summary>无边框按钮：自绘父级背景 + 中心半透明 → 边缘完全透明的径向渐变。</summary>
+/// <summary>设置按钮：继承父级背景，使用轻量圆角与中性悬停色。</summary>
 /// <remarks>
 /// 不能用框架的「透明背景模拟」——Button 基类在该路径下会渲染出错误的父级背景区域
 /// （实测为背景图左下角的采样或纯色块，见 0.4.0 修复记录），因此本控件自行绘制按钮
@@ -109,25 +91,35 @@ internal sealed class FadingButton : Button
 
         DrawParentBackdrop(e.Graphics, this);
 
-        using (var path = new GraphicsPath())
+        if (Width > 2 && Height > 2)
         {
-            path.AddEllipse(rect);
-            using var brush = new PathGradientBrush(path)
+            var state = e.Graphics.Save();
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
+            var radius = 5 * DeviceDpi / 96f;
+            using var outer = ControlShape.Rounded(new RectangleF(0, 0, Width, Height), radius);
+            using var inner = ControlShape.Rounded(new RectangleF(1, 1, Width - 2, Height - 2), radius - 1);
+            if (_hover)
             {
-                CenterColor = Color.FromArgb(_hover ? 220 : 185, 255, 255, 255),
-                SurroundColors = [Color.Transparent]
-            };
-            e.Graphics.FillEllipse(brush, rect);
+                using var fill = new SolidBrush(Theme.Inset);
+                e.Graphics.FillPath(fill, inner);
+            }
+            outer.FillMode = FillMode.Alternate;
+            outer.AddPath(inner, false);
+            using var border = new SolidBrush(Theme.Rule);
+            e.Graphics.FillPath(border, outer);
+            e.Graphics.Restore(state);
         }
+        if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(rect, -4, -4));
 
         TextRenderer.DrawText(
             e.Graphics, Text, Font, rect, ForeColor,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            Theme.PaintText | TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
         if (ShowUpdateBadge)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using var badgeBrush = new SolidBrush(Color.FromArgb(233, 74, 62));
+            using var badgeBrush = new SolidBrush(Theme.OnAir);
             e.Graphics.FillEllipse(badgeBrush, Width - 13, 4, 9, 9);
         }
     }
@@ -206,7 +198,7 @@ internal sealed class FadingButton : Button
     }
 }
 
-/// <summary>「半透明 → 透明」的横向渐变分隔线。</summary>
+/// <summary>沿用旧控件接口的单像素中性分隔线。</summary>
 internal sealed class GradientDivider : Control
 {
     public GradientDivider()
@@ -225,12 +217,8 @@ internal sealed class GradientDivider : Control
     {
         // 同 FadingBottomPanel：退化尺寸不画（0 宽高会让 LinearGradientBrush 抛异常）
         if (Width <= 0 || Height <= 0) return;
-        using var brush = new LinearGradientBrush(
-            ClientRectangle,
-            Color.FromArgb(110, 255, 255, 255),
-            Color.Transparent,
-            LinearGradientMode.Horizontal);
-        e.Graphics.FillRectangle(brush, ClientRectangle);
+        using var pen = new Pen(Theme.Rule);
+        e.Graphics.DrawLine(pen, 0, Height / 2, Width, Height / 2);
         base.OnPaint(e);
     }
 }

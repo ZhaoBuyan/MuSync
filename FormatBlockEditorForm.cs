@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -27,9 +27,9 @@ internal sealed class FormatBlockEditorForm : Form
     /// </summary>
     private static string[] TypeNames =>
     [
-        Loc.L("歌名", "Song"), Loc.L("歌手", "Artist (auto separator)"),
+        Loc.L("歌名", "Song title"), Loc.L("歌手（含连接符）", "Artist (with separator)"),
         Loc.L("歌手（无连接符）", "Artist (no separator)"),
-        Loc.L("进度条", "Progress bar"), Loc.L("时间轴", "Timeline"),
+        Loc.L("进度条", "Progress bar"), Loc.L("时间轴", "Playback time"),
         Loc.L("程序名", "App name"),
         Loc.L("分隔符", "Separator"), Loc.L("自定义文字", "Custom text"),
         Loc.L("数据源", "Data source")
@@ -82,10 +82,12 @@ internal sealed class FormatBlockEditorForm : Form
         InitializeComponent();
         RebuildRows();
         UpdatePreview();
+        Theme.EndForm(this);
     }
 
     private void InitializeComponent()
     {
+        Theme.BeginForm(this);
         Text = _kind switch
         {
             TemplateKind.Music => Loc.L("编辑「音乐」模板 — 积木编辑", "Edit \"Music\" template — Block editor"),
@@ -94,7 +96,7 @@ internal sealed class FormatBlockEditorForm : Form
         };
         // 用我们自己画的图标：否则标题栏会显示 WinForms 默认图标
         Icon = AppResource.Icon;
-        Size = new Size(560, 520);
+        ClientSize = new Size(640, 484);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -103,18 +105,18 @@ internal sealed class FormatBlockEditorForm : Form
 
         _rowsPanel = new Panel
         {
-            Location = new Point(12, 12),
-            Size = new Size(524, 290),
+            Location = new Point(16, 56),
+            Size = new Size(608, 224),
             AutoScroll = true,
             BackColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle
+            BorderStyle = BorderStyle.None
         };
 
-        var addButton = new Button
+        var addButton = new CueButton
         {
             Text = Loc.L("＋ 添加积木", "+ Add block"),
-            Location = new Point(12, 310),
-            Size = new Size(110, 28),
+            Location = new Point(16, 296),
+            Size = new Size(128, 32),
             BackColor = Color.White
         };
             // 用我们自己画的图标：否则标题栏会显示 WinForms 默认图标
@@ -127,16 +129,16 @@ internal sealed class FormatBlockEditorForm : Form
 
         _previewLabel = new Label
         {
-            Location = new Point(12, 346),
-            Size = new Size(524, 40),
-            ForeColor = Color.FromArgb(0, 102, 51)
+            Location = new Point(16, 352),
+            Size = new Size(608, 64),
+            ForeColor = Theme.Ink
         };
 
-        var okButton = new Button
+        var okButton = new CueButton
         {
             Text = Loc.L("确定", "OK"),
-            Location = new Point(400, 440),
-            Size = new Size(64, 28),
+            Location = new Point(536, 436),
+            Size = new Size(88, 32),
             BackColor = Color.White,
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
@@ -147,11 +149,11 @@ internal sealed class FormatBlockEditorForm : Form
             DialogResult = DialogResult.OK;
             Close();
         };
-        var cancelButton = new Button
+        var cancelButton = new CueButton
         {
             Text = Loc.L("取消", "Cancel"),
-            Location = new Point(472, 440),
-            Size = new Size(64, 28),
+            Location = new Point(440, 436),
+            Size = new Size(88, 32),
             BackColor = Color.White,
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
@@ -161,9 +163,15 @@ internal sealed class FormatBlockEditorForm : Form
             Close();
         };
 
+        Controls.Add(new Label { Text = Loc.L("按从上到下的顺序组合状态文本", "Build the status text from top to bottom"), Location = new Point(16, 16), Size = new Size(608, 24), ForeColor = Theme.Muted });
         Controls.AddRange(_rowsPanel, addButton, _previewLabel, okButton, cancelButton);
         AcceptButton = okButton;
         CancelButton = cancelButton;
+        Font = Theme.Body;
+        Theme.Apply(this);
+        Theme.PolishFields(this);
+        Theme.Primary(okButton);
+        _previewLabel.Font = Theme.Data;
     }
 
     /// <summary>
@@ -198,6 +206,8 @@ internal sealed class FormatBlockEditorForm : Form
         try
         {
             RebuildRowsCore();
+            Theme.Apply(_rowsPanel);
+            Theme.PolishFields(_rowsPanel);
         }
         finally
         {
@@ -220,15 +230,18 @@ internal sealed class FormatBlockEditorForm : Form
         {
             control.Dispose();
         }
-        var y = 6;
+        var scale = AutoScaleDimensions.Width >= DeviceDpi ? DeviceDpi / 96f : 1f;
+        Point P(int x, int y) => new((int)Math.Round(x * scale), y);
+        Size S(int w, int h) => new((int)Math.Round(w * scale), (int)Math.Round(h * scale));
+        var y = (int)Math.Round(6 * scale);
         for (var i = 0; i < _blocks.Count; i++)
         {
             var block = _blocks[i];
 
-            var typeCombo = new ComboBox
+            var typeCombo = new CueComboBox
             {
-                Location = new Point(8, y),
-                Width = 135,
+                Location = P(8, y),
+                Width = (int)Math.Round(176 * scale),
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
             typeCombo.Items.AddRange(TypeNames);
@@ -260,11 +273,11 @@ internal sealed class FormatBlockEditorForm : Form
             Control valueEditor;
             if (block.Type == FormatBlockType.DataSource)
             {
-                var combo = new ComboBox
+                var combo = new CueComboBox
                 {
                     Name = "BlockDataSourceBox",
-                    Location = new Point(148, y),
-                    Width = 232,
+                    Location = P(192, y),
+                    Width = (int)Math.Round(188 * scale),
                     DropDownStyle = ComboBoxStyle.DropDown,
                     Text = block.Text
                 };
@@ -280,8 +293,8 @@ internal sealed class FormatBlockEditorForm : Form
             {
                 var textBox = new TextBox
                 {
-                    Location = new Point(148, y),
-                    Width = 232,
+                    Location = P(192, y),
+                    Width = (int)Math.Round(188 * scale),
                     Text = block.Text,
                     Enabled = block.Type == FormatBlockType.Custom
                 };
@@ -293,31 +306,31 @@ internal sealed class FormatBlockEditorForm : Form
                 valueEditor = textBox;
             }
 
-            var upButton = new Button
+            var upButton = new CueButton
             {
                 Text = "↑",
-                Location = new Point(386, y - 1),
-                Size = new Size(30, 26),
+                Location = P(386, y - 1),
+                Size = S(30, 26),
                 Enabled = i > 0
             };
             // ⚠️ 必须按"积木对象"定位，不能按 index：重建改成延迟执行后，
             // 连续点击时旧的 index 可能已经指到别的积木（会移错/删错行）。
             upButton.Click += (_, _) => MoveBlock(block, -1);
 
-            var downButton = new Button
+            var downButton = new CueButton
             {
                 Text = "↓",
-                Location = new Point(420, y - 1),
-                Size = new Size(30, 26),
+                Location = P(420, y - 1),
+                Size = S(30, 26),
                 Enabled = i < _blocks.Count - 1
             };
             downButton.Click += (_, _) => MoveBlock(block, +1);
 
-            var delButton = new Button
+            var delButton = new CueButton
             {
                 Text = "✕",
-                Location = new Point(454, y - 1),
-                Size = new Size(30, 26)
+                Location = P(454, y - 1),
+                Size = S(30, 26)
             };
             delButton.Click += (_, _) =>
             {
@@ -326,7 +339,7 @@ internal sealed class FormatBlockEditorForm : Form
             };
 
             _rowsPanel.Controls.AddRange(typeCombo, valueEditor, upButton, downButton, delButton);
-            y += 32;
+            y += (int)Math.Round(32 * scale);
         }
         _rowsPanel.ResumeLayout(true);
     }

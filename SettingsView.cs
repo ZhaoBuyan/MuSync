@@ -16,7 +16,7 @@ namespace MuSync;
 /// 统一设置窗口（单窗五页：常规 / 同步 / 显示 / 程序 / 诊断）。
 /// 所有设置条目平铺在标签页中，不再有"设置里的设置"。
 /// </summary>
-internal sealed class SettingsForm : Form
+internal sealed partial class SettingsView : UserControl
 {
     // —— 常规页 ——
     private CheckBox _autoStartCheckBox = null!;
@@ -53,6 +53,10 @@ internal sealed class SettingsForm : Form
     private NumericUpDown _barLengthBox = null!;
     private ComboBox _templatePresetCombo = null!;
     private Label _previewLabel = null!;
+    private Label _combinedPreview = null!;
+    private Label _musicPreview = null!;
+    private BudgetMeasure _combinedBudget = null!;
+    private BudgetMeasure _musicBudget = null!;
 
     // 常驻状态控件（显示页）
     private CheckBox _persistentStatusCheck = null!;
@@ -67,23 +71,34 @@ internal sealed class SettingsForm : Form
     private Button _backgroundColorButton = null!;
     private Label _backgroundImageLabel = null!;
     private ComboBox _backgroundLayoutCombo = null!;
+    private ComboBox _themeCombo = null!;
+    private CheckBox _backgroundFollowThemeCheck = null!;
+    private int _refreshFailures;
     private double[]? _backgroundCropRect;
     private string _backgroundImagePath = "";
     private string _appearanceFontFamily = "";
     private float _appearanceFontSize;
+    private FontStyle _appearanceFontStyle;
     private bool _updatingTemplatePreset;
 
     // —— 程序页 ——
     private DataGridView _rulesGrid = null!;
+    private Label _rulesEmpty = null!;
+    private Label _rulesCount = null!;
+    private Label _dataSourcesEmpty = null!;
     private readonly List<AppRule> _rules = [];
+    private readonly HashSet<string> _removedRuleNames = new(StringComparer.OrdinalIgnoreCase);
 
     // —— 诊断页 ——
     private Label _memoryInfoLabel = null!;
+    private readonly Label[] _memoryValues = new Label[6];
     private Label _versionLabel = null!;
 
     // —— 关于页 ——
     private Label _aboutVersionLabel = null!;
     private Label _updateNoticeLabel = null!;
+    private Button _checkUpdateButton = null!;
+    private bool _isCheckingUpdate;
 
     // —— 底部按钮 ——
     private Button _okButton = null!;
@@ -93,54 +108,78 @@ internal sealed class SettingsForm : Form
     // —— 定时器 ——
     private readonly Timer _perfTimer = new() { Interval = 2000 };
     private readonly Timer _previewTimer = new() { Interval = 2000 };
+    private bool _loadingSettings;
+    private TabControl _pages = null!;
 
     /// <summary>播放器键表。internal 供测试核对「与 RpcManager.DefaultPlayerOrder / ConfigData.PlayerPriority 三处一致」。</summary>
     internal static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
 
-    public SettingsForm()
+    internal event Action? ReturnRequested;
+    internal event Action? SettingsSaved;
+
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal IButtonControl? AcceptButton { get; private set; }
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal IButtonControl? CancelButton { get; private set; }
+
+    public SettingsView()
     {
         InitializeComponent();
         LoadSettings();
     }
 
+    private void ReturnToMain()
+    {
+        ReturnRequested?.Invoke();
+    }
+
     private void InitializeComponent()
     {
+        SuspendLayout();
+        AutoScaleDimensions = new SizeF(96, 96);
+        AutoScaleMode = AutoScaleMode.Dpi;
         Text = Loc.L("设置 - MuSync", "MuSync - Settings");
-            // 用我们自己画的图标：否则标题栏会显示 WinForms 默认图标
-            Icon = AppResource.Icon;
-        Size = new Size(700, 660);
-        StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        Font = new Font("Microsoft YaHei", 9);
-        BackColor = Color.White;
+        ClientSize = Theme.WindowSize;
+        DoubleBuffered = true;
+        Font = Theme.Body;
+        BackColor = Theme.Paper;
 
         // ================= 底部按钮 =================
         var buttonPanel = new Panel
         {
             Dock = DockStyle.Bottom,
-            Height = 52,
+            Height = 64,
             BackColor = Color.White
         };
-        _okButton = CreateDialogButton(Loc.L("确定", "OK"), 400);
+        _okButton = CreateDialogButton(Loc.L("保存并返回", "Save and return"), 0);
         _okButton.Click += (_, _) =>
         {
             SaveSettings();
-            Close();
+            ReturnToMain();
         };
-        _cancelButton = CreateDialogButton(Loc.L("取消", "Cancel"), 488);
-        _cancelButton.Click += (_, _) => Close();
-        _applyButton = CreateDialogButton(Loc.L("应用", "Apply"), 576);
+        _cancelButton = CreateDialogButton(Loc.L("取消", "Cancel"), 0);
+        _cancelButton.Click += (_, _) => ReturnToMain();
+        _applyButton = CreateDialogButton(Loc.L("保存更改", "Save changes"), 0);
         _applyButton.Click += (_, _) => SaveSettings();
-        buttonPanel.Controls.AddRange([_okButton, _cancelButton, _applyButton]);
+        var actions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
+            Padding = new Padding(16), WrapContents = false
+        };
+        actions.Controls.AddRange([_okButton, _applyButton, _cancelButton]);
+        buttonPanel.Controls.Add(actions);
+        AcceptButton = _okButton;
+        CancelButton = _cancelButton;
 
         // ================= Tab 容器 =================
-        var tabs = new TabControl
+        var tabs = new SettingsPages
         {
+            Name = "SettingsPages",
             Dock = DockStyle.Fill,
-            Padding = new Point(14, 6)
+            SizeMode = TabSizeMode.Fixed,
+            ItemSize = new Size(1, 1)
         };
+        _pages = tabs;
         tabs.TabPages.Add(CreateGeneralPage());
         tabs.TabPages.Add(CreateSyncPage());
         tabs.TabPages.Add(CreateDisplayPage());
@@ -148,103 +187,275 @@ internal sealed class SettingsForm : Form
         tabs.TabPages.Add(CreateDataSourcesPage());
         tabs.TabPages.Add(CreateDiagnosticsPage());
         tabs.TabPages.Add(CreateAboutPage());
-
-        Controls.AddRange([tabs, buttonPanel]);
-
-        _perfTimer.Tick += (_, _) =>
+        foreach (TabPage page in tabs.TabPages)
         {
-            RefreshMemoryInfo();
-            UpdateAccountStatus();
-        };
-        _perfTimer.Start();
-        _previewTimer.Tick += (_, _) => { UpdatePreview(); RefreshDataSourceRuntimeStatus(); };
-        _previewTimer.Start();
+            page.AutoScroll = true;
+            // 标题占 28 个逻辑像素，内容从 44 开始；扩容并顺移后续分组，避免挤压底部。
+            var addedHeight = 0;
+            foreach (var control in page.Controls.Cast<Control>().OrderBy(c => c.Top).ToArray())
+            {
+                control.Top += addedHeight;
+                if (control is not SettingsSection section || section.Controls.Count == 0) continue;
+                var gap = Math.Max(0, 44 - section.Controls.Cast<Control>().Min(c => c.Top));
+                if (gap == 0) continue;
+                section.Height += gap;
+                foreach (Control child in section.Controls) child.Top += gap;
+                addedHeight += gap;
+            }
+        }
 
-        FormClosed += (_, _) =>
+        var navigation = new ListBox
         {
-            _perfTimer.Dispose();
-            _previewTimer.Dispose();
+            Name = "SettingsNavigation", Dock = DockStyle.Fill,
+            BorderStyle = BorderStyle.None, IntegralHeight = false,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 40, Font = Theme.Body,
+            AccessibleName = Loc.L("设置页面", "Settings pages")
         };
+        navigation.DrawItem += (_, e) =>
+        {
+            if (e.Index < 0) return;
+            using var paper = new SolidBrush(Theme.Sidebar);
+            e.Graphics.FillRectangle(paper, e.Bounds);
+            var selected = (e.State & DrawItemState.Selected) != 0;
+            // 每项占 40px：32px 方形边框加 8px 留白，所有页面入口保持同一栅格。
+            var scale = navigation.DeviceDpi / 96f;
+            var itemBounds = new Rectangle(e.Bounds.Left, e.Bounds.Top,
+                Math.Max(1, e.Bounds.Width - 1), Math.Max(1, e.Bounds.Height - (int)Math.Round(8 * scale)));
+            if (selected)
+            {
+                using var selection = new SolidBrush(Theme.SidebarSelected);
+                e.Graphics.FillRectangle(selection, itemBounds);
+            }
+            using var border = new Pen(selected ? Theme.SidebarMuted : Theme.SidebarRule);
+            e.Graphics.DrawRectangle(border, itemBounds);
+            if (selected)
+            {
+                using var ink = new SolidBrush(Theme.SidebarText);
+                e.Graphics.FillRectangle(ink, itemBounds.Left, itemBounds.Top, 2, itemBounds.Height);
+            }
+            var textBounds = new Rectangle(itemBounds.Left + (int)Math.Round(16 * scale), itemBounds.Top,
+                Math.Max(1, itemBounds.Width - (int)Math.Round(24 * scale)), itemBounds.Height);
+            TextRenderer.DrawText(e.Graphics, navigation.Items[e.Index].ToString(), navigation.Font,
+                textBounds, Theme.SidebarText, Theme.PaintText | TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            if ((e.State & DrawItemState.Focus) != 0)
+                ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(itemBounds, -4, -4), Theme.SidebarText, Theme.Sidebar);
+        };
+        void ScaleNavigation() => navigation.ItemHeight = (int)Math.Round(40 * navigation.DeviceDpi / 96f);
+        navigation.HandleCreated += (_, _) => ScaleNavigation();
+        navigation.DpiChangedAfterParent += (_, _) => ScaleNavigation();
+        foreach (TabPage page in tabs.TabPages) navigation.Items.Add(page.Text);
+        navigation.SelectedIndexChanged += (_, _) =>
+        {
+            if (navigation.SelectedIndex >= 0) tabs.SelectedIndex = navigation.SelectedIndex;
+        };
+        tabs.SelectedIndexChanged += (_, _) =>
+        {
+            navigation.SelectedIndex = tabs.SelectedIndex;
+            _refreshFailures = 0;
+            UiHealth.Note($"[UI] settings-page={tabs.SelectedIndex}");
+            UpdateRefreshTimers();
+            if (Visible) RefreshVisiblePage();
+        };
+        var sidebar = new Panel
+        {
+            Name = "SettingsSidebar", Dock = DockStyle.Left, Width = 160,
+            Padding = new Padding(16), BorderStyle = BorderStyle.None
+        };
+        var title = new Label
+        {
+            Text = Loc.L("设置", "Settings"), Dock = DockStyle.Top,
+            Height = 56, Font = Theme.Heading
+        };
+        var version = new Label
+        {
+            Text = "v" + UpdateChecker.GetCurrentVersionText(), Dock = DockStyle.Bottom,
+            Height = 32, Font = Theme.Data
+        };
+        sidebar.Controls.AddRange([navigation, version, title]);
+        {
+            var back = new SidebarBackButton
+            {
+                Text = Loc.L("主界面", "Overview"), Dock = DockStyle.Top,
+                AccessibleName = Loc.L("返回主界面", "Back to overview"),
+                Height = 40, TabIndex = 0
+            };
+            back.Click += (_, _) => ReturnToMain();
+            sidebar.Controls.Add(back);
+        }
+        Controls.AddRange([tabs, sidebar, buttonPanel]);
+        Theme.Apply(this);
+        Theme.PolishFields(this);
+        sidebar.BackColor = Theme.Sidebar;
+        foreach (Control child in sidebar.Controls)
+        {
+            child.BackColor = Theme.Sidebar;
+            child.ForeColor = Theme.SidebarText;
+            if (child is Button back)
+            {
+                back.FlatAppearance.BorderColor = Theme.SidebarRule;
+                back.FlatAppearance.MouseOverBackColor = Theme.SidebarSelected;
+                back.FlatAppearance.MouseDownBackColor = Theme.Accent;
+            }
+        }
+        version.ForeColor = Theme.SidebarMuted;
+        buttonPanel.BackColor = Theme.Canvas;
+        actions.BackColor = Theme.Canvas;
+        Theme.Primary(_okButton);
+        navigation.SelectedIndex = 0;
+
+        _perfTimer.Tick += (_, _) => RefreshVisiblePage();
+        _previewTimer.Tick += (_, _) => RefreshVisiblePage();
+
+        ResumeLayout(true);
+        PerformAutoScale();
     }
 
     private Button CreateDialogButton(string text, int x)
     {
-        var button = new Button
+        var button = new CueButton
         {
             Text = text,
-            Location = new Point(x, 12),
-            Size = new Size(80, 28),
+            Location = new Point(x, 0),
+            Size = new Size(120, 32),
+            Margin = new Padding(8, 0, 0, 0),
             BackColor = Color.White
         };
         return button;
     }
 
+    /// <summary>页签由左侧原生列表控制，保留 TabPage 与现有页面事件、键盘行为。</summary>
+    private sealed class SettingsPages : TabControl
+    {
+        protected override void WndProc(ref Message m)
+        {
+            // TCM_ADJUSTRECT：内容占满客户区，隐藏原生顶端页签占用的空间。
+            if (m.Msg == 0x1328) { m.Result = (IntPtr)1; return; }
+            base.WndProc(ref m);
+        }
+    }
+
     // ================= 常规页 =================
     private TabPage CreateGeneralPage()
     {
-        var page = new TabPage(Loc.L("常规", "General")) { BackColor = Color.White };
+        var page = new TabPage(Loc.L("常规", "General")) { BackColor = Color.White, AutoScroll = true };
 
-        var startupGroup = CreateGroupBox(Loc.L("启动与托盘", "Startup & Tray"), 10, 10, 650, 150);
-        _autoStartCheckBox = CreateCheckBox(Loc.L("开机自启", "Start with Windows"), 20, 30);
-        _closeToTrayCheckBox = CreateCheckBox(Loc.L("关闭窗口时隐藏到托盘", "Minimize to tray when the window is closed"), 20, 62);
-        _startInTrayCheckBox = CreateCheckBox(Loc.L("启动时隐藏到托盘", "Start minimized to tray"), 20, 94);
+        var startupGroup = CreateGroupBox(Loc.L("启动与托盘", "Startup and tray"), 16, 16, 650, 160);
+        _autoStartCheckBox = CreateToggleSwitch(Loc.L("开机自启", "Start with Windows"), 20, 30);
+        _closeToTrayCheckBox = CreateToggleSwitch(Loc.L("关闭窗口时隐藏到托盘", "Hide in tray when the window is closed"), 20, 62);
+        _startInTrayCheckBox = CreateToggleSwitch(Loc.L("启动时隐藏到托盘", "Start in tray"), 20, 94);
 
         var languageLabel = new Label
         {
             AutoSize = true,
-            Location = new Point(315, 34),
+            Location = new Point(16, 38),
             Text = Loc.L("语言:", "Language:")
         };
-        _languageCombo = new ComboBox
+        _languageCombo = new CueComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Location = new Point(400, 30),
-            Size = new Size(110, 28)
+            Location = new Point(458, 32),
+            Size = new Size(176, 32)
         };
         _languageCombo.Items.AddRange(["中文", "English"]);
         _languageCombo.SelectedIndex = Math.Clamp(Configurations.Instance.Settings.Language, 0, 1);
         var languageHint = new Label
         {
             AutoSize = true,
-            Location = new Point(518, 34),
-            ForeColor = Color.Gray,
+            Location = new Point(16, 76),
+            ForeColor = Theme.Muted,
             Text = Loc.L("（重启后生效）", "(applies after restart)")
         };
-        startupGroup.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox, languageLabel, _languageCombo, languageHint]);
+        startupGroup.Controls.Add(CreateSettingRows(_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox));
+        var languageGroup = CreateGroupBox(Loc.L("语言", "Language"), 16, 200, 650, 104);
+        languageGroup.Controls.AddRange([languageLabel, _languageCombo, languageHint]);
 
-        var networkGroup = CreateGroupBox(Loc.L("网络", "Network"), 10, 172, 650, 72);
-        _allowWebSocketFallbackCheckBox = CreateCheckBox(Loc.L("TCP 连接失败时自动用 WebSocket (443) 重试", "Retry over WebSocket (443) if TCP fails"), 20, 28);
-        networkGroup.Controls.AddRange([_allowWebSocketFallbackCheckBox]);
+        var networkGroup = CreateGroupBox(Loc.L("网络", "Network"), 16, 328, 650, 80);
+        _allowWebSocketFallbackCheckBox = CreateToggleSwitch(Loc.L("TCP 连接失败时自动用 WebSocket (443) 重试", "Retry over WebSocket (443) if TCP fails"), 20, 28);
+        networkGroup.Controls.Add(CreateSettingRows(_allowWebSocketFallbackCheckBox));
 
-        var accountGroup = CreateGroupBox(Loc.L("Steam 账户", "Steam Account"), 10, 256, 650, 125);
+        var accountGroup = CreateGroupBox(Loc.L("Steam 账户", "Steam Account"), 16, 432, 650, 128);
         _accountStatusLabel = new Label
         {
             AutoSize = true,
-            Location = new Point(20, 30),
+            Location = new Point(16, 36),
             Text = Loc.L("状态检查中…", "Checking status..."),
-            ForeColor = Color.Gray
+            ForeColor = Theme.Muted
         };
-        _loginButton = new Button
+        _loginButton = new CueButton
         {
             Text = Loc.L("重新登录", "Sign in again"),
-            Location = new Point(20, 66),
-            Size = new Size(110, 30),
+            Location = new Point(386, 80),
+            Size = new Size(120, 32),
             BackColor = Color.White
         };
         _loginButton.Click += LoginButton_Click;
-        _logoutButton = new Button
+        _logoutButton = new CueButton
         {
             Text = Loc.L("退出登录", "Sign out"),
-            Location = new Point(145, 66),
-            Size = new Size(110, 30),
+            Location = new Point(514, 80),
+            Size = new Size(120, 32),
             BackColor = Color.White,
-            ForeColor = Color.Red
+            ForeColor = Theme.OnAir
         };
         _logoutButton.Click += LogoutButton_Click;
         accountGroup.Controls.AddRange([_accountStatusLabel, _loginButton, _logoutButton]);
 
-        page.Controls.AddRange([startupGroup, networkGroup, accountGroup]);
+        page.Controls.AddRange([startupGroup, languageGroup, networkGroup, accountGroup]);
         return page;
+    }
+
+    /// <summary>保留 CheckBox 的 Checked 与键盘语义，以标签行和原生按钮外观呈现状态印章。</summary>
+    private static TableLayoutPanel CreateSettingRows(params CheckBox[] switches)
+    {
+        var rows = new TableLayoutPanel
+        {
+            Location = new Point(16, 32), Size = new Size(618, switches.Length * 40),
+            ColumnCount = 2, RowCount = switches.Length, Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        rows.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
+        for (var i = 0; i < switches.Length; i++)
+        {
+            var toggle = switches[i];
+            var caption = toggle.Text;
+            var label = new Label
+            {
+                Text = caption, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft,
+                Margin = Padding.Empty, AutoEllipsis = true
+            };
+            toggle.AccessibleName = caption;
+            toggle.Appearance = Appearance.Normal;
+            toggle.AutoSize = false;
+            toggle.Size = new Size(64, 32);
+            toggle.Anchor = AnchorStyles.Right;
+            toggle.Margin = new Padding(8, 4, 0, 4);
+            toggle.TextAlign = ContentAlignment.MiddleCenter;
+            toggle.FlatStyle = FlatStyle.Flat;
+            toggle.FlatAppearance.CheckedBackColor = Theme.Accent;
+            label.Click += (_, _) =>
+            {
+                if (!toggle.Enabled) return;
+                toggle.Focus();
+                toggle.Checked = !toggle.Checked;
+            };
+            void UpdateStamp()
+            {
+                toggle.Text = "";
+                toggle.BackColor = toggle.Checked ? Theme.Accent : Theme.Paper;
+                toggle.ForeColor = toggle.Checked ? Theme.Paper : Theme.Muted;
+                toggle.FlatAppearance.BorderColor = toggle.Checked ? Theme.Accent : Theme.Rule;
+                toggle.FlatAppearance.MouseOverBackColor = toggle.BackColor;
+                toggle.FlatAppearance.MouseDownBackColor = toggle.BackColor;
+            }
+            toggle.CheckedChanged += (_, _) => UpdateStamp();
+            UpdateStamp();
+            rows.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+            rows.Controls.Add(label, 0, i);
+            rows.Controls.Add(toggle, 1, i);
+        }
+        return rows;
     }
 
     // ================= 同步页 =================
@@ -252,89 +463,124 @@ internal sealed class SettingsForm : Form
     {
         var page = new TabPage(Loc.L("同步", "Sync")) { BackColor = Color.White, AutoScroll = true };
 
-        var switchGroup = CreateGroupBox(Loc.L("同步开关", "Sync options"), 10, 10, 650, 160);
-        _enableSteamSyncCheckBox = CreateCheckBox(Loc.L("启用 Steam 同步（总开关）", "Enable Steam sync (master switch)"), 20, 32);
-        _musicSyncCheckBox = CreateCheckBox(Loc.L("启用音乐同步", "Enable music sync"), 20, 66);
-        _hidePausedMusicCheckBox = CreateCheckBox(Loc.L("音乐暂停时不在状态中显示", "Hide music status when paused"), 20, 100);
-        _browserMediaCheckBox = CreateCheckBox(
+        var switchGroup = CreateGroupBox(Loc.L("同步开关", "Sync options"), 16, 16, 650, 320);
+        _enableSteamSyncCheckBox = CreateToggleSwitch(Loc.L("启用 Steam 同步（总开关）", "Enable Steam sync (master switch)"), 20, 32);
+        _musicSyncCheckBox = CreateToggleSwitch(Loc.L("启用音乐同步", "Enable music sync"), 20, 66);
+        _hidePausedMusicCheckBox = CreateToggleSwitch(Loc.L("音乐暂停时不在状态中显示", "Hide music status when paused"), 20, 100);
+        _browserMediaCheckBox = CreateToggleSwitch(
             Loc.L("同步浏览器里正在播放的媒体（视频 / 音频）", "Sync media playing in your browser (video / audio)"), 20, 134);
-        _enableAppSyncCheckBox = CreateCheckBox(Loc.L("启用程序同步", "Enable app sync"), 340, 32);
-        _syncNonGameCheckBox = CreateCheckBox(Loc.L("同步非游戏应用", "Sync non-game apps"), 340, 66);
-        _pauseWhenPlayingGameCheckBox = CreateCheckBox(Loc.L("玩真实 Steam 游戏时自动暂停", "Auto-pause while playing a real Steam game"), 340, 100);
-        switchGroup.Controls.AddRange([
+        _enableAppSyncCheckBox = CreateToggleSwitch(Loc.L("启用程序同步", "Enable app sync"), 340, 32);
+        _syncNonGameCheckBox = CreateToggleSwitch(Loc.L("同步非游戏应用", "Sync non-game apps"), 340, 66);
+        _pauseWhenPlayingGameCheckBox = CreateToggleSwitch(Loc.L("玩 Steam 游戏时暂停状态同步", "Pause status sync while playing a Steam game"), 340, 100);
+        switchGroup.Controls.Add(CreateSettingRows(
             _enableSteamSyncCheckBox, _musicSyncCheckBox, _hidePausedMusicCheckBox, _browserMediaCheckBox,
             _enableAppSyncCheckBox, _syncNonGameCheckBox, _pauseWhenPlayingGameCheckBox
-        ]);
+        ));
 
 
-        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 10, 182, 650, 202);
+        var priorityGroup = CreateGroupBox(Loc.L("音乐播放器优先级", "Music player priority"), 16, 360, 650, 202);
         var priorityLabel = new Label
         {
             AutoSize = true,
             Location = new Point(20, 32),
-            Text = Loc.L("从上到下依次优先（正在播放的始终优先）：", "Top to bottom, highest first (now-playing always wins):")
+            Text = Loc.L("从上到下依次优先（正在播放的始终优先）：", "Highest priority first; playing sources take priority over paused sources:")
         };
         var priorityHint = new Label
         {
             AutoSize = true,
             Location = new Point(336, 60),
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8),
-            Text = Loc.L("选中后用右侧按钮调整（浏览器媒体内部：扩展优先）", "Use the buttons to move (browser media: extension wins)")
+            MaximumSize = new Size(294, 0),
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption,
+            Text = Loc.L("选中后用右侧按钮调整（浏览器媒体内部：扩展优先）", "Select a player, then move it up or down. Browser media prefers the extension.")
         };
         _playerPriorityList = new ListBox
         {
+            IntegralHeight = false,
             Location = new Point(20, 58),
-            // 高度留足：5 项 × 约 17px 逻辑高度，再叠上 DPI 缩放余量，保证不出现内部滚动条
-            // （实测 94 在 125% 缩放下只渲染出 72px，装不下 5 项）
+            // 六项保持完整可见；每项内部留出边线间距，不增加列表内部滚动。
             Size = new Size(300, 136),
-            BackColor = Color.White
+            BackColor = Theme.Paper,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 22
+        };
+        void ScalePriorityRows() => _playerPriorityList.ItemHeight = (int)Math.Round(22 * _playerPriorityList.DeviceDpi / 96f);
+        _playerPriorityList.HandleCreated += (_, _) => ScalePriorityRows();
+        _playerPriorityList.DpiChangedAfterParent += (_, _) => ScalePriorityRows();
+        _playerPriorityList.DrawItem += (_, e) =>
+        {
+            if (e.Index < 0) return;
+            var selected = (e.State & DrawItemState.Selected) != 0;
+            using var paper = new SolidBrush(Theme.Surface);
+            e.Graphics.FillRectangle(paper, e.Bounds);
+            var itemBounds = new Rectangle(e.Bounds.Left + 4, e.Bounds.Top + 1,
+                Math.Max(1, e.Bounds.Width - 9), Math.Max(1, e.Bounds.Height - 3));
+            using var background = new SolidBrush(selected ? Theme.Inset : Theme.Surface);
+            e.Graphics.FillRectangle(background, itemBounds);
+            using var border = new Pen(selected ? Theme.Accent : Theme.Rule);
+            e.Graphics.DrawRectangle(border, itemBounds);
+            TextRenderer.DrawText(e.Graphics, _playerPriorityList.Items[e.Index].ToString(), Theme.Body,
+                new Rectangle(itemBounds.Left + 8, itemBounds.Top, Math.Max(1, itemBounds.Width - 16), itemBounds.Height),
+                Theme.Ink, Theme.PaintText | TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            if ((e.State & DrawItemState.Focus) != 0)
+                ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(itemBounds, -2, -2), Theme.Ink, selected ? Theme.Inset : Theme.Surface);
         };
         _playerPriorityList.SelectedIndexChanged += (_, _) => UpdatePriorityMoveButtons();
-        var moveUpButton = new Button
+        var moveUpButton = new CueButton
         {
             Text = Loc.L("上移", "Move up"),
-            Location = new Point(336, 84),
-            Size = new Size(78, 26),
+            Location = new Point(336, 112),
+            Size = new Size(136, 32),
             BackColor = Color.White
         };
         moveUpButton.Click += (_, _) => MovePriorityItem(-1);
-        var moveDownButton = new Button
+        var moveDownButton = new CueButton
         {
             Text = Loc.L("下移", "Move down"),
-            Location = new Point(422, 84),
-            Size = new Size(78, 26),
+            Location = new Point(480, 112),
+            Size = new Size(136, 32),
             BackColor = Color.White
         };
         moveDownButton.Click += (_, _) => MovePriorityItem(1);
         _playerPriorityMoveButtons.AddRange([moveUpButton, moveDownButton]);
-        priorityGroup.Controls.AddRange([priorityLabel, priorityHint, _playerPriorityList, moveUpButton, moveDownButton]);
+        var priorityFrame = new Panel
+        {
+            Bounds = _playerPriorityList.Bounds, Padding = new Padding(1)
+        };
+        priorityFrame.Paint += (_, e) =>
+        {
+            using var border = new Pen(Theme.Rule);
+            e.Graphics.DrawRectangle(border, 0, 0, priorityFrame.Width - 1, priorityFrame.Height - 1);
+        };
+        _playerPriorityList.Dock = DockStyle.Fill;
+        priorityFrame.Controls.Add(_playerPriorityList);
+        priorityGroup.Controls.AddRange([priorityLabel, priorityHint, priorityFrame, moveUpButton, moveDownButton]);
 
-        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 10, 396, 650, 90);
+        var speedGroup = CreateGroupBox(Loc.L("同步频率", "Sync frequency"), 16, 586, 650, 104);
         var speedLabel = new Label { Text = Loc.L("进度刷新档位:", "Update rate:"), Location = new Point(20, 32), AutoSize = true };
-        _syncSpeedCombo = new ComboBox
+        _syncSpeedCombo = new CueComboBox
         {
             Location = new Point(130, 28),
             Width = 240,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
-        _syncSpeedCombo.Items.AddRange([Loc.L("快速（0.25 秒）", "Fast (0.25 s)"), Loc.L("标准（0.5 秒，推荐）", "Standard (0.5 s, recommended)"), Loc.L("省流（1 秒）", "Data saver (1 s)")]);
+        _syncSpeedCombo.Items.AddRange([Loc.L("快速（0.25 秒）", "Fast (0.25 s)"), Loc.L("标准（0.5 秒，推荐）", "Standard (0.5 s, recommended)"), Loc.L("省流（1 秒）", "Low frequency (1 s)")]);
         var speedHint = new Label
         {
             AutoSize = true,
             Location = new Point(20, 60),
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8),
-            Text = Loc.L("更快的刷新让 Steam 端更顺滑；省流档可降低被服务器限流的概率", "Faster updates look smoother on Steam; data saver reduces the chance of server rate-limiting")
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption,
+            Text = Loc.L("更快的刷新让 Steam 端更顺滑；省流档可降低被服务器限流的概率", "Faster updates show progress more smoothly. Lower frequency reduces the chance of Steam rate limits.")
         };
         speedGroup.Controls.AddRange([speedLabel, _syncSpeedCombo, speedHint]);
 
         var lxHint = new Label
         {
-            Location = new Point(10, 494),
+            Location = new Point(16, 714),
             Size = new Size(650, 40),
-            ForeColor = Color.FromArgb(150, 110, 40),
-            Font = new Font("Microsoft YaHei", 8.5f),
+            ForeColor = Theme.Warn,
+            Font = Theme.Caption,
             Text = Loc.L("洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，并允许来自局域网的访问。", "LX Music users: please enable \"Open API service\" under LX Music → Settings → Open API, and allow LAN access.")
         };
 
@@ -347,10 +593,10 @@ internal sealed class SettingsForm : Form
     {
         var page = new TabPage(Loc.L("显示", "Display")) { BackColor = Color.White };
 
-        var templateGroup = CreateGroupBox(Loc.L("状态文本模板", "Status text template"), 10, 10, 650, 330);
+        var templateGroup = CreateGroupBox(Loc.L("状态文本模板", "Status text template"), 16, 16, 650, 264);
 
         var presetLabel = new Label { Text = Loc.L("模板预设:", "Presets:"), Location = new Point(20, 34), AutoSize = true };
-        _templatePresetCombo = new ComboBox
+        _templatePresetCombo = new CueComboBox
         {
             Location = new Point(95, 30),
             Width = 220,
@@ -360,8 +606,8 @@ internal sealed class SettingsForm : Form
         _templatePresetCombo.SelectedIndexChanged += (_, _) => ApplyTemplatePreset(_templatePresetCombo.SelectedIndex);
 
         var musicFormatLabel = new Label { Text = Loc.L("音乐格式:", "Music format:"), Location = new Point(20, 70), AutoSize = true };
-        _musicFormatBox = new TextBox { Name = "MusicFormatBox", Location = new Point(118, 66), Width = 417 };
-        var musicBlocksButton = new Button
+        _musicFormatBox = new TextBox { Name = "MusicFormatBox", Location = new Point(140, 66), Width = 395 };
+        var musicBlocksButton = new CueButton
         {
             Text = Loc.L("积木", "Blocks"),
             Location = new Point(545, 65),
@@ -371,8 +617,8 @@ internal sealed class SettingsForm : Form
         musicBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Music, _musicFormatBox);
 
         var programFormatLabel = new Label { Text = Loc.L("程序格式:", "App format:"), Location = new Point(20, 102), AutoSize = true };
-        _programFormatBox = new TextBox { Name = "ProgramFormatBox", Location = new Point(118, 98), Width = 417 };
-        var programBlocksButton = new Button
+        _programFormatBox = new TextBox { Name = "ProgramFormatBox", Location = new Point(140, 98), Width = 395 };
+        var programBlocksButton = new CueButton
         {
             Text = Loc.L("积木", "Blocks"),
             Location = new Point(545, 97),
@@ -382,8 +628,8 @@ internal sealed class SettingsForm : Form
         programBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Program, _programFormatBox);
 
         var combinedFormatLabel = new Label { Text = Loc.L("组合格式:", "Combined format:"), Location = new Point(20, 134), AutoSize = true };
-        _combinedFormatBox = new TextBox { Name = "CombinedFormatBox", Location = new Point(118, 130), Width = 417 };
-        var combinedBlocksButton = new Button
+        _combinedFormatBox = new TextBox { Name = "CombinedFormatBox", Location = new Point(140, 130), Width = 395 };
+        var combinedBlocksButton = new CueButton
         {
             Text = Loc.L("积木", "Blocks"),
             Location = new Point(545, 129),
@@ -393,7 +639,7 @@ internal sealed class SettingsForm : Form
         combinedBlocksButton.Click += (_, _) => OpenBlockEditor(TemplateKind.Combined, _combinedFormatBox);
 
         var separatorLabel = new Label { Text = Loc.L("分隔符:", "Separator:"), Location = new Point(20, 170), AutoSize = true };
-        _separatorCombo = new ComboBox
+        _separatorCombo = new CueComboBox
         {
             Location = new Point(95, 166),
             Width = 120,
@@ -402,7 +648,7 @@ internal sealed class SettingsForm : Form
         _separatorCombo.Items.AddRange(["‖", " | ", " · ", " — ", " ~ ", " + "]);
 
         var barStyleLabel = new Label { Text = Loc.L("进度条样式:", "Progress bar style:"), Location = new Point(250, 170), AutoSize = true };
-        _progressBarStyleCombo = new ComboBox
+        _progressBarStyleCombo = new CueComboBox
         {
             Location = new Point(385, 166),
             Width = 120,
@@ -410,7 +656,7 @@ internal sealed class SettingsForm : Form
         };
         _progressBarStyleCombo.Items.AddRange(["#-", "█░", "▰▱", "●○", "■□", "▮▯"]);
         var barLengthLabel = new Label { Text = Loc.L("长度:", "Length:"), Location = new Point(512, 170), AutoSize = true };
-        _barLengthBox = new NumericUpDown
+        _barLengthBox = new CueNumericUpDown
         {
             Location = new Point(576, 166),
             Width = 64,
@@ -422,20 +668,44 @@ internal sealed class SettingsForm : Form
         var variablesHint = new Label
         {
             AutoSize = true,
+            MaximumSize = new Size(610, 0),
             Location = new Point(20, 198),
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8),
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption,
             Text = Loc.L(
                 "变量：{app} 程序名｜{song} 歌名｜{artist} 歌手｜{artistPart} 自动连接符的歌手｜{bar} 进度条｜{time} 时间轴｜{progress} 条+时间｜{sep} 分隔符",
-                "Variables: {app} app name | {song} song | {artist} artist | {artistPart} artist with auto separators | {bar} progress bar | {time} timeline | {progress} bar + time | {sep} separator")
+                "Variables: {app} app name | {song} song title | {artist} artist | {artistPart} artist with separator | {bar} progress bar | {time} playback time | {progress} bar + time | {sep} separator")
         };
 
         _previewLabel = new Label
         {
-            Location = new Point(20, 228),
-            Size = new Size(610, 88),
-            ForeColor = Color.FromArgb(0, 102, 51)
+            Location = new Point(16, 32),
+            Size = new Size(618, 16),
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption
         };
+        var previewGroup = CreateGroupBox(Loc.L("输出预览与字节预算", "Output preview and byte budget"), 16, 288, 650, 176);
+        _combinedPreview = new Label
+        {
+            Name = "CombinedStatusPreview",
+            Location = new Point(16, 56), Size = new Size(618, 24),
+            Font = Theme.Body, AutoEllipsis = true
+        };
+        _musicPreview = new Label
+        {
+            Name = "MusicStatusPreview",
+            Location = new Point(16, 112), Size = new Size(618, 24),
+            Font = Theme.Body, AutoEllipsis = true
+        };
+        _combinedBudget = new BudgetMeasure
+        {
+            Text = Loc.L("组合", "Combined"), Location = new Point(16, 80), Size = new Size(618, 24)
+        };
+        _musicBudget = new BudgetMeasure
+        {
+            Text = Loc.L("音乐", "Music"), Location = new Point(16, 136), Size = new Size(618, 24)
+        };
+        previewGroup.Controls.AddRange([_previewLabel, _combinedPreview, _musicPreview, _combinedBudget, _musicBudget]);
 
         _musicFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
         _programFormatBox.TextChanged += (_, _) => { UpdatePreview(); MarkPresetCustom(); };
@@ -451,91 +721,109 @@ internal sealed class SettingsForm : Form
             combinedFormatLabel, _combinedFormatBox, combinedBlocksButton,
             separatorLabel, _separatorCombo, barStyleLabel, _progressBarStyleCombo,
             barLengthLabel, _barLengthBox,
-            variablesHint, _previewLabel
+            variablesHint
         ]);
 
         var persistentGroup = CreatePersistentStatusGroup();
         var appearanceGroup = CreateAppearanceGroup();
+        persistentGroup.Location = new Point(16, 488);
+        appearanceGroup.Location = new Point(16, 672);
         page.AutoScroll = true;
-        page.Controls.AddRange([templateGroup, persistentGroup, appearanceGroup]);
+        page.Controls.AddRange([templateGroup, previewGroup, persistentGroup, appearanceGroup]);
         return page;
     }
 
     /// <summary>「常驻状态」分组：无音乐 / 程序来源时推送的自定义文案（显示页内）。</summary>
     private GroupBox CreatePersistentStatusGroup()
     {
-        var group = CreateGroupBox(Loc.L("常驻状态", "Persistent status"), 10, 350, 650, 112);
+        var group = CreateGroupBox(Loc.L("常驻状态", "Fallback status"), 10, 350, 650, 160);
 
-        _persistentStatusCheck = CreateCheckBox(
-            Loc.L("没有音乐 / 程序时显示下面这句（原本会清除状态）", "Show the line below when no music or app is active (instead of clearing)"),
+        _persistentStatusCheck = CreateToggleSwitch(
+            Loc.L("无可显示的音乐或程序状态时，使用自定义状态", "Use a custom status when no music or app status is shown"),
             20, 30);
 
-        var textLabel = new Label { Text = Loc.L("文案:", "Text:"), Location = new Point(20, 66), AutoSize = true };
-        _persistentStatusBox = new TextBox { Location = new Point(70, 62), Width = 560, MaxLength = 128 };
+        var textLabel = new Label { Text = Loc.L("文案:", "Text:"), Location = new Point(16, 86), AutoSize = true };
+        _persistentStatusBox = new TextBox { Location = new Point(144, 80), Width = 490, MaxLength = 128 };
         var hint = new Label
         {
-            Location = new Point(20, 90),
+            Location = new Point(144, 120),
             AutoSize = true,
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8),
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption,
             Text = Loc.L("支持 emoji；超过 128 字节按 UTF-8 截断（约 42 个汉字）", "Emoji supported; longer text is truncated to 128 bytes")
         };
 
         _persistentStatusCheck.CheckedChanged += (_, _) => _persistentStatusBox.Enabled = _persistentStatusCheck.Checked;
 
-        group.Controls.AddRange([_persistentStatusCheck, textLabel, _persistentStatusBox, hint]);
+        hint.MaximumSize = new Size(490, 0);
+        group.Controls.AddRange([CreateSettingRows(_persistentStatusCheck), textLabel, _persistentStatusBox, hint]);
         return group;
     }
 
     /// <summary>「外观」分组：自定义主界面的颜色 / 字体 / 背景（显示页内，可滚动查看）。</summary>
     private GroupBox CreateAppearanceGroup()
     {
-        var group = CreateGroupBox(Loc.L("外观", "Appearance"), 10, 472, 650, 196);
+        var group = CreateGroupBox(Loc.L("外观", "Appearance"), 10, 472, 650, 440);
+        var themeLabel = new Label { Text = Loc.L("界面主题:", "Interface theme:"), Location = new Point(16, 376), AutoSize = true };
+        _themeCombo = new CueComboBox { Name = "ThemeSelector", Location = new Point(240, 368), Width = 244, DropDownStyle = ComboBoxStyle.DropDownList };
+        foreach (var palette in ThemePalettes.All) _themeCombo.Items.Add(palette);
+        var themeHint = new Label { Text = Loc.L("保存后应用，保留自定义背景", "Applies on save; keeps custom backgrounds"), Location = new Point(240, 404), Size = new Size(394, 24), Font = Theme.Caption, ForeColor = Theme.Muted };
+        group.Controls.AddRange([themeLabel, _themeCombo, themeHint]);
 
         // 行 1：标题颜色 / 歌名颜色
-        var titleColorLabel = new Label { Text = Loc.L("标题颜色:", "Title color:"), Location = new Point(20, 36), AutoSize = true };
-        _titleFollowCheck = CreateCheckBox(Loc.L("跟随播放器", "Follow player"), 110, 32);
-        _titleColorButton = CreateColorButton(new Point(230, 30));
-        var songColorLabel = new Label { Text = Loc.L("歌名颜色:", "Song title color:"), Location = new Point(310, 36), AutoSize = true };
-        _songFollowCheck = CreateCheckBox(Loc.L("跟随标题", "Follow title"), 425, 32);
-        _songColorButton = CreateColorButton(new Point(535, 30));
+        var titleColorLabel = new Label { Text = Loc.L("标题颜色:", "Title color:"), Location = new Point(16, 40), AutoSize = true };
+        _titleFollowCheck = CreateToggleSwitch(Loc.L("跟随播放器", "Follow player"), 440, 32);
+        _titleColorButton = CreateColorButton(new Point(562, 32));
+        _titleColorButton.Name = "TitleColorSwatch";
+        var songColorLabel = new Label { Text = Loc.L("歌名颜色:", "Song title color:"), Location = new Point(16, 80), AutoSize = true };
+        _songFollowCheck = CreateToggleSwitch(Loc.L("跟随标题", "Follow title"), 440, 72);
+        _songColorButton = CreateColorButton(new Point(562, 72));
+        _songColorButton.Name = "SongColorSwatch";
 
         // 行 2：字体 / 背景色
-        var fontLabel = new Label { Text = Loc.L("字体:", "Font:"), Location = new Point(20, 72), AutoSize = true };
-        _fontButton = new Button
+        var fontLabel = new Label { Text = Loc.L("主界面字体（8–16pt）:", "Main font (8–16pt):"), Location = new Point(16, 120), AutoSize = true };
+        _fontButton = new CueButton
         {
+            Name = "AppearanceFontSelector",
             Text = Loc.L("微软雅黑 9pt", "Microsoft YaHei 9pt"),
-            Location = new Point(110, 68),
-            Size = new Size(160, 26),
+            Location = new Point(240, 112),
+            Size = new Size(394, 32),
             BackColor = Color.White
         };
         _fontButton.Click += FontButton_Click;
-        var backgroundColorLabel = new Label { Text = Loc.L("背景色:", "Background color:"), Location = new Point(350, 72), AutoSize = true };
-        _backgroundColorButton = CreateColorButton(new Point(475, 66));
+        var backgroundColorLabel = new Label { Text = Loc.L("背景色:", "Background color:"), Location = new Point(16, 160), AutoSize = true };
+        _backgroundColorButton = CreateColorButton(new Point(240, 152));
+        _backgroundColorButton.Name = "BackgroundColorSwatch";
+        _backgroundFollowThemeCheck = CreateToggleSwitch(Loc.L("跟随主题", "Use theme"), 440, 152);
+        var backgroundFollowLabel = new Label { Text = Loc.L("跟随主题", "Use theme"), Location = new Point(336, 160), AutoSize = true };
+        _backgroundFollowThemeCheck.CheckedChanged += (_, _) => _backgroundColorButton.Enabled = !_backgroundFollowThemeCheck.Checked;
+        _themeCombo.SelectionChangeCommitted += (_, _) => _backgroundFollowThemeCheck.Checked = true;
+        group.Controls.AddRange([_backgroundFollowThemeCheck, backgroundFollowLabel]);
 
         // 行 3：背景图 / 排版
-        var backgroundImageLabel = new Label { Text = Loc.L("背景图:", "Background image:"), Location = new Point(20, 108), AutoSize = true };
+        var backgroundImageLabel = new Label { Text = Loc.L("背景图:", "Background image:"), Location = new Point(16, 200), AutoSize = true };
         _backgroundImageLabel = new Label
         {
+            Name = "BackgroundImageName",
             Text = Loc.L("（无）", "(None)"),
-            Location = new Point(150, 110),
-            Size = new Size(145, 20),
-            ForeColor = Color.Gray,
+            Location = new Point(240, 200),
+            Size = new Size(394, 24),
+            ForeColor = Theme.Muted,
             AutoEllipsis = true
         };
-        var chooseImageButton = new Button
+        var chooseImageButton = new CueButton
         {
             Text = Loc.L("选择…", "Choose..."),
-            Location = new Point(300, 104),
-            Size = new Size(70, 26),
+            Location = new Point(240, 232),
+            Size = new Size(144, 32),
             BackColor = Color.White
         };
         chooseImageButton.Click += ChooseBackgroundImage_Click;
-        var clearImageButton = new Button
+        var clearImageButton = new CueButton
         {
             Text = Loc.L("清除", "Clear"),
-            Location = new Point(375, 104),
-            Size = new Size(60, 26),
+            Location = new Point(392, 232),
+            Size = new Size(96, 32),
             BackColor = Color.White
         };
         clearImageButton.Click += (_, _) =>
@@ -544,21 +832,21 @@ internal sealed class SettingsForm : Form
             _backgroundCropRect = null;
             UpdateBackgroundImageLabel();
         };
-        var layoutLabel = new Label { Text = Loc.L("排版:", "Layout:"), Location = new Point(465, 108), AutoSize = true };
-        _backgroundLayoutCombo = new ComboBox
+        var layoutLabel = new Label { Text = Loc.L("图片布局:", "Image layout:"), Location = new Point(16, 280), AutoSize = true };
+        _backgroundLayoutCombo = new CueComboBox
         {
-            Location = new Point(510, 104),
-            Width = 110,
+            Location = new Point(240, 272),
+            Width = 176,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
         _backgroundLayoutCombo.Items.AddRange([Loc.L("拉伸", "Stretch"), Loc.L("适应", "Fit"), Loc.L("平铺", "Tile"), Loc.L("居中", "Center")]);
 
         // 行 4：恢复默认
-        var resetButton = new Button
+        var resetButton = new CueButton
         {
             Text = Loc.L("恢复默认外观", "Reset appearance"),
-            Location = new Point(20, 146),
-            Size = new Size(130, 28),
+            Location = new Point(16, 328),
+            Size = new Size(176, 32),
             BackColor = Color.White
         };
         resetButton.Click += (_, _) => ResetAppearanceControls();
@@ -569,7 +857,14 @@ internal sealed class SettingsForm : Form
         _titleFollowCheck.CheckedChanged += (_, _) => UpdateAppearanceEnabled();
         _songFollowCheck.CheckedChanged += (_, _) => UpdateAppearanceEnabled();
 
-        group.Controls.AddRange([
+        var titleFollowLabel = new Label { Text = _titleFollowCheck.Text, Location = new Point(240, 40), AutoSize = true };
+        var songFollowLabel = new Label { Text = _songFollowCheck.Text, Location = new Point(240, 80), AutoSize = true };
+        titleFollowLabel.Click += (_, _) => _titleFollowCheck.Checked = !_titleFollowCheck.Checked;
+        songFollowLabel.Click += (_, _) => _songFollowCheck.Checked = !_songFollowCheck.Checked;
+        _titleColorButton.AccessibleName = Loc.L("自定义标题颜色", "Custom title color");
+        _songColorButton.AccessibleName = Loc.L("自定义曲名颜色", "Custom song color");
+        _backgroundColorButton.AccessibleName = Loc.L("背景颜色", "Background color");
+        group.Controls.AddRange([titleFollowLabel, songFollowLabel,
             titleColorLabel, _titleFollowCheck, _titleColorButton,
             songColorLabel, _songFollowCheck, _songColorButton,
             fontLabel, _fontButton, backgroundColorLabel, _backgroundColorButton,
@@ -580,11 +875,11 @@ internal sealed class SettingsForm : Form
         return group;
     }
 
-    private static Button CreateColorButton(Point location) => new()
+    private static Button CreateColorButton(Point location) => new CueButton()
     {
         Text = "",
         Location = location,
-        Size = new Size(48, 26),
+        Size = new Size(72, 32),
         BackColor = Color.WhiteSmoke,
         FlatStyle = FlatStyle.Flat
     };
@@ -601,13 +896,17 @@ internal sealed class SettingsForm : Form
 
     private void FontButton_Click(object? sender, EventArgs e)
     {
-        var initialFamily = string.IsNullOrWhiteSpace(_appearanceFontFamily) ? "Microsoft YaHei" : _appearanceFontFamily;
-        var initialSize = _appearanceFontSize > 0 ? _appearanceFontSize : 9f;
-        using var dialog = new FontDialog { Font = new Font(initialFamily, initialSize) };
-        if (dialog.ShowDialog() == DialogResult.OK)
+        var initialFamily = string.IsNullOrWhiteSpace(_appearanceFontFamily) ? Theme.Body.FontFamily.Name : _appearanceFontFamily;
+        var initialSize = _appearanceFontSize > 0 ? _appearanceFontSize : Theme.Body.SizeInPoints;
+        using var initial = new Font(initialFamily, initialSize, _appearanceFontStyle);
+        using var dialog = new FontDialog { Font = initial, FontMustExist = true, MinSize = 8, MaxSize = 16 };
+        var result = dialog.ShowDialog(this);
+        using var selected = dialog.Font;
+        if (result == DialogResult.OK)
         {
-            _appearanceFontFamily = dialog.Font.FontFamily.Name;
-            _appearanceFontSize = dialog.Font.Size;
+            _appearanceFontFamily = selected.FontFamily.Name;
+            _appearanceFontSize = selected.Size;
+            _appearanceFontStyle = selected.Style;
             _fontButton.Text = $"{_appearanceFontFamily} {_appearanceFontSize:0.#}pt";
         }
     }
@@ -645,12 +944,12 @@ internal sealed class SettingsForm : Form
         if (string.IsNullOrWhiteSpace(_backgroundImagePath))
         {
             _backgroundImageLabel.Text = Loc.L("（无）", "(None)");
-            _backgroundImageLabel.ForeColor = Color.Gray;
+            _backgroundImageLabel.ForeColor = Theme.Muted;
             return;
         }
         _backgroundImageLabel.Text = Path.GetFileName(_backgroundImagePath) +
             (_backgroundCropRect is { Length: 4 } ? Loc.L("（已裁剪）", " (cropped)") : "");
-        _backgroundImageLabel.ForeColor = Color.Black;
+        _backgroundImageLabel.ForeColor = Theme.Ink;
     }
 
     private void UpdateAppearanceEnabled()
@@ -662,14 +961,17 @@ internal sealed class SettingsForm : Form
     /// <summary>把外观控件恢复为默认（不立即保存，随设置窗的确定/应用生效）。</summary>
     private void ResetAppearanceControls()
     {
+        _themeCombo.SelectedItem = ThemePalettes.All[0];
         _titleFollowCheck.Checked = true;
         _songFollowCheck.Checked = true;
         _titleColorButton.BackColor = Color.WhiteSmoke;
         _songColorButton.BackColor = Color.WhiteSmoke;
-        _backgroundColorButton.BackColor = Color.WhiteSmoke;
+        _backgroundColorButton.BackColor = Theme.Paper;
+        _backgroundFollowThemeCheck.Checked = true;
         _appearanceFontFamily = "";
         _appearanceFontSize = 0;
-        _fontButton.Text = Loc.L("微软雅黑 9pt", "Microsoft YaHei 9pt");
+        _appearanceFontStyle = FontStyle.Regular;
+        _fontButton.Text = Loc.L("默认字体", "Default font");
         _backgroundImagePath = "";
         _backgroundCropRect = null;
         UpdateBackgroundImageLabel();
@@ -680,40 +982,68 @@ internal sealed class SettingsForm : Form
     // ================= 程序页 =================
     private TabPage CreateAppsPage()
     {
-        var page = new TabPage(Loc.L("程序", "Apps")) { BackColor = Color.White };
+        var page = new TabPage(Loc.L("程序", "Apps")) { BackColor = Color.White, AutoScroll = true };
+
+        var heading = new Label
+        {
+            Text = Loc.L("程序同步规则", "App sync rules"), Font = Theme.Section,
+            Location = new Point(16, 16), Size = new Size(440, 32)
+        };
+        _rulesCount = new Label
+        {
+            Location = new Point(480, 24), Size = new Size(186, 24),
+            Font = Theme.Data, ForeColor = Theme.Muted, TextAlign = ContentAlignment.TopRight
+        };
+        var description = new Label
+        {
+            Text = Loc.L("管理程序的显示名称、分类及推送方式。可直接在下方表格中编辑。",
+                "Edit display names, categories and sync behavior directly in the table below."),
+            Location = new Point(16, 56), Size = new Size(650, 36), ForeColor = Theme.Muted
+        };
 
         BuildRulesGrid();
-        _rulesGrid.Location = new Point(10, 10);
-
-        var addCurrentButton = new Button
+        _rulesGrid.Location = new Point(16, 152);
+        _rulesGrid.Size = new Size(650, 336);
+        _rulesGrid.ColumnHeadersHeight = 32;
+        _rulesGrid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+        _rulesEmpty = new Label
         {
-            Text = Loc.L("添加当前前台程序", "Add current foreground app"),
-            Location = new Point(10, 288),
-            Size = new Size(150, 28),
+            Text = Loc.L("还没有程序规则\n\n可从程序库添加，或导入已有规则。新程序也会在检测后自动加入。",
+                "No app rules yet\n\nAdd apps from the library or import rules. Newly detected apps also appear here."),
+            Location = new Point(16, 80), Size = new Size(618, 128),
+            ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleCenter
+        };
+        _rulesGrid.Controls.Add(_rulesEmpty);
+
+        var addCurrentButton = new CueButton
+        {
+            Text = Loc.L("添加当前前台程序", "Add foreground app"),
+            Location = new Point(16, 104),
+            Size = new Size(176, 32),
             BackColor = Color.White
         };
         addCurrentButton.Click += AddCurrentButton_Click;
-        var removeButton = new Button
+        var removeButton = new CueButton
         {
-            Text = Loc.L("删除选中", "Remove selected"),
-            Location = new Point(170, 288),
-            Size = new Size(110, 28),
+            Text = Loc.L("删除选中", "Remove"),
+            Location = new Point(200, 104),
+            Size = new Size(112, 32),
             BackColor = Color.White
         };
         removeButton.Click += RemoveButton_Click;
-        var exportButton = new Button
+        var exportButton = new CueButton
         {
             Text = Loc.L("导出规则…", "Export rules…"),
-            Location = new Point(290, 288),
-            Size = new Size(110, 28),
+            Location = new Point(432, 104),
+            Size = new Size(112, 32),
             BackColor = Color.White
         };
         exportButton.Click += ExportRulesButton_Click;
-        var importButton = new Button
+        var importButton = new CueButton
         {
             Text = Loc.L("导入规则…", "Import rules…"),
-            Location = new Point(410, 288),
-            Size = new Size(110, 28),
+            Location = new Point(552, 104),
+            Size = new Size(112, 32),
             BackColor = Color.White
         };
         importButton.Click += ImportRulesButton_Click;
@@ -724,26 +1054,34 @@ internal sealed class SettingsForm : Form
         var sourceHint = new Label
         {
             AutoSize = true,
-            Location = new Point(10, 324),
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8),
+            Location = new Point(16, 504),
+            MaximumSize = new Size(650, 0),
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption,
             Text = Loc.L(
-                "分类建议来自本机内置程序名库（不联网，只读进程名与窗口标题）",
-                "Suggestions come from the built-in local app library (offline; only process names and window titles are read)")
+                "分类建议来自内置程序库与本机程序信息（不联网）",
+                "Suggestions use the built-in app library and local app details (offline)")
         };
         var librarySizeHint = new Label
         {
             AutoSize = true,
-            Location = new Point(10, 344),
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8),
+            Location = new Point(16, 544),
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption,
             Text = Loc.L(
                 $"内置 {AppClassifier.LibrarySize} 个程序（含忽略名单）",
                 $"{AppClassifier.LibrarySize} apps built in (including the ignore list)")
         };
 
-        page.Controls.AddRange([_rulesGrid, addCurrentButton, removeButton, exportButton, importButton,
+        var libraryButton = new CueButton
+        {
+            Text = Loc.L("程序库", "App library"), Name = "OpenProgramLibrary",
+            Location = new Point(320, 104), Size = new Size(104, 32)
+        };
+        libraryButton.Click += (_, _) => ShowProgramLibrary(page, true);
+        page.Controls.AddRange([heading, _rulesCount, description, _rulesGrid, addCurrentButton, removeButton, exportButton, importButton, libraryButton,
             sourceHint, librarySizeHint]);
+        CreateProgramLibrary(page);
         return page;
     }
 
@@ -752,37 +1090,73 @@ internal sealed class SettingsForm : Form
     {
         var page = new TabPage(Loc.L("诊断", "Diagnostics")) { BackColor = Color.White };
 
-        var memoryGroup = CreateGroupBox(Loc.L("性能监控", "Performance"), 10, 10, 650, 180);
+        var memoryGroup = CreateGroupBox(Loc.L("性能监控", "Performance"), 16, 16, 650, 192);
+        var metricNames = new[]
+        {
+            Loc.L("工作集", "Working set"), Loc.L("私有内存", "Private memory"), Loc.L("虚拟内存", "Virtual memory"),
+            Loc.L("托管内存", "GC heap"), Loc.L("图片缓存", "Image cache"), Loc.L("模块缓存", "Module cache")
+        };
+        for (var i = 0; i < metricNames.Length; i++)
+        {
+            var x = i < 3 ? 16 : 336;
+            var y = 40 + (i % 3) * 32;
+            memoryGroup.Controls.Add(new Label
+            {
+                Text = metricNames[i], Location = new Point(x, y), Size = new Size(136, 24),
+                ForeColor = Theme.Muted
+            });
+            var value = new Label
+            {
+                Text = "—", Location = new Point(x + 144, y), Size = new Size(144, 24),
+                Font = Theme.Data, AccessibleName = metricNames[i]
+            };
+            _memoryValues[i] = value;
+            memoryGroup.Controls.Add(value);
+        }
         _memoryInfoLabel = new Label
         {
-            Location = new Point(20, 30),
-            Size = new Size(610, 100),
+            Location = new Point(16, 144),
+            Size = new Size(432, 40), Font = Theme.Caption, ForeColor = Theme.Muted,
             Text = Loc.L("读取中…", "Loading...")
         };
-        var refreshButton = new Button
+        var refreshButton = new CueButton
         {
-            Text = Loc.L("刷新内存信息", "Refresh memory info"),
-            Location = new Point(20, 132),
-            Size = new Size(120, 28),
+            Text = Loc.L("刷新内存信息", "Refresh metrics"),
+            Location = new Point(474, 140),
+            Size = new Size(160, 32),
             BackColor = Color.White
         };
         refreshButton.Click += (_, _) => RefreshMemoryInfo();
         memoryGroup.Controls.AddRange([_memoryInfoLabel, refreshButton]);
 
-        var toolGroup = CreateGroupBox(Loc.L("诊断工具", "Diagnostic tools"), 10, 202, 650, 180);
-        var openLogsButton = new Button
+        var toolGroup = CreateGroupBox(Loc.L("诊断工具", "Diagnostic tools"), 16, 232, 650, 328);
+        var feedbackButton = new CueButton { Name = "ReportBugButton", Text = Loc.L("反馈问题", "Report a bug"), Location = new Point(20, 184), Size = new Size(152, 32) };
+        feedbackButton.Click += (_, _) => OpenUrl(FeedbackLink.IssuesUrl);
+        var feedbackHint = new LinkLabel { Text = Loc.L("联系作者（邮箱见 GitHub 个人主页）", "Contact author (email on GitHub profile)"), Location = new Point(192, 190), Size = new Size(430, 24) };
+        feedbackHint.Click += (_, _) => OpenUrl(FeedbackLink.AuthorUrl);
+        toolGroup.Controls.AddRange([feedbackButton, feedbackHint]);
+        var dumpHint = new Label
+        {
+            Name = "DumpGuidance", Location = new Point(20, 228), Size = new Size(610, 84),
+            Font = Theme.Caption, ForeColor = Theme.Muted,
+            Text = Loc.L(
+                "持续无响应：任务管理器 → 详细信息 → 右键 MuSync → 创建内存转储文件。\n反复崩溃请先反馈复现情况。Dump 可能含会话数据，请勿上传公开 Issue。\n通过作者主页的邮箱联系；文件太大时，先协商双方可访问的网盘，再私下发送链接。",
+                "For a persistent hang: Task Manager → Details → right-click MuSync → Create memory dump file.\nFor recurring crashes, report reproduction steps first. Dumps may contain session data; never attach them to public issues.\nContact the email on the author's profile. For large files, agree on an accessible file-sharing service and send its link privately.")
+        };
+        toolGroup.Controls.Add(dumpHint);
+        var openLogsButton = new CueButton
         {
             Text = Loc.L("打开日志文件夹", "Open logs folder"),
             Location = new Point(20, 34),
-            Size = new Size(140, 30),
+            Size = new Size(152, 32),
             BackColor = Color.White
         };
         openLogsButton.Click += (_, _) => OpenLogsFolder();
         var logsHint = new Label
         {
             AutoSize = true,
-            Location = new Point(175, 41),
-            ForeColor = Color.Gray,
+            Location = new Point(192, 41),
+            ForeColor = Theme.Muted,
             Text = Loc.L("遇到问题时，把这里最新日期的日志文件发给开发者", "If you run into a problem, send the latest log file to the developer")
         };
         _versionLabel = new Label
@@ -791,11 +1165,11 @@ internal sealed class SettingsForm : Form
             Location = new Point(20, 90),
             Text = Loc.L("版本：-", "Version: -")
         };
-        var copyDiagButton = new Button
+        var copyDiagButton = new CueButton
         {
             Text = Loc.L("复制诊断信息", "Copy diagnostics"),
             Location = new Point(20, 128),
-            Size = new Size(140, 30),
+            Size = new Size(152, 32),
             BackColor = Color.White
         };
         var copyDiagResetTimer = new System.Windows.Forms.Timer { Interval = 1600 };
@@ -817,11 +1191,19 @@ internal sealed class SettingsForm : Form
         var copyDiagHint = new Label
         {
             AutoSize = true,
-            Location = new Point(175, 135),
-            ForeColor = Color.Gray,
+            Location = new Point(192, 135),
+            ForeColor = Theme.Muted,
             Text = Loc.L("版本 / 内存 / 配置与日志路径（反馈问题时方便粘贴）", "Version / memory / config/log paths (handy to paste when reporting issues)")
         };
         toolGroup.Controls.AddRange([openLogsButton, logsHint, _versionLabel, copyDiagButton, copyDiagHint]);
+        logsHint.MaximumSize = new Size(440, 0);
+        copyDiagHint.MaximumSize = new Size(440, 0);
+        copyDiagHint.Top = 156;
+        copyDiagButton.Top = 148;
+        toolGroup.Height = 328;
+        _versionLabel.AutoSize = false;
+        _versionLabel.Bounds = new Rectangle(20, 80, 610, 56);
+        _versionLabel.Font = Theme.Data;
 
         page.Controls.AddRange([memoryGroup, toolGroup]);
         return page;
@@ -835,52 +1217,53 @@ internal sealed class SettingsForm : Form
         var title = new Label
         {
             AutoSize = true,
-            Location = new Point(20, 24),
-            Font = new Font("Microsoft YaHei", 16, FontStyle.Bold),
+            Location = new Point(16, 24),
+            Font = Theme.Heading,
             Text = "MuSync"
         };
         var subtitle = new Label
         {
             AutoSize = true,
-            Location = new Point(22, 70),
-            ForeColor = Color.Gray,
+            Location = new Point(16, 72),
+            ForeColor = Theme.Muted,
             Text = Loc.L("把音乐软件与任意程序的当前状态同步到 Steam", "Sync your music player and any app's status to Steam")
         };
         _aboutVersionLabel = new Label
         {
             AutoSize = true,
-            Location = new Point(22, 102),
+            Location = new Point(16, 104),
             Text = Loc.L("版本：-", "Version: -")
         };
-        var repoButton = new Button
+        var repoButton = new LinkLabel
         {
             Text = Loc.L("项目主页（GitHub）", "Project page (GitHub)"),
-            Location = new Point(20, 140),
-            Size = new Size(170, 30),
+            Location = new Point(16, 152),
+            Size = new Size(304, 40), TextAlign = ContentAlignment.MiddleLeft,
             BackColor = Color.White
         };
         repoButton.Click += (_, _) => OpenUrl("https://github.com/ZhaoBuyan/MuSync");
-        var releaseButton = new Button
+        var releaseButton = new LinkLabel
         {
             Text = Loc.L("下载与更新日志", "Downloads && changelog"),
-            Location = new Point(205, 140),
-            Size = new Size(170, 30),
+            Location = new Point(16, 196),
+            Size = new Size(304, 40), TextAlign = ContentAlignment.MiddleLeft,
             BackColor = Color.White
         };
         releaseButton.Click += (_, _) => OpenUrl("https://github.com/ZhaoBuyan/MuSync/releases");
-        var checkUpdateButton = new Button
+        var checkUpdateButton = new CueButton
         {
             Text = Loc.L("检查更新", "Check for updates"),
-            Location = new Point(390, 140),
-            Size = new Size(150, 30),
+            Location = new Point(480, 24),
+            Size = new Size(152, 32),
             BackColor = Color.White
         };
+        _checkUpdateButton = checkUpdateButton;
         checkUpdateButton.Click += async (_, _) => await CheckUpdateFromAboutAsync();
-        var licenseButton = new Button
+        var licenseButton = new LinkLabel
         {
             Text = Loc.L("开源许可", "Licenses"),
-            Location = new Point(20, 172),
-            Size = new Size(150, 30),
+            Location = new Point(16, 240),
+            Size = new Size(304, 40), TextAlign = ContentAlignment.MiddleLeft,
             BackColor = Color.White
         };
         licenseButton.Click += (_, _) =>
@@ -890,18 +1273,25 @@ internal sealed class SettingsForm : Form
         };
         _updateNoticeLabel = new Label
         {
-            AutoSize = true,
-            Location = new Point(370, 176),
-            ForeColor = Color.FromArgb(233, 74, 62),
+            AutoSize = false, AutoEllipsis = true, Size = new Size(394, 24),
+            Location = new Point(240, 104),
+            ForeColor = Theme.OnAir,
             Visible = false
         };
+        var feedbackLink = new LinkLabel
+        {
+            Text = Loc.L("反馈问题（GitHub Issue）", "Report a bug (GitHub Issue)"),
+            Location = new Point(16, 284), Size = new Size(304, 40), TextAlign = ContentAlignment.MiddleLeft
+        };
+        feedbackLink.Click += (_, _) => OpenUrl(FeedbackLink.IssuesUrl);
+        page.Controls.Add(feedbackLink);
         var licenseLabel = new Label
         {
-            Location = new Point(22, 204),
+            Location = new Point(16, 336),
             Size = new Size(620, 130),
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8.5f),
-            Text = Loc.L("作者：ZhaoBuyan ｜ 本项目以 MIT 协议开源发布。\n基于开源谱系「半新写」构建，感谢所有铺路者（详见仓库 THIRD-PARTY-NOTICES）。\n\n洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，\n并允许来自局域网的访问。", "By ZhaoBuyan | Open source under the MIT license.\nBuilt on an open-source lineage, roughly half rewritten — thanks to everyone who paved the way (see THIRD-PARTY-NOTICES in the repo).\n\nLX Music users: enable \"Open API service\" in LX Music → Settings → Open API, and allow LAN access.")
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption,
+            Text = Loc.L("作者：ZhaoBuyan ｜ 本项目以 MIT 协议开源发布。\n基于开源项目构建，感谢原作者与贡献者。第三方声明见「开源许可」。\n\n洛雪音乐用户请注意：请在 洛雪音乐 → 设置 → 开放API 中「启用开放API服务」，\n并允许来自局域网的访问。", "By ZhaoBuyan | Open source under the MIT license.\nBuilt on open-source projects. Thanks to the original authors and contributors; see Licenses for third-party credits.\n\nLX Music users: enable \"Open API service\" in LX Music → Settings → Open API, and allow LAN access.")
         };
 
         page.Controls.AddRange([title, subtitle, _aboutVersionLabel, repoButton, releaseButton, checkUpdateButton, licenseButton, _updateNoticeLabel, licenseLabel]);
@@ -909,25 +1299,39 @@ internal sealed class SettingsForm : Form
         return page;
     }
 
-    private async Task CheckUpdateFromAboutAsync()
+    internal async Task CheckUpdateFromAboutAsync(Func<Task<UpdateChecker.UpdateInfo?>>? fetchUpdate = null)
     {
-        // 后台已发现更新时直接展示（不再重复联网，也不重复打扰）
-        if (Program.PendingUpdate is { } pending)
+        if (_isCheckingUpdate || IsDisposed || Disposing) return;
+        _isCheckingUpdate = true;
+        _checkUpdateButton.Enabled = false;
+        try
         {
-            ShowUpdateDialog(pending);
-            return;
+            // 后台已发现更新时直接展示（不再重复联网，也不重复打扰）
+            if (Program.PendingUpdate is { } pending)
+            {
+                ShowUpdateDialog(pending);
+                return;
+            }
+            var info = await (fetchUpdate ?? UpdateChecker.CheckAsync)();
+            if (IsDisposed || Disposing || !Visible || _pages.SelectedIndex != 6) return;
+            if (info == null)
+            {
+                MessageBox.Show(Loc.L("当前已是最新版本（或网络暂不可用，稍后再试）。", "You're on the latest version (or the network is unavailable — try again later)."), Loc.L("检查更新", "Check for updates"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            Program.SetPendingUpdate(info);
+            RefreshUpdateNotice();
+            ShowUpdateDialog(info);
         }
-        var info = await Task.Run(UpdateChecker.CheckAsync);
-        if (info == null)
+        catch (Exception error) { UiHealth.Report("check-update", error); }
+        finally
         {
-            MessageBox.Show(Loc.L("当前已是最新版本（或网络暂不可用，稍后再试）。", "You're on the latest version (or the network is unavailable — try again later)."), Loc.L("检查更新", "Check for updates"),
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
+            _isCheckingUpdate = false;
+            if (!_checkUpdateButton.IsDisposed) _checkUpdateButton.Enabled = true;
         }
-        Program.SetPendingUpdate(info);
-        RefreshUpdateNotice();
-        ShowUpdateDialog(info);
     }
+
 
     private void ShowUpdateDialog(UpdateChecker.UpdateInfo info)
     {
@@ -985,6 +1389,9 @@ internal sealed class SettingsForm : Form
     }
 
     private readonly List<DataSourceRowControls> _dataSourceRows = [];
+    private int _dataSourceRowsRevision;
+    private int _dataSourceProbeRun;
+    private Func<DataSourceConfig, Task<HttpDataSource.ProbeResult>> _probeDataSource = HttpDataSource.ProbeAsync;
     private Panel _dataSourcesPanel = null!;
     private Label _dataSourceHint = null!;
     private Button _dataSourceTestButton = null!;
@@ -996,26 +1403,27 @@ internal sealed class SettingsForm : Form
         // 浏览器扩展增强放在「数据源」页：它和心率那些 HTTP 源本质一样 —— 都是"从外部收数据"，
         // 而不是"同步哪些东西"的开关。放这里用户在配心率时一眼就能看到。
         var extensionGroup = CreateGroupBox(
-            Loc.L("浏览器扩展增强（实验性）", "Browser extension bridge (experimental)"), 10, 8, 650, 132);
-        _browserExtensionCheckBox = CreateCheckBox(Loc.L("启用", "Enable"), 20, 30);
+            Loc.L("浏览器扩展增强（实验性）", "Browser extension bridge (experimental)"), 16, 16, 650, 168);
+        _browserExtensionCheckBox = CreateToggleSwitch(Loc.L("启用浏览器扩展", "Enable browser extension"), 64, 24);
         _browserExtensionCheckBox.CheckedChanged += (_, _) => UpdateBrowserExtensionStatus();
-        var browserExtensionGetButton = new Button
+        var browserExtensionGetButton = new CueButton
         {
-            Text = Loc.L("获取扩展（打开浏览器）", "Get extension (opens browser)"),
-            Location = new Point(96, 26),
-            Size = new Size(190, 28),
+            Text = Loc.L("获取扩展", "Get extension"),
+            AccessibleDescription = Loc.L("在浏览器中打开扩展下载页", "Open the extension download page in your browser"),
+            Location = new Point(144, 24),
+            Size = new Size(190, 32),
             BackColor = Color.White
         };
         browserExtensionGetButton.Click += (_, _) => OpenUrl(ExtensionPageUrl);
         var browserExtensionPortLabel = new Label
         {
             Text = Loc.L("监听端口", "Port"),
-            Location = new Point(310, 32),
+            Location = new Point(360, 32),
             AutoSize = true
         };
         _browserExtensionPortBox = new TextBox
         {
-            Location = new Point(382, 28),
+            Location = new Point(432, 26),
             Width = 84,
             Text = "47564"
         };
@@ -1027,56 +1435,61 @@ internal sealed class SettingsForm : Form
         };
         _browserExtensionTokenBox = new TextBox
         {
-            Location = new Point(96, 64),
+            Location = new Point(116, 64),
             Width = 220,
             // 留空 = 不校验（默认）。填了要跟扩展设置页里的一模一样。
-            PlaceholderText = Loc.L("留空 = 不校验", "Empty = no check")
+            PlaceholderText = Loc.L("留空则不校验", "Leave blank to skip verification")
         };
         _browserExtensionStatusLabel = new Label
         {
-            Location = new Point(330, 66),
-            Size = new Size(300, 20),
-            ForeColor = Color.Gray,
-            Font = new Font("Microsoft YaHei", 8)
+            Location = new Point(352, 66),
+            Size = new Size(278, 20),
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption
         };
         var browserExtensionHint = new Label
         {
-            Location = new Point(20, 96),
-            Size = new Size(610, 30),
-            ForeColor = Color.FromArgb(150, 110, 40),
-            Font = new Font("Microsoft YaHei", 8),
+            Location = new Point(20, 104),
+            Size = new Size(610, 48),
+            ForeColor = Theme.Muted,
+            Font = Theme.Caption,
             Text = Loc.L(
-                "按 Win+A 看不到媒体控件，就说明浏览器没把播放状态交给系统 —— 请点「获取扩展」。令牌用于防止本机其它程序伪造状态，两端填一致即可。",
-                "If Win+A shows no media controls, the browser is not publishing playback to Windows — click \"Get extension\". The token stops other local programs from spoofing your status; fill the same value on both sides.")
+                "系统媒体控件未显示浏览器播放状态时，可尝试「获取扩展」。如需校验来源，请在 MuSync 和扩展中填写相同的共享令牌；留空则不校验。",
+                "If Windows does not show your browser's media, try the extension. To verify requests, set the same shared token in MuSync and the extension; leave it blank to skip verification.")
         };
         extensionGroup.Controls.AddRange([
+            new Label { Text = Loc.L("启用", "Enable"), Location = new Point(16, 32), AutoSize = true },
             _browserExtensionCheckBox, browserExtensionGetButton, browserExtensionPortLabel,
             _browserExtensionPortBox, browserExtensionTokenLabel, _browserExtensionTokenBox,
             _browserExtensionStatusLabel, browserExtensionHint
         ]);
         page.Controls.Add(extensionGroup);
-
-
+        page.Controls.Add(new Label
+        {
+            Text = Loc.L("自定义数据源", "Custom data sources"), Font = Theme.Section,
+            Location = new Point(16, 208), Size = new Size(650, 32)
+        });
         var intro = new Label
         {
             AutoSize = true,
-            Location = new Point(10, 140),
-            MaximumSize = new Size(660, 0),
-            ForeColor = Color.DimGray,
+            Location = new Point(16, 248),
+            MaximumSize = new Size(650, 0),
+            ForeColor = Theme.Muted,
             Text = Loc.L(
                 "从任意返回 JSON 的 HTTP 地址取一个值，当作状态模板里的积木用。" +
-                "例如心率服务填 地址=http://127.0.0.1:9000/heartrate、取值=heart_rate、显示=❤{v}，" +
+                "例如心率服务填 地址=http://127.0.0.1:9000/heartrate、取值=heart_rate、显示={v} bpm，" +
                 "就能在格式模板里写 {心率}。取不到值时该积木展开为空，不影响其它同步。",
-                "Fetch a value from any HTTP endpoint that returns JSON and use it as a template block. " +
-                "Missing values expand to nothing and never affect other syncing.")
+                "Read a JSON value from an HTTP endpoint and use it as a template block. " +
+                "Example: name=Heart rate, URL=http://127.0.0.1:9000/heartrate, value path=heart_rate, format={v} bpm. " +
+                "Use {Heart rate} in your template. Missing values leave the block empty without affecting other syncing.")
         };
         page.Controls.Add(intro);
 
-        var addButton = new Button
+        var addButton = new CueButton
         {
             Text = Loc.L("添加数据源", "Add source"),
-            Location = new Point(10, 206),
-            Size = new Size(110, 28)
+            Location = new Point(16, 320),
+            Size = new Size(112, 32)
         };
         addButton.Click += (_, _) => AddDataSourceRow(new DataSourceConfig
         {
@@ -1084,35 +1497,44 @@ internal sealed class SettingsForm : Form
             Name = Loc.L("心率", "Heart rate"),
             Url = "http://127.0.0.1:9000/heartrate",
             ValuePath = "heart_rate",
-            Format = "❤{v}",
+            Format = "{v} bpm",
             RefreshSeconds = 1
         });
 
-        var testButton = new Button
+        var testButton = new CueButton
         {
-            Text = Loc.L("测试当前填写", "Test as filled"),
-            Location = new Point(128, 206),
-            Size = new Size(120, 28)
+            Text = Loc.L("测试当前配置", "Test current setup"),
+            Location = new Point(136, 320),
+            Size = new Size(144, 32)
         };
         _dataSourceTestButton = testButton;
         testButton.Click += async (_, _) => await TestDataSourcesAsync();
 
         _dataSourceHint = new Label
         {
-            AutoSize = true,
-            Location = new Point(258, 212),
-            ForeColor = Color.DimGray,
-            Text = Loc.L("提示：音乐类服务关闭时其积木会展开为空。", "Tip: blocks expand to nothing while the service is down.")
+            AutoSize = false,
+            Location = new Point(16, 360),
+            Size = new Size(650, 32),
+            Font = Theme.Caption,
+            ForeColor = Theme.Muted,
+            Text = Loc.L("提示：数据源不可用时，对应积木显示为空。", "Tip: unavailable sources leave their blocks empty.")
         };
         page.Controls.AddRange([addButton, testButton, _dataSourceHint]);
 
         _dataSourcesPanel = new Panel
         {
-            Location = new Point(10, 240),
-            Size = new Size(660, 264),
-            AutoScroll = true,
+            Location = new Point(16, 400),
+            Size = new Size(650, 160),
             BackColor = Color.White
         };
+        _dataSourcesEmpty = new Label
+        {
+            Text = Loc.L("尚未添加数据源\n\n点击「添加数据源」，将外部服务的数值放进状态模板。",
+                "No data sources yet\n\nAdd a source to use a value from an external service in your status template."),
+            Location = new Point(16, 16), Size = new Size(618, 128),
+            ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleCenter
+        };
+        _dataSourcesPanel.Controls.Add(_dataSourcesEmpty);
         page.Controls.Add(_dataSourcesPanel);
         return page;
     }
@@ -1120,49 +1542,54 @@ internal sealed class SettingsForm : Form
     /// <summary>把一条数据源配置渲染成一行可编辑控件。</summary>
     private void AddDataSourceRow(DataSourceConfig source)
     {
+        var scale = AutoScaleDimensions.Width >= DeviceDpi ? DeviceDpi / 96f : 1f;
+        Point P(int x, int y) => new((int)Math.Round(x * scale), (int)Math.Round(y * scale));
+        Size S(int w, int h) => new((int)Math.Round(w * scale), (int)Math.Round(h * scale));
         var row = new Panel
         {
-            Location = new Point(0, _dataSourceRows.Count * 118),
-            Size = new Size(640, 112),
+            Location = P(0, _dataSourceRows.Count * 184),
+            Size = S(650, 160),
             BackColor = Color.White
         };
 
-        var enabled = new CheckBox
+        var enabled = new ToggleSwitch
         {
             Text = Loc.L("启用", "Enabled"),
-            Location = new Point(0, 4),
-            AutoSize = true,
+            AccessibleName = Loc.L("启用数据源", "Enable source"),
+            Location = P(0, 0),
+            Size = S(64, 32),
             Checked = source.Enabled
         };
-        var nameLabel = new Label { Text = Loc.L("名称", "Name"), Location = new Point(70, 6), AutoSize = true };
-        var name = new TextBox { Name = "DataSourceNameBox", Location = new Point(110, 3), Size = new Size(110, 23), Text = source.Name };
-        var urlLabel = new Label { Text = Loc.L("地址", "URL"), Location = new Point(228, 6), AutoSize = true };
-        var url = new TextBox { Location = new Point(268, 3), Size = new Size(360, 23), Text = source.Url };
+        var nameLabel = new Label { Text = Loc.L("名称", "Name"), Location = P(80, 6), AutoSize = true };
+        var name = new TextBox { Name = "DataSourceNameBox", Location = P(144, 3), Size = S(264, 23), Text = source.Name };
+        var urlLabel = new Label { Text = Loc.L("地址", "URL"), Location = P(0, 46), AutoSize = true };
+        var url = new TextBox { Location = P(112, 43), Size = S(520, 23), Text = source.Url };
 
-        var pathLabel = new Label { Text = Loc.L("取值", "Value path"), Location = new Point(70, 36), AutoSize = true };
-        var path = new TextBox { Location = new Point(110, 33), Size = new Size(150, 23), Text = source.ValuePath };
-        var formatLabel = new Label { Text = Loc.L("显示", "Format"), Location = new Point(268, 36), AutoSize = true };
-        var format = new TextBox { Name = "DataSourceFormatBox", Location = new Point(308, 33), Size = new Size(120, 23), Text = source.Format };
-        var refreshLabel = new Label { Text = Loc.L("间隔(秒)", "Every (s)"), Location = new Point(436, 36), AutoSize = true };
-        var refresh = new NumericUpDown
+        var pathLabel = new Label { Text = Loc.L("取值路径", "Value path"), Location = P(0, 86), AutoSize = true };
+        var path = new TextBox { Location = P(112, 83), Size = S(120, 23), Text = source.ValuePath };
+        var formatLabel = new Label { Text = Loc.L("显示", "Format"), Location = P(248, 86), AutoSize = true };
+        var format = new TextBox { Name = "DataSourceFormatBox", Location = P(304, 83), Size = S(112, 23), Text = source.Format };
+        var refreshLabel = new Label { Text = Loc.L("间隔(秒)", "Every (s)"), Location = P(432, 86), AutoSize = true };
+        var refresh = new CueNumericUpDown
         {
-            Location = new Point(500, 33),
-            Size = new Size(60, 23),
+            Location = P(552, 83),
+            Size = S(80, 23),
             Minimum = 1,
             Maximum = 3600,
             Value = Math.Clamp(source.RefreshSeconds, 1, 3600)
         };
-        var removeButton = new Button
+        var removeButton = new CueButton
         {
             Text = Loc.L("删除", "Remove"),
-            Location = new Point(570, 32),
-            Size = new Size(58, 25)
+            Location = P(544, 0),
+            Size = S(88, 32)
         };
         var status = new Label
         {
-            Location = new Point(0, 64),
-            Size = new Size(630, 20),
-            ForeColor = Color.DimGray,
+            Location = P(0, 120),
+            Size = S(632, 40),
+            Font = Theme.Caption,
+            ForeColor = Theme.Muted,
             Text = Loc.L("状态：未测试", "Status: not tested")
         };
 
@@ -1182,9 +1609,10 @@ internal sealed class SettingsForm : Form
                 // ⚠️ 不能在自己的 Click 里 Dispose 自己所在的整行：销毁 HWND 时它的 WndProc
                 // 还在调用栈上（积木编辑器当初偶发卡死就是这个原因）。延迟到本轮消息处理完之后再删。
                 var target = controls;
+                var revision = _dataSourceRowsRevision;
                 BeginInvoke(new Action(() =>
                 {
-                    if (IsDisposed) return;
+                    if (IsDisposed || revision != _dataSourceRowsRevision) return;
                     _dataSourceRows.Remove(target);
                     _dataSourcesPanel.Controls.Remove(row);
                     row.Dispose();
@@ -1195,15 +1623,21 @@ internal sealed class SettingsForm : Form
         row.Controls.AddRange([enabled, nameLabel, name, urlLabel, url, pathLabel, path,
             formatLabel, format, refreshLabel, refresh, removeButton, status]);
         _dataSourcesPanel.Controls.Add(row);
+        Theme.Apply(row);
+        Theme.PolishFields(row);
         _dataSourceRows.Add(controls);
+        RelayoutDataSourceRows();
     }
 
     private void RelayoutDataSourceRows()
     {
+        var scale = DeviceDpi / 96f;
         for (var i = 0; i < _dataSourceRows.Count; i++)
         {
-            _dataSourceRows[i].Container.Location = new Point(0, i * 118);
+            _dataSourceRows[i].Container.Location = new Point(0, (int)Math.Round(i * 184 * scale));
         }
+        _dataSourcesEmpty.Visible = _dataSourceRows.Count == 0;
+        _dataSourcesPanel.Height = (int)Math.Round(Math.Max(160, _dataSourceRows.Count * 184 - 24) * scale);
     }
 
     /// <summary>
@@ -1223,7 +1657,7 @@ internal sealed class SettingsForm : Form
             // 撞名是配置问题、不是运行状态：优先显示它，免得被"上次成功 N 秒前"盖掉
             if (SteamStatusManager.BuiltInBlockNames.Contains(name))
             {
-                row.Status.ForeColor = Color.Firebrick;
+                row.Status.ForeColor = Theme.OnAir;
                 row.Status.Text = BuiltInNameWarning(name);
                 continue;
             }
@@ -1231,20 +1665,20 @@ internal sealed class SettingsForm : Form
             var enabled = row.Enabled.Checked;
             if (!enabled)
           {
-                row.Status.ForeColor = Color.DimGray;
+                row.Status.ForeColor = Theme.Muted;
                 row.Status.Text = Loc.L("状态：已停用", "Status: disabled");
                 continue;
           }
             if (lastSuccessUtc == DateTime.MinValue || display is null)
           {
-                row.Status.ForeColor = Color.Firebrick;
+                row.Status.ForeColor = Theme.OnAir;
                 row.Status.Text = Loc.L(
-                    $"状态：暂无数据{(error is null ? "（等待首次读取）" : $"（{error}）")}",
-                    $"Status: no data yet{(error is null ? " (waiting for first read)" : $" ({error})")}");
+                    $"状态：暂无数据{(error is null ? "（等待数据）" : $"（{error}）")}",
+                    $"Status: no current data{(error is null ? " (waiting for data)" : $" ({error})")}");
                 continue;
           }
             var ago = (int)(DateTime.UtcNow - lastSuccessUtc).TotalSeconds;
-            row.Status.ForeColor = Color.ForestGreen;
+            row.Status.ForeColor = Theme.Ink;
             row.Status.Text = Loc.L(
                 $"状态：正常 · 当前 \"{display}\" · 上次成功 {ago} 秒前",
                 $"Status: OK · \"{display}\" · last success {ago}s ago");
@@ -1263,14 +1697,14 @@ internal sealed class SettingsForm : Form
             // ⚠️ 名称就是模板里的积木名：大括号会让积木边界出现歧义，直接拒收并提示
             if (name.Contains('{') || name.Contains('}'))
           {
-                row.Status.ForeColor = Color.Firebrick;
+                row.Status.ForeColor = Theme.OnAir;
                 row.Status.Text = Loc.L("名称不能包含大括号 { }", "Name cannot contain { }");
                 continue;
           }
             // 与模板正则的上界保持一致：超出的话模板永远认不出这个名字，只会静默展开为空
             if (name.Length > SteamStatusManager.MaxBlockNameLength)
           {
-                row.Status.ForeColor = Color.Firebrick;
+                row.Status.ForeColor = Theme.OnAir;
                 row.Status.Text = Loc.L($"名称太长（最多 {SteamStatusManager.MaxBlockNameLength} 个字符）",
                     $"Name too long (max {SteamStatusManager.MaxBlockNameLength} characters)");
                 continue;
@@ -1280,12 +1714,12 @@ internal sealed class SettingsForm : Form
             // ⚠️ 但不能拒收：用户可能是在旧版本里配好的，静默删掉等于丢配置。
             if (SteamStatusManager.BuiltInBlockNames.Contains(name))
             {
-                row.Status.ForeColor = Color.Firebrick;
+                row.Status.ForeColor = Theme.OnAir;
                 row.Status.Text = BuiltInNameWarning(name);
             }
             else if (!seen.Add(name))
           {
-                row.Status.ForeColor = Color.Firebrick;
+                row.Status.ForeColor = Theme.OnAir;
                 row.Status.Text = Loc.L("名称重复，已忽略这一条", "Duplicate name, ignored");
                 continue;
           }
@@ -1311,20 +1745,23 @@ internal sealed class SettingsForm : Form
         var rows = _dataSourceRows.ToArray();
         if (rows.Length == 0)
         {
-            _dataSourceHint.ForeColor = Color.DimGray;
+            _dataSourceHint.ForeColor = Theme.Muted;
             _dataSourceHint.Text = Loc.L("还没有添加数据源。", "No data sources yet.");
             return;
         }
         // 防重入：连点会让多轮探测交错写同一组状态行，显示随机
         if (!_dataSourceTestButton.Enabled) return;
+        var run = ++_dataSourceProbeRun;
         _dataSourceTestButton.Enabled = false;
-        _dataSourceHint.ForeColor = Color.DimGray;
+        _dataSourceHint.ForeColor = Theme.Muted;
         _dataSourceHint.Text = Loc.L("正在测试…", "Testing…");
         try
         {
             var okCount = 0;
             foreach (var row in rows)
           {
+                if (run != _dataSourceProbeRun || IsDisposed || Disposing) return;
+                if (row.Container.IsDisposed) continue;
                 var source = new DataSourceConfig
                 {
                     Enabled = true,          // 测试时忽略"启用"开关：没启用也想验证配置对不对
@@ -1334,33 +1771,65 @@ internal sealed class SettingsForm : Form
                     Format = row.Format.Text,
                     RefreshSeconds = 1
                 };
-                var result = await Utils.HttpDataSource.ProbeAsync(source);
+                var result = await _probeDataSource(source);
+                if (IsDisposed || Disposing || run != _dataSourceProbeRun) return;
+                if (row.Status.IsDisposed) continue;
+                if (row.Name.Text.Trim() != source.Name || row.Url.Text.Trim() != source.Url ||
+                    row.ValuePath.Text.Trim() != source.ValuePath || row.Format.Text != source.Format)
+                {
+                    _dataSourceHint.ForeColor = Theme.Muted;
+                    _dataSourceHint.Text = Loc.L("配置已变化，请重新测试。", "The configuration changed. Please test again.");
+                    return;
+                }
                 if (result.Ok) okCount++;
-                row.Status.ForeColor = result.Ok ? Color.ForestGreen : Color.Firebrick;
+                row.Status.ForeColor = result.Ok ? Theme.Ink : Theme.OnAir;
                 row.Status.Text = result.Ok
                     ? Loc.L($"成功：{result.RawBody}  →  {result.Value}  →  积木展开为 \"{result.Display}\"",
                             $"OK: {result.RawBody}  →  {result.Value}  →  block renders \"{result.Display}\"")
                     : Loc.L($"失败：{result.Error}", $"Failed: {result.Error}");
           }
-            _dataSourceHint.ForeColor = okCount == rows.Length ? Color.ForestGreen : Color.Firebrick;
+            _dataSourceHint.ForeColor = okCount == rows.Length ? Theme.Ink : Theme.OnAir;
             _dataSourceHint.Text = Loc.L($"{okCount}/{rows.Length} 个可用", $"{okCount}/{rows.Length} reachable");
+        }
+        catch (Exception error)
+        {
+            if (run != _dataSourceProbeRun || IsDisposed || Disposing) return;
+            UiHealth.Report("test-data-sources", error);
+            if (!IsDisposed && !Disposing && run == _dataSourceProbeRun)
+            {
+                _dataSourceHint.ForeColor = Theme.OnAir;
+                _dataSourceHint.Text = Loc.L("测试失败，详情已写入日志；可以重试。", "Test failed; details are in the log. You can retry.");
+            }
         }
         finally
         {
-            _dataSourceTestButton.Enabled = true;
+            if (run == _dataSourceProbeRun && !_dataSourceTestButton.IsDisposed) _dataSourceTestButton.Enabled = true;
         }
     }
 
 
     private static GroupBox CreateGroupBox(string text, int x, int y, int width, int height)
     {
-        return new GroupBox
+        return new SettingsSection
         {
             Text = text,
             Location = new Point(x, y),
             Size = new Size(width, height),
             BackColor = Color.White
         };
+    }
+
+    /// <summary>保留原生分组语义和控件树，以标题与留白代替容器描边。</summary>
+    private sealed class SettingsSection : GroupBox
+    {
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            using var paper = new SolidBrush(BackColor);
+            e.Graphics.FillRectangle(paper, ClientRectangle);
+            TextRenderer.DrawText(e.Graphics, Text, Theme.Section,
+                new Rectangle(0, 0, Width, (int)Math.Round(28 * DeviceDpi / 96f)), Theme.Ink,
+                Theme.PaintText | TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        }
     }
 
     private static CheckBox CreateCheckBox(string text, int x, int y)
@@ -1373,6 +1842,11 @@ internal sealed class SettingsForm : Form
             BackColor = Color.White
         };
     }
+
+    private static CheckBox CreateToggleSwitch(string text, int x, int y) => new ToggleSwitch
+    {
+        Text = text, AccessibleName = text, Location = new Point(x, y)
+    };
 
     // ================= 程序规则网格 =================
     private void BuildRulesGrid()
@@ -1389,19 +1863,21 @@ internal sealed class SettingsForm : Form
             BackgroundColor = Color.White,
             ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing
         };
-        _rulesGrid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = Loc.L("启用", "Enabled"), FillWeight = 8 });
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = Loc.L("程序", "App"), ReadOnly = true, FillWeight = 19 });
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = Loc.L("显示名", "Display name"), FillWeight = 22 });
-        var categoryColumn = new DataGridViewComboBoxColumn { HeaderText = Loc.L("分类", "Category"), FillWeight = 13, FlatStyle = FlatStyle.Flat };
+        _rulesGrid.Columns.Add(new DataGridViewCheckBoxColumn { CellTemplate = new CueGridCheckBoxCell(), HeaderText = Loc.L("启用", "Enabled"), FillWeight = 10 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = Loc.L("程序", "App"), ReadOnly = true, FillWeight = 18 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = Loc.L("显示名", "Display name"), FillWeight = 20 });
+        var categoryColumn = new DataGridViewComboBoxColumn { CellTemplate = new CueGridComboBoxCell(), HeaderText = Loc.L("分类", "Category"), FillWeight = 13, FlatStyle = FlatStyle.Flat };
         categoryColumn.Items.AddRange(Loc.L("忽略", "Ignore"), Loc.L("游戏", "Game"), Loc.L("工作", "Work"), Loc.L("媒体", "Media"), Loc.L("社交", "Social"), Loc.L("其他", "Other"));
         _rulesGrid.Columns.Add(categoryColumn);
-        var modeColumn = new DataGridViewComboBoxColumn { HeaderText = Loc.L("模式", "Mode"), FillWeight = 15, FlatStyle = FlatStyle.Flat };
-        modeColumn.Items.AddRange(Loc.L("前台时显示", "When in foreground"), Loc.L("运行即显示", "Always when running"));
+        var modeColumn = new DataGridViewComboBoxColumn { CellTemplate = new CueGridComboBoxCell(), HeaderText = Loc.L("模式", "Mode"), FillWeight = 17, FlatStyle = FlatStyle.Flat };
+        modeColumn.Items.AddRange(Loc.L("前台", "Foreground"), Loc.L("运行", "While running"));
+        modeColumn.ToolTipText = Loc.L("前台：仅前台显示；运行：后台运行也显示。", "Foreground: show when this app is in the foreground. While running: also show it in the background.");
         _rulesGrid.Columns.Add(modeColumn);
-        var overrideColumn = new DataGridViewComboBoxColumn { HeaderText = Loc.L("策略", "Policy"), FillWeight = 14, FlatStyle = FlatStyle.Flat };
-        overrideColumn.Items.AddRange(Loc.L("跟随分类", "Follow category"), Loc.L("强制显示", "Always show"), Loc.L("强制隐藏", "Always hide"));
+        var overrideColumn = new DataGridViewComboBoxColumn { CellTemplate = new CueGridComboBoxCell(), HeaderText = Loc.L("策略", "Policy"), FillWeight = 12, FlatStyle = FlatStyle.Flat };
+        overrideColumn.Items.AddRange(Loc.L("自动", "Auto"), Loc.L("显示", "Show"), Loc.L("隐藏", "Hide"));
+        overrideColumn.ToolTipText = Loc.L("自动：跟随分类；显示 / 隐藏：强制覆盖分类设置。", "Auto follows the category. Show / Hide override the category setting.");
         _rulesGrid.Columns.Add(overrideColumn);
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = Loc.L("状态", "Status"), ReadOnly = true, FillWeight = 9 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = Loc.L("状态", "Status"), ReadOnly = true, FillWeight = 12 });
         _rulesGrid.CurrentCellDirtyStateChanged += (_, _) =>
         {
             if (_rulesGrid.IsCurrentCellDirty)
@@ -1410,6 +1886,13 @@ internal sealed class SettingsForm : Form
           }
         };
         _rulesGrid.CellValueChanged += RulesGrid_CellValueChanged;
+        _rulesGrid.EditingControlShowing += (_, e) =>
+        {
+            e.CellStyle.BackColor = Theme.Surface;
+            e.CellStyle.ForeColor = Theme.Ink;
+            e.Control.BackColor = Theme.Surface;
+            e.Control.ForeColor = Theme.Ink;
+        };
         _rulesGrid.DataError += (_, e) => { e.ThrowException = false; };
     }
 
@@ -1430,7 +1913,7 @@ internal sealed class SettingsForm : Form
                 rule.Category = CategoryFromText(row.Cells[3].Value?.ToString());
                 break;
             case 4:
-                rule.Mode = row.Cells[4].Value?.ToString() == Loc.L("运行即显示", "Always when running")
+                rule.Mode = row.Cells[4].Value?.ToString() == Loc.L("运行", "While running")
                     ? AppSyncMode.Always
                     : AppSyncMode.Foreground;
                 break;
@@ -1450,6 +1933,14 @@ internal sealed class SettingsForm : Form
         if (foreground == null)
         {
             MessageBox.Show(Loc.L("未检测到前台程序。", "No foreground app detected."), Loc.L("提示", "Notice"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (AppClassifier.IsBuiltInIgnored(foreground.ExeName))
+        {
+            MessageBox.Show(this,
+                Loc.L("该程序由音乐同步或系统忽略名单处理。请使用程序库选择要添加的程序。",
+                    "This app is handled by music sync or the system ignore list. Choose an app from the library instead."),
+                Loc.L("提示", "Notice"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         if (_rules.Any(r => r.ExeName.Equals(foreground.ExeName, StringComparison.OrdinalIgnoreCase)))
@@ -1476,6 +1967,7 @@ internal sealed class SettingsForm : Form
         var selected = _rulesGrid.SelectedRows[0];
         if (selected.Tag is not AppRule rule) return;
         _rules.Remove(rule);
+        _removedRuleNames.Add(rule.ExeName);
         RefreshRulesGrid();
     }
 
@@ -1489,25 +1981,23 @@ internal sealed class SettingsForm : Form
                 rule.ExeName,
                 rule.DisplayName,
                 CategoryToText(rule.Category),
-                rule.Mode == AppSyncMode.Always ? Loc.L("运行即显示", "Always when running") : Loc.L("前台时显示", "When in foreground"),
+                rule.Mode == AppSyncMode.Always ? Loc.L("运行", "While running") : Loc.L("前台", "Foreground"),
                 OverrideToText(rule.Override),
-                rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("程序名库", "App library"));
+                rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("建议", "Suggested"));
             _rulesGrid.Rows[index].Tag = rule;
             ApplyRowStyle(_rulesGrid.Rows[index], rule);
         }
+        _rulesEmpty.Visible = _rules.Count == 0;
+        _rulesCount.Text = Loc.L($"{_rules.Count} 条规则", $"{_rules.Count} {(_rules.Count == 1 ? "rule" : "rules")}");
     }
 
     private static void ApplyRowStyle(DataGridViewRow row, AppRule rule)
     {
-        if (!rule.IsUserConfirmed)
-        {
-            row.DefaultCellStyle.BackColor = Color.FromArgb(255, 250, 215);
-        }
-        else if (!rule.Enabled)
-        {
-            row.DefaultCellStyle.ForeColor = Color.Gray;
-        }
-        row.Cells[6].Value = rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("程序名库", "App library");
+        row.DefaultCellStyle.BackColor = rule.IsUserConfirmed ? Theme.Paper : Theme.Inset;
+        row.DefaultCellStyle.ForeColor = rule.Enabled ? Theme.Ink : Theme.Muted;
+        row.DefaultCellStyle.SelectionBackColor = Theme.Inset;
+        row.DefaultCellStyle.SelectionForeColor = Theme.Ink;
+        row.Cells[6].Value = rule.IsUserConfirmed ? Loc.L("已确认", "Confirmed") : Loc.L("建议", "Suggested");
     }
 
     // ================= 规则导入 / 导出 =================
@@ -1568,24 +2058,29 @@ internal sealed class SettingsForm : Form
 
         var summary = Loc.L(
             $"新增 {result.Added} 条，跳过已有 {result.Skipped} 条，忽略无效 {result.Ignored} 条。\n\n" +
-            "跳过＝本机已有同程序，保留本机设置；忽略＝条目缺失必要信息。",
+            "跳过＝本机已有同程序，保留本机设置；忽略＝条目缺失必要信息。\n\n规则先加入草稿，请保存设置以生效。",
             $"Added {result.Added}, skipped {result.Skipped} existing, ignored {result.Ignored} invalid.\n\n" +
-            "Skipped = the app already exists locally (local settings kept); ignored = the entry lacks required info.");
+            "Skipped = the app already exists locally (local settings kept); ignored = the entry lacks required info.\n\nRules will be added to your draft. Save settings to apply them.");
         if (MessageBox.Show(this, summary, Loc.L("导入规则", "Import rules"),
                 MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
         {
             return;   // 用户取消：不改内存、不写盘
         }
 
-        // 走与「确定」相同的提交路径：更新内存 + 刷新表格；落盘由 Configurations 统一负责
-        _rules.Clear();
-        _rules.AddRange(result.Merged);
-        RefreshRulesGrid();
-        Configurations.Instance.Save();
-        Logger.Info($"[AppSync] 已导入规则：新增 {result.Added} / 跳过 {result.Skipped} / 忽略 {result.Ignored}");
+        ApplyImportedRules(result.Merged);
+        Logger.Info($"[AppSync] 已导入规则草稿（待保存）：新增 {result.Added} / 跳过 {result.Skipped} / 忽略 {result.Ignored}");
     }
 
     // ================= 播放器优先级（列表 + 上移/下移，不再限定个数） =================
+    internal void ApplyImportedRules(IReadOnlyList<AppRule> merged)
+    {
+        // 和其他规则编辑相同：只更新草稿，由设置保存入口统一持久化。
+        var copies = merged.Select(CloneRule).ToArray();
+        _rules.Clear();
+        _rules.AddRange(copies);
+        RefreshRulesGrid();
+    }
+
     /// <summary>优先级列表项：存 key，显示名按当前语言取（沿用 Loc.PlayerName 的「中文做 key」口径）。</summary>
     private sealed record PriorityItem(string Key, string DisplayName)
     {
@@ -1671,6 +2166,7 @@ internal sealed class SettingsForm : Form
 
     private void MarkPresetCustom()
     {
+        if (_loadingSettings) return;
         if (_updatingTemplatePreset) return;
         if (_templatePresetCombo.SelectedIndex == 0) return;
         _updatingTemplatePreset = true;
@@ -1772,6 +2268,7 @@ internal sealed class SettingsForm : Form
     /// <summary>预览：正在播放时用用户真实的歌；否则用默认示例（鳥の詩）。</summary>
     private void UpdatePreview()
     {
+        if (_loadingSettings) return;
         if (_previewLabel == null) return;
         PlayerInfo dummySong;
         var isLive = false;
@@ -1811,22 +2308,93 @@ internal sealed class SettingsForm : Form
           // 配置里存在但还没取到值的，给「‹名称›」占位，让用户能看见这块积木的位置。
           var previewBlocks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
           var liveBlocks = Program.GetRpcManager()?.TryGetDynamicBlocksSnapshot();
-          foreach (var src in Configurations.Instance.Settings.DataSources ?? [])
+          // 预览使用当前编辑内容；尚未保存的新增/改名和禁用状态也应立即生效。
+          foreach (var src in CollectDataSources().Where(src => src.Enabled))
           {
               if (string.IsNullOrWhiteSpace(src.Name)) continue;
               var value = liveBlocks != null && liveBlocks.TryGetValue(src.Name, out var v) ? v : null;
               previewBlocks[src.Name] = string.IsNullOrEmpty(value) ? $"‹{src.Name}›" : value;
           }
-        var combined = SteamStatusManager.ComposeStatus(dummySong, Loc.L("卡拉彼丘", "Strinova"), previewConfig, previewBlocks) ?? Loc.L("(无)", "(None)");
-        var musicOnly = SteamStatusManager.ComposeStatus(dummySong, null, previewConfig, previewBlocks) ?? Loc.L("(无)", "(None)");
+        var combinedOutput = SteamStatusManager.ComposeStatus(dummySong, Loc.L("卡拉彼丘", "Strinova"), previewConfig, previewBlocks);
+        var musicOutput = SteamStatusManager.ComposeStatus(dummySong, null, previewConfig, previewBlocks);
+        var combined = combinedOutput ?? Loc.L("(无)", "(None)");
+        var musicOnly = musicOutput ?? Loc.L("(无)", "(None)");
         var source = isLive ? Loc.L("（以下使用你当前正在播放的内容）", "(using what you're playing right now)") : Loc.L("（示例内容）", "(sample content)");
-        _previewLabel.Text = Loc.L($"预览{source}{Environment.NewLine}程序+音乐：{combined}{Environment.NewLine}仅音乐：{musicOnly}", $"Preview{source}{Environment.NewLine}App + music: {combined}{Environment.NewLine}Music only: {musicOnly}");
+        _previewLabel.Text = Loc.L($"预览{source}", $"Preview {source}");
+        _combinedPreview.Text = combined;
+        _combinedPreview.AccessibleName = Loc.L("程序与音乐输出", "App and music output");
+        _musicPreview.Text = musicOnly;
+        _musicPreview.AccessibleName = Loc.L("仅音乐输出", "Music only output");
+        _combinedBudget.Value = Encoding.UTF8.GetByteCount(combinedOutput ?? "");
+        _musicBudget.Value = Encoding.UTF8.GetByteCount(musicOutput ?? "");
+        _combinedBudget.AccessibleName = Loc.L($"组合输出 { _combinedBudget.Value} / 128 字节", $"Combined output {_combinedBudget.Value} of 128 bytes");
+        _musicBudget.AccessibleName = Loc.L($"音乐输出 {_musicBudget.Value} / 128 字节", $"Music output {_musicBudget.Value} of 128 bytes");
     }
 
     // ================= 加载 / 保存 =================
+    internal void ReloadSettings()
+    {
+        using var layout = new WindowUpdateScope(this, repaintChildren: false);
+        LoadSettings();
+    }
+
+    protected override void OnVisibleChanged(EventArgs e)
+    {
+        base.OnVisibleChanged(e);
+        UpdateRefreshTimers();
+    }
+
+    private void UpdateRefreshTimers()
+    {
+        if (_pages == null || _perfTimer == null || _previewTimer == null || IsDisposed || Disposing) return;
+        _perfTimer.Enabled = Visible && _pages.SelectedIndex is 0 or 5;
+        _previewTimer.Enabled = Visible && _pages.SelectedIndex is 2 or 4;
+    }
+
+    private void RefreshVisiblePage()
+    {
+        if (!Visible || IsDisposed || Disposing) return;
+        if (UiHealth.TryRun($"settings-refresh-{_pages.SelectedIndex}", RefreshVisiblePageCore))
+        {
+            _refreshFailures = 0;
+            return;
+        }
+        if (++_refreshFailures < 3) return;
+        _perfTimer.Stop();
+        _previewTimer.Stop();
+        var message = Loc.L("刷新暂时停止，切换页面可重试；详情已写入日志。", "Refresh paused. Switch pages to retry; details are in the log.");
+        var label = _pages.SelectedIndex switch { 0 => _accountStatusLabel, 2 => _previewLabel, 4 => _dataSourceHint, _ => _memoryInfoLabel };
+        label.Text = message;
+        label.ForeColor = Theme.OnAir;
+    }
+
+    private void RefreshVisiblePageCore()
+    {
+        // 原先在数据源页也会重画隐藏的预览、账户和诊断，引发整窗重绘。
+        switch (_pages.SelectedIndex)
+        {
+            case 0: UpdateAccountStatus(); break;
+            case 2: UpdatePreview(); break;
+            case 4:
+                UpdateBrowserExtensionStatus();
+                RefreshDataSourceRuntimeStatus();
+                break;
+            case 5: RefreshMemoryInfo(); break;
+        }
+    }
+
     private void LoadSettings()
     {
+        _loadingSettings = true;
+        try { LoadSettingsCore(); }
+        finally { _loadingSettings = false; }
+        UpdatePreview();
+    }
+
+    private void LoadSettingsCore()
+    {
         var settings = Configurations.Instance.Settings;
+        _themeCombo.SelectedItem = ThemePalettes.Resolve(settings.UiTheme);
 
         var isAutoStartEnabled = Win32Api.AutoStart.Check();
         _autoStartCheckBox.Checked = isAutoStartEnabled;
@@ -1844,17 +2412,7 @@ internal sealed class SettingsForm : Form
         _browserExtensionPortBox.Text = settings.BrowserExtensionPort.ToString();
         _browserExtensionTokenBox.Text = settings.BrowserExtensionToken ?? "";
         UpdateBrowserExtensionStatus();
-        // 数据源：清掉旧行再按配置重建（对话框可能被重复打开）
-        foreach (var row in _dataSourceRows.ToArray())
-        {
-            _dataSourcesPanel.Controls.Remove(row.Container);
-            row.Container.Dispose();
-        }
-        _dataSourceRows.Clear();
-        foreach (var source in settings.DataSources ?? [])
-        {
-            AddDataSourceRow(source);
-        }
+        ReloadDataSourceRows(settings.DataSources ?? []);
         _enableAppSyncCheckBox.Checked = settings.AppSyncEnabled;
         _syncNonGameCheckBox.Checked = settings.SyncNonGameApps;
         _pauseWhenPlayingGameCheckBox.Checked = settings.PauseWhenPlayingGame;
@@ -1876,11 +2434,14 @@ internal sealed class SettingsForm : Form
             : Color.WhiteSmoke;
         _backgroundColorButton.BackColor = settings.AppearanceBackgroundColorArgb is int backgroundArgb
             ? Color.FromArgb(backgroundArgb)
-            : Color.WhiteSmoke;
+            : Theme.Paper;
+        _backgroundFollowThemeCheck.Checked = settings.AppearanceBackgroundColorArgb == null;
         _appearanceFontFamily = settings.AppearanceFontFamily ?? "";
-        _appearanceFontSize = settings.AppearanceFontSize;
+        _appearanceFontSize = float.IsFinite(settings.AppearanceFontSize) && settings.AppearanceFontSize > 0
+            ? Math.Clamp(settings.AppearanceFontSize, 8, 16) : 0;
+        _appearanceFontStyle = (FontStyle)(settings.AppearanceFontStyle & 15);
         _fontButton.Text = string.IsNullOrWhiteSpace(_appearanceFontFamily)
-            ? (_appearanceFontSize > 0 ? Loc.L($"（默认字体）{_appearanceFontSize:0.#}pt", $"(Default font) {_appearanceFontSize:0.#}pt") : Loc.L("微软雅黑 9pt", "Microsoft YaHei 9pt"))
+            ? (_appearanceFontSize > 0 ? Loc.L($"（默认字体）{_appearanceFontSize:0.#}pt", $"(Default font) {_appearanceFontSize:0.#}pt") : Loc.L("默认字体", "Default font"))
             : $"{_appearanceFontFamily} {(_appearanceFontSize > 0 ? _appearanceFontSize : 9f):0.#}pt";
         _backgroundImagePath = settings.AppearanceBackgroundImage ?? "";
         _backgroundCropRect = settings.BackgroundCropRect;
@@ -1904,21 +2465,23 @@ internal sealed class SettingsForm : Form
             _ => 1
         };
 
-        // ⚠️ 先快照再枚举：轮询线程在后台会自动发现新程序并 config.Apps.Add，
-        // 而 List<T> 在枚举期间被改写会抛 InvalidOperationException（版本号变化）——
-        // 这里没有 try/catch，异常会冒到全局兜底弹"未处理错误"框。
-        foreach (var rule in settings.Apps.ToArray())
+        // 快照与后台自动发现使用同一集合锁，界面枚举快照时不持锁。
+        var liveRules = settings.SnapshotAppRules();
+        _rulesGrid.CancelEdit();
+        if (string.IsNullOrEmpty(_rulesCount.Text) || !_rules.SequenceEqual(liveRules, AppRuleValueComparer.Instance))
         {
-            _rules.Add(CloneRule(rule));
+            _rules.Clear();
+            foreach (var rule in liveRules) _rules.Add(CloneRule(rule));
+            RefreshRulesGrid();
         }
-        RefreshRulesGrid();
-        UpdatePreview();
+        _removedRuleNames.Clear();
+        if (_programLibraryPanel?.Parent is TabPage libraryPage) ShowProgramLibrary(libraryPage, false);
         SyncPresetFromFormats();
         LoadPriorityOrder();
         UpdateAccountStatus();
-        RefreshMemoryInfo();
+        if (_pages.SelectedIndex == 5) RefreshMemoryInfo();
         var versionText = $"v{UpdateChecker.GetCurrentVersionText()}";
-        _versionLabel.Text = Loc.L($"MuSync {versionText} ｜ 配置文件：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync", $"MuSync {versionText} | Config file: {Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync");
+        _versionLabel.Text = Loc.L($"MuSync {versionText} ｜ 配置目录：{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync", $"MuSync {versionText} | Config folder: {Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\\MuSync");
         _aboutVersionLabel.Text = Loc.L($"版本：MuSync {versionText}", $"Version: MuSync {versionText}");
     }
 
@@ -1953,6 +2516,7 @@ internal sealed class SettingsForm : Form
     private void SaveSettings()
     {
         var settings = Configurations.Instance.Settings;
+        settings.UiTheme = (_themeCombo.SelectedItem as ThemePalette)?.Id ?? "fog";
         var isAutoStartChecked = _autoStartCheckBox.Checked;
         settings.AutoStart = isAutoStartChecked;
         settings.CloseToTray = _closeToTrayCheckBox.Checked;
@@ -1982,7 +2546,7 @@ internal sealed class SettingsForm : Form
         UpdateBrowserExtensionStatus();
         if (portWarning is not null && _browserExtensionStatusLabel is not null)
         {
-            _browserExtensionStatusLabel.ForeColor = Color.Firebrick;
+            _browserExtensionStatusLabel.ForeColor = Theme.OnAir;
             _browserExtensionStatusLabel.Text = portWarning;
         }
         // 数据源按界面上的填写回写（名称重复/含大括号的条目会被 CollectDataSources 过滤掉）
@@ -2005,9 +2569,11 @@ internal sealed class SettingsForm : Form
         settings.AppearanceTitleColorArgb = _titleFollowCheck.Checked ? null : _titleColorButton.BackColor.ToArgb();
         settings.AppearanceSongFollowPlayer = _songFollowCheck.Checked;
         settings.AppearanceSongColorArgb = _songFollowCheck.Checked ? null : _songColorButton.BackColor.ToArgb();
-        settings.AppearanceBackgroundColorArgb = _backgroundColorButton.BackColor.ToArgb();
+        settings.AppearanceBackgroundColorArgb = _backgroundFollowThemeCheck.Checked
+            ? null : _backgroundColorButton.BackColor.ToArgb();
         settings.AppearanceFontFamily = _appearanceFontFamily;
         settings.AppearanceFontSize = _appearanceFontSize;
+        settings.AppearanceFontStyle = (int)_appearanceFontStyle;
         settings.AppearanceBackgroundImage = _backgroundImagePath;
         settings.BackgroundCropRect = _backgroundCropRect;
         settings.AppearanceBackgroundLayout = _backgroundLayoutCombo.SelectedIndex switch
@@ -2031,6 +2597,7 @@ internal sealed class SettingsForm : Form
         MergeBackgroundDiscoveredRules(settings);
 
         Configurations.Instance.Save();
+        SettingsSaved?.Invoke();
         Program.GetRpcManager()?.RequestStateRefresh();
 
         if (isAutoStartChecked != Win32Api.AutoStart.Check())
@@ -2061,10 +2628,15 @@ internal sealed class SettingsForm : Form
     /// </summary>
     private void MergeBackgroundDiscoveredRules(ConfigData settings)
     {
-        // 先取快照：轮询线程可能正在向 settings.Apps 里 Add 新发现的程序
-        var (merged, kept) = MergeDiscoveredRules(_rules, settings.Apps.ToArray());
-        settings.Apps.Clear();
-        settings.Apps.AddRange(merged);
+        // 快照和替换必须是同一事务，否则两者之间的后台新增会丢失。
+        List<AppRule> kept;
+        lock (settings.AppsSync)
+        {
+            var result = MergeDiscoveredRules(_rules, settings.Apps.ToArray(), _removedRuleNames);
+            kept = result.Discovered;
+            settings.Apps.Clear();
+            settings.Apps.AddRange(result.Merged.Select(CloneRule));
+        }
         if (kept.Count > 0)
         {
             Logger.Info($"[AppSync] 保存设置时保留对话框打开期间自动发现的 {kept.Count} 个程序：" +
@@ -2083,8 +2655,10 @@ internal sealed class SettingsForm : Form
     /// 枚举期间被改写会抛 InvalidOperationException；而这里若再对它 Clear/AddRange，
     /// 更是"一边枚举一边改写"，保存设置时会让用户刚改的东西直接丢掉。
     /// </param>
+    /// <param name="removedRuleNames">本次设置草稿中明确删除的程序；重新添加到 dialogRules 的条目仍以草稿为准。</param>
     internal static (List<AppRule> Merged, List<AppRule> Discovered) MergeDiscoveredRules(
-        IReadOnlyList<AppRule> dialogRules, IReadOnlyList<AppRule> liveRulesSnapshot)
+        IReadOnlyList<AppRule> dialogRules, IReadOnlyList<AppRule> liveRulesSnapshot,
+        IReadOnlyCollection<string>? removedRuleNames = null)
     {
         var shown = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var rule in dialogRules)
@@ -2092,9 +2666,10 @@ internal sealed class SettingsForm : Form
             shown.Add(rule.ExeName);
         }
         var discovered = new List<AppRule>();
+        var removed = new HashSet<string>(removedRuleNames ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         foreach (var live in liveRulesSnapshot)
         {
-            if (shown.Contains(live.ExeName)) continue;
+            if (shown.Contains(live.ExeName) || removed.Contains(live.ExeName)) continue;
             discovered.Add(live);
         }
         // 以对话框里的列表为准（用户可能删过、改过、导入过），再把后台新发现的补在后面
@@ -2111,13 +2686,13 @@ internal sealed class SettingsForm : Form
         var session = Program.GetSessionManager();
         if (session?.IsLoggedOn == true)
         {
-            _accountStatusLabel.Text = Loc.L("已登录 Steam（音乐与程序状态同步中）", "Signed in to Steam (syncing music & app status)");
-            _accountStatusLabel.ForeColor = Color.Green;
+            _accountStatusLabel.Text = Loc.L("已登录 Steam", "Signed in to Steam");
+            _accountStatusLabel.ForeColor = Theme.Ink;
         }
         else
         {
             _accountStatusLabel.Text = Loc.L("未登录 Steam", "Not signed in to Steam");
-            _accountStatusLabel.ForeColor = Color.OrangeRed;
+            _accountStatusLabel.ForeColor = Theme.Warn;
         }
     }
 
@@ -2147,7 +2722,7 @@ internal sealed class SettingsForm : Form
             UpdateAccountStatus();
             return;
         }
-        MessageBox.Show(Loc.L("Steam 登录成功，状态同步已恢复。", "Signed in to Steam — status sync has resumed."), Loc.L("提示", "Notice"),
+        MessageBox.Show(Loc.L("Steam 登录成功，可在「同步」页管理同步设置。", "Signed in to Steam. Manage syncing on the Sync page."), Loc.L("提示", "Notice"),
             MessageBoxButtons.OK, MessageBoxIcon.Information);
         Program.GetRpcManager()?.RequestStateRefresh();
         UpdateAccountStatus();
@@ -2161,25 +2736,22 @@ internal sealed class SettingsForm : Form
         {
             var memoryInfo = PerformanceMonitor.GetMemoryInfo();
             var cacheStats = PerformanceMonitor.GetCacheStatistics();
-            _memoryInfoLabel.Text = Loc.L(
-                $"""
-                工作集: {memoryInfo.GetFormattedWorkingSet()}, 私有: {memoryInfo.GetFormattedPrivateMemory()}, 虚拟: {memoryInfo.GetFormattedVirtualMemory()}
-                GC托管: {memoryInfo.GetFormattedGcMemory()}
-                图片缓存: {cacheStats.ImageCacheCount} 项 | 模块缓存: {cacheStats.ModuleCacheCount + cacheStats.ProcessModuleCacheCount} 项
-                更新于: {memoryInfo.Timestamp:HH:mm:ss}
-                """,
-                $"""
-                Working set: {memoryInfo.GetFormattedWorkingSet()}, Private: {memoryInfo.GetFormattedPrivateMemory()}, Virtual: {memoryInfo.GetFormattedVirtualMemory()}
-                GC heap: {memoryInfo.GetFormattedGcMemory()}
-                Image cache: {cacheStats.ImageCacheCount} | Module cache: {cacheStats.ModuleCacheCount + cacheStats.ProcessModuleCacheCount}
-                Updated: {memoryInfo.Timestamp:HH:mm:ss}
-                """);
-            _memoryInfoLabel.ForeColor = Color.Black;
+            var values = new[]
+            {
+                memoryInfo.GetFormattedWorkingSet(), memoryInfo.GetFormattedPrivateMemory(), memoryInfo.GetFormattedVirtualMemory(),
+                memoryInfo.GetFormattedGcMemory(), cacheStats.ImageCacheCount.ToString(),
+                (cacheStats.ModuleCacheCount + cacheStats.ProcessModuleCacheCount).ToString()
+            };
+            for (var i = 0; i < values.Length; i++)
+                if (_memoryValues[i].Text != values[i]) _memoryValues[i].Text = values[i];
+            _memoryInfoLabel.Text = Loc.L($"更新于 {memoryInfo.Timestamp:HH:mm:ss}", $"Updated at {memoryInfo.Timestamp:HH:mm:ss}");
+            _memoryInfoLabel.ForeColor = Theme.Muted;
         }
         catch (Exception ex)
         {
             _memoryInfoLabel.Text = Loc.L($"获取内存信息失败: {ex.Message}", $"Failed to get memory info: {ex.Message}");
-            _memoryInfoLabel.ForeColor = Color.Red;
+            _memoryInfoLabel.ForeColor = Theme.OnAir;
+            foreach (var value in _memoryValues) value.Text = "—";
         }
     }
 
@@ -2243,16 +2815,26 @@ internal sealed class SettingsForm : Form
 
     private static string OverrideToText(AppSyncOverride value) => value switch
     {
-        AppSyncOverride.ForceOn => Loc.L("强制显示", "Always show"),
-        AppSyncOverride.ForceOff => Loc.L("强制隐藏", "Always hide"),
-        _ => Loc.L("跟随分类", "Follow category")
+        AppSyncOverride.ForceOn => Loc.L("显示", "Show"),
+        AppSyncOverride.ForceOff => Loc.L("隐藏", "Hide"),
+        _ => Loc.L("自动", "Auto")
     };
 
     private static AppSyncOverride OverrideFromText(string? text)
     {
-        if (text == Loc.L("强制显示", "Always show")) return AppSyncOverride.ForceOn;
-        if (text == Loc.L("强制隐藏", "Always hide")) return AppSyncOverride.ForceOff;
+        if (text == Loc.L("显示", "Show")) return AppSyncOverride.ForceOn;
+        if (text == Loc.L("隐藏", "Hide")) return AppSyncOverride.ForceOff;
         return AppSyncOverride.FollowCategory;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _perfTimer.Dispose();
+            _previewTimer.Dispose();
+        }
+        base.Dispose(disposing);
     }
 
     private static AppRule CloneRule(AppRule source) => new()

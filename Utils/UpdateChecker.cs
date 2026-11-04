@@ -109,7 +109,7 @@ internal static class UpdateChecker
     /// <summary>
     /// 挑选与当前程序形态一致的更新包：完整版取完整包、lite 版取 lite 包、安装器版取安装器包。
     /// 形态取自编译期标记（与 exe 文件名无关，改名后也能选对）；
-    /// 仅在发行方未提供对应形态包时，退回「与当前 exe 同名」的包，最后退回第一个可执行文件。
+    /// lite 缺包时可退回自包含完整版；完整包不降级为依赖运行时的 lite，安装器也不与绿色包互换。
     /// </summary>
     public static UpdateAsset? SelectAsset(
         IReadOnlyList<UpdateAsset> assets,
@@ -126,10 +126,13 @@ internal static class UpdateChecker
             a => string.Equals(GetAssetEdition(a.Name), current, StringComparison.Ordinal));
         if (byEdition != null) return byEdition;
 
+        if (current is "setup" or "full") return null;
+        exeAssets.RemoveAll(a => GetAssetEdition(a.Name) == "setup");
+
         var exeName = currentExeName ?? Path.GetFileName(Environment.ProcessPath ?? "");
         return exeAssets.FirstOrDefault(
                    a => string.Equals(a.Name, exeName, StringComparison.OrdinalIgnoreCase))
-               ?? exeAssets[0];
+               ?? exeAssets.FirstOrDefault();
     }
 
     /// <summary>

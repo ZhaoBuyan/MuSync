@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
@@ -28,6 +28,7 @@ internal class LicenseForm : Form
 
     public LicenseForm()
     {
+        Theme.BeginForm(this);
         Text = Loc.L("开源许可", "Open source licenses");
         Size = new Size(740, 580);
         MinimumSize = new Size(520, 380);
@@ -60,25 +61,30 @@ internal class LicenseForm : Form
             BorderStyle = BorderStyle.FixedSingle,
             BackColor = Color.White,
             Font = new Font("Microsoft YaHei", 8.5f),
-            Location = new Point(12, 12),
-            Size = new Size(ClientSize.Width - 24, ClientSize.Height - 70),
+            Location = new Point(16, 16),
+            Size = new Size(ClientSize.Width - 32, ClientSize.Height - 80),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
             Text = content.ToString()
         };
         textBox.SelectionStart = 0;
         textBox.SelectionLength = 0;
 
-        var closeButton = new Button
+        var closeButton = new CueButton
         {
             Text = Loc.L("关闭", "Close"),
-            Size = new Size(90, 28),
+            Size = new Size(96, 32),
             BackColor = Color.White,
             DialogResult = DialogResult.Cancel,
-            Location = new Point(ClientSize.Width - 102, ClientSize.Height - 46),
+            Location = new Point(ClientSize.Width - 112, ClientSize.Height - 48),
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
 
         Controls.AddRange([textBox, closeButton]);
         CancelButton = closeButton;
+        Font = Theme.Body;
+        Theme.Apply(this);
+        Theme.PolishFields(this);
+        textBox.Font = Theme.Body;
+        Theme.EndForm(this);
     }
 }

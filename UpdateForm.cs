@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -38,6 +38,7 @@ internal sealed class UpdateForm : Form
 
     public UpdateForm(string currentVersion, UpdateChecker.UpdateInfo info)
     {
+        Theme.BeginForm(this);
         _info = info;
         _asset = UpdateChecker.SelectAsset(info.Assets);
         // 一键更新仅限「安装器版 + 选中的包确为安装器包」；
@@ -68,7 +69,7 @@ internal sealed class UpdateForm : Form
         {
             AutoSize = true,
             Location = new Point(22, 54),
-            ForeColor = Color.Gray,
+            ForeColor = Theme.Muted,
             Text = Loc.L($"当前版本 v{currentVersion} → 最新版本 {info.Version}", $"Current version v{currentVersion} → Latest version {info.Version}")
         };
         var logsBox = new TextBox
@@ -83,7 +84,7 @@ internal sealed class UpdateForm : Form
                 ? Loc.L("(本次更新暂无说明)", "(No release notes for this version)")
                 : ReleaseNotes.ToPlainText(info.Body)
         };
-        _progressBar = new ProgressBar
+        _progressBar = new CueProgressBar
         {
             Location = new Point(20, 340),
             Size = new Size(505, 16),
@@ -94,29 +95,29 @@ internal sealed class UpdateForm : Form
         {
             Location = new Point(20, 360),
             Size = new Size(505, 36),
-            ForeColor = Color.Gray
+            ForeColor = Theme.Muted
         };
-        _actionButton = new Button
+        _actionButton = new CueButton
         {
             Text = Loc.L("下载更新", "Download update"),
-            Location = new Point(188, 402),
-            Size = new Size(125, 32),
+            Location = new Point(385, 402),
+            Size = new Size(140, 32),
             BackColor = Color.White
         };
         _actionButton.Click += ActionButton_Click;
-        _browserButton = new Button
+        _browserButton = new CueButton
         {
             Text = Loc.L("在浏览器中打开", "Open in browser"),
-            Location = new Point(319, 402),
-            Size = new Size(105, 32),
+            Location = new Point(217, 402),
+            Size = new Size(160, 32),
             BackColor = Color.White
         };
         _browserButton.Click += (_, _) => OpenInBrowser();
-        var closeButton = new Button
+        var closeButton = new CueButton
         {
             Text = Loc.L("稍后", "Later"),
-            Location = new Point(430, 402),
-            Size = new Size(95, 32),
+            Location = new Point(109, 402),
+            Size = new Size(100, 32),
             BackColor = Color.White
         };
         closeButton.Click += (_, _) => Close();
@@ -125,12 +126,21 @@ internal sealed class UpdateForm : Form
             [title, subtitle, logsBox, _progressBar, _statusLabel, _actionButton, _browserButton, closeButton]);
         AcceptButton = _actionButton;
         CancelButton = closeButton;
+        ActiveControl = closeButton;
+        Font = Theme.Body;
+        Theme.Apply(this);
+        Theme.PolishFields(this);
+        logsBox.Font = Theme.Body;
+        title.Font = Theme.Section;
+        logsBox.Font = Theme.Body;
+        Theme.Primary(_actionButton);
+        Theme.EndForm(this);
         FormClosing += (_, _) => _cts?.Cancel();
 
         if (_asset == null)
         {
             _actionButton.Enabled = false;
-            SetStatus(Loc.L("该版本未提供可直接下载的文件，请点「在浏览器中打开」手动下载。", "No direct download is available for this release. Use \"Open in browser\" to download it manually."), Color.DarkOrange);
+            SetStatus(Loc.L("该版本未提供可直接下载的文件，请点「在浏览器中打开」手动下载。", "No direct download is available for this release. Use \"Open in browser\" to download it manually."), Theme.Warn);
         }
         else
         {
@@ -204,7 +214,7 @@ internal sealed class UpdateForm : Form
         _browserButton.Enabled = false;
         _progressBar.Visible = true;
         _progressBar.Value = 0;
-        SetStatus(Loc.L("正在连接下载服务器…", "Connecting to the download server..."), Color.Gray);
+        SetStatus(Loc.L("正在连接下载服务器…", "Connecting to the download server..."), Theme.Muted);
 
         var progress = new Progress<UpdateDownloader.DownloadProgress>(OnDownloadProgress);
         var result = await UpdateDownloader.DownloadAsync(_asset, _info.Version, progress, _cts.Token);
@@ -233,7 +243,7 @@ internal sealed class UpdateForm : Form
 
     private void OnDownloadProgress(UpdateDownloader.DownloadProgress progress)
     {
-        if (IsDisposed) return;
+        if (IsDisposed || Disposing || _state != DownloadState.Downloading) return;
         var percent = progress.Total > 0
             ? (int)Math.Clamp(progress.Received * 100 / progress.Total, 0, 100)
             : 0;
@@ -243,7 +253,7 @@ internal sealed class UpdateForm : Form
         _statusLabel.Text = progress.Total > 0
             ? Loc.L($"正在下载… {percent}%（{receivedMb:F1} / {totalMb:F1} MB）", $"Downloading... {percent}% ({receivedMb:F1} / {totalMb:F1} MB)")
             : Loc.L($"正在下载… {receivedMb:F1} MB", $"Downloading... {receivedMb:F1} MB");
-        _statusLabel.ForeColor = Color.Gray;
+        _statusLabel.ForeColor = Theme.Muted;
     }
 
     private void ResetToIdle(string status, Color? color = null)
@@ -253,30 +263,30 @@ internal sealed class UpdateForm : Form
         _actionButton.Enabled = true;
         _browserButton.Enabled = true;
         _progressBar.Visible = false;
-        SetStatus(status, color ?? Color.Gray);
+        SetStatus(status, color ?? Theme.Muted);
     }
 
     private void SetDoneState(bool alreadyExisted)
     {
         _state = DownloadState.Done;
-        _actionButton.Text = _canAutoUpdate ? Loc.L("立即更新", "Update now") : Loc.L("退出并打开文件夹", "Exit & open folder");
+        _actionButton.Text = _canAutoUpdate ? Loc.L("立即更新", "Update now") : Loc.L("退出并打开文件夹", "Exit and open folder");
         _actionButton.Enabled = true;
         _browserButton.Enabled = true;
         _progressBar.Visible = false;
-        var prefix = alreadyExisted ? Loc.L("更新包已在本地：", "Update package saved locally:") : Loc.L("已下载：", "Downloaded:");
+        var prefix = alreadyExisted ? Loc.L("更新包已在本地：", "Saved locally: ") : Loc.L("已下载：", "Downloaded: ");
         var actionHint = _canAutoUpdate
-            ? Loc.L("点「立即更新」→ 自动安装新版本，完成后自动重启。", "Click \"Update now\" — the new version installs automatically and MuSync restarts when installation finishes.")
-            : Loc.L("点「退出并打开文件夹」→ 拖过去替换旧程序即可。", "Click \"Exit & open folder\" — then drag the new file over the old one.");
+            ? Loc.L("点「立即更新」→ 自动安装新版本，完成后自动重启。", "Update now installs the new version, then restarts MuSync.")
+            : Loc.L("点「退出并打开文件夹」→ 拖过去替换旧程序即可。", "Exit, then replace the old app with the downloaded file.");
         var text = $"{prefix}{Path.GetFileName(_packagePath)}\n{actionHint}";
         if (_signatureWarning.Length > 0)
         {
             // 状态栏只有两行，放不下完整说明：这里只标一个醒目的短标记，
             // 完整说明留到"真正要运行更新包之前"再弹一次确认（见 ConfirmUnsignedPackage）。
             text = $"{prefix}{Path.GetFileName(_packagePath)}{Loc.L("（未数字签名）", " (not digitally signed)")}\n{actionHint}";
-            SetStatus(text, Color.DarkOrange);
+            SetStatus(text, Theme.Warn);
             return;
         }
-        SetStatus(text, Color.Green);
+        SetStatus(text, Theme.Ink);
     }
 
     private void SetStatus(string text, Color color)
@@ -298,13 +308,13 @@ internal sealed class UpdateForm : Form
         if (result != DialogResult.OK) return;
         try
         {
-            Process.Start(new ProcessStartInfo(
+            using var installer = Process.Start(new ProcessStartInfo(
                 // 不带 /SUPPRESSMSGBOXES：安装失败时弹出错误框，避免“程序退出后无任何提示”
-                _packagePath, "/VERYSILENT /NORESTART /FORCECLOSEAPPLICATIONS")
+                _packagePath, InstallerArguments)
             {
                 UseShellExecute = false,
                 WorkingDirectory = Path.GetDirectoryName(_packagePath) ?? ""
-            });
+            }) ?? throw new InvalidOperationException(Loc.L("安装器未启动", "The installer did not start"));
             Logger.Info("[Update] 已启动安装器，程序即将退出");
             Application.Exit();
         }
@@ -319,6 +329,8 @@ internal sealed class UpdateForm : Form
                 MessageBoxIcon.Warning);
         }
     }
+
+    internal const string InstallerArguments = "/SP- /VERYSILENT /NORESTART /MUSYNCUPDATE=1 /LOG";
 
     /// <summary>二次确认后：打开新旧两个文件夹，然后退出程序，让用户直接做替换。</summary>
     private void ExitAndOpenFolders()

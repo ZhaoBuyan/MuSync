@@ -102,7 +102,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// 内置播放器优先级顺序（**不含**浏览器媒体）。
     /// internal 供测试核对「每个播放器在数据层、默认配置、界面键表里都不缺角色」。
     /// 浏览器媒体刻意不在这里：它在 ResolveActiveState 里固定排最后，也不出现在设置页的优先级列表中
-    /// （放进来会与 SettingsForm.PlayerOrderKeys 的口径冲突）。
+    /// （放进来会与 SettingsView.PlayerOrderKeys 的口径冲突）。
     /// </summary>
     internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
     private const double JumpToleranceSeconds = 0.4;
@@ -176,6 +176,13 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// </summary>
     private int _loopGeneration;
     private bool _loopStarted;
+    private readonly object _loopLifecycleLock = new();
+    private bool _shutdownRequested;
+    private Task? _loopTask, _retiredLoopTask;
+    private Thread? _watchdogThread;
+    private readonly ManualResetEvent _watchdogStop = new(false);
+    private CancellationTokenRegistration _stopRegistration;
+    private bool _restartBlockedReported;
 
     /// <summary>请求立即重推状态（设置变化 / 重连 / 系统唤醒），并唤醒节拍等待、不必等下一拍。</summary>
     public void RequestStateRefresh()
@@ -213,19 +220,23 @@ internal class RpcManager(SteamStatusManager steamManager)
     public string? GetActiveAppDisplay() => _activeAppDisplay;
 
     /// <summary>当前生效程序对应的规则（无则 null；供主界面判定状态点颜色）。</summary>
-    public AppRule? GetActiveAppRule() => _activeAppRule;
+    public AppRule? GetActiveAppRule() => CurrentRule(_activeAppRule);
 
     /// <summary>
     /// 前台命中、但按规则不允许显示的程序（例如新发现待用户确认的程序）。
     /// 只作状态展示用：它不参与推送，<see cref="_activeAppDisplay"/> 仍为 null。
     /// </summary>
-    public AppRule? GetPendingAppRule() => _pendingAppRule;
+    public AppRule? GetPendingAppRule() => CurrentRule(_pendingAppRule);
+
+    // 保存设置会用克隆替换规则，缓存仅用于定位程序，不能作为最新规则内容返回。
+    private static AppRule? CurrentRule(AppRule? cached) => cached is null
+        ? null : Configurations.Instance.Settings.FindAppRule(cached.ExeName);
 
     /// <summary>当前生效程序的可执行文件路径（用于显示图标，可能为空）。</summary>
     public string? GetActiveAppIconPath() => _activeAppIconPath;
 
     /// <summary>当前生效程序的分类中文名（无则空串）。</summary>
-    public string GetActiveAppCategoryText() => _activeAppRule?.Category switch
+    public string GetActiveAppCategoryText() => GetActiveAppRule()?.Category switch
     {
         AppCategory.Game => Loc.L("游戏", "Game"),
         AppCategory.Work => Loc.L("工作", "Work"),
@@ -345,44 +356,24 @@ internal class RpcManager(SteamStatusManager steamManager)
 
     /// <summary>
     /// 启动主循环与看门狗（立即返回，实际工作在后台）。
-    /// 主循环负责轮询与状态同步；看门狗是独立线程（只用 Thread.Sleep），
+    /// 主循环负责轮询与状态同步；看门狗是独立线程（内核等待），
     /// 发现循环停摆即写日志并重启循环（自愈）。
     /// </summary>
     public void Start(CancellationToken token = default)
     {
-        _loopCts = new CancellationTokenSource();
-        if (token.CanBeCanceled)
+        lock (_loopLifecycleLock)
         {
-            // ⚠️ 通过一个"当前 CTS"间接取消，而不是在注册时把 _loopCts 捕获成局部变量：
-            // 看门狗重启会换一份新的 CTS，若注册时捕获的是旧那份，
-            // 之后程序退出调用 token.Cancel() 就再也取消不了当前主循环 ——
-            // 表现为退出阶段主循环仍在跑（与状态清除、会话释放并发）。
-            token.Register(() =>
-            {
-                try
-                {
-                    // 读**当前**这份 CTS（看门狗重启会换新），而不是注册时捕获的那份。
-                    // 注：这里与 RestartLoop 的写入之间是"退出竞态"，
-                    // 最坏情况是取消到上一份（已随重启作废）—— 与不加这层保护的后果相当，
-                    // 不会更差；真正的正确性靠 Release 语义（引用写入是原子的）。
-                    var cts = _loopCts;
-                    cts?.Cancel();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // 退出竞态：忽略
-                }
-            });        }
-        _loopStarted = true;
-        MarkTick();
-        // 注册自定义积木的取值回调（状态合成是静态方法，通过它拿到本实例的数据源实时值）
-        SteamStatusManager.DynamicBlockResolver = CurrentDynamicBlocks;
-        LaunchLoop(_loopCts.Token);
-        new Thread(WatchdogLoop)
-        {
-            IsBackground = true,
-            Name = "MuSync.Watchdog"
-        }.Start();
+            if (_loopStarted || _shutdownRequested) return;
+            _loopStarted = true;
+            _loopCts = new CancellationTokenSource();
+            _stopRegistration = token.Register(Stop);
+            if (_shutdownRequested) return;
+            MarkTick();
+            SteamStatusManager.DynamicBlockResolver = CurrentDynamicBlocks;
+            LaunchLoop(_loopCts);
+            _watchdogThread = new Thread(WatchdogLoop) { IsBackground = true, Name = "MuSync.Watchdog" };
+            _watchdogThread.Start();
+        }
 #if MUSYNC_NO_WATCHDOG_RESTART
         Logger.Warn("[Watchdog] 【诊断构建】自愈已禁用：停摆时只记录、不重启，仅供卡死取证，请勿日常使用");
 #endif
@@ -390,10 +381,45 @@ internal class RpcManager(SteamStatusManager steamManager)
     }
 
     /// <summary>把主循环放到后台任务上跑（看门狗每次重启都会新起一份）。</summary>
-    private void LaunchLoop(CancellationToken token)
+    private void LaunchLoop(CancellationTokenSource source)
     {
+        var token = source.Token;
         var generation = Interlocked.Increment(ref _loopGeneration);
-        _ = Task.Run(() => RunLoopAsync(token, generation), token);
+        // 不把 token 交给 Task.Run：即使尚未调度就被取消，也必须执行 finally 释放 CTS 的内核句柄。
+        _loopTask = Task.Run(async () =>
+        {
+            try { await RunLoopAsync(token, generation).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            catch (Exception error) { Logger.Error($"[MuSync] 主循环退出: {error}"); }
+            finally { source.Dispose(); }
+        });
+    }
+
+    /// <summary>退出与重启共用生命周期锁，取消后不能被看门狗重新启动。</summary>
+    public void Stop()
+    {
+        Task[] pending;
+        Thread? watchdog;
+        lock (_loopLifecycleLock)
+        {
+            if (_shutdownRequested) return;
+            _shutdownRequested = true;
+            _loopStarted = false;
+            Interlocked.Increment(ref _loopGeneration);
+            try { _loopCts?.Cancel(); } catch (ObjectDisposedException) { }
+            if (_loopTask == null) _loopCts?.Dispose();
+            _ticker.Wake();
+            _watchdogStop.Set();
+            watchdog = _watchdogThread;
+            pending = new[] { _loopTask, _retiredLoopTask }.OfType<Task>().ToArray();
+            if (SteamStatusManager.DynamicBlockResolver?.Target == this) SteamStatusManager.DynamicBlockResolver = null;
+        }
+        _stopRegistration.Unregister();
+        // Join 超时则保留信号，仍在运行的看门狗可能继续等待它。
+        if (watchdog == null || watchdog != Thread.CurrentThread && watchdog.Join(1000)) _watchdogStop.Dispose();
+        // 老循环仍在不可取消的第三方 await 中时，不能提前销毁它使用的等待句柄。
+        _ = Task.WhenAll(pending).ContinueWith(_ => _ticker.Dispose(), CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
     /// <summary>
@@ -404,7 +430,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// 期间两份主循环会并存并并发读写同一批状态。因此每圈开始（以及每圈结束）都核对代际号，
     /// 发现已被取代就立即退出，把"并存窗口"从"整轮"缩短到"一个 await"。
     /// </param>
-    private async Task RunLoopAsync(CancellationToken token, int generation)
+    protected virtual async Task RunLoopAsync(CancellationToken token, int generation)
     {
         while (!token.IsCancellationRequested && Volatile.Read(ref _loopGeneration) == generation)
         {
@@ -823,7 +849,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     }
 
     /// <summary>
-    /// 看门狗线程：只用 Thread.Sleep（内核等待），既不依赖 .NET 定时器，也不依赖线程池。
+    /// 看门狗线程：使用可被退出信号唤醒的内核等待，既不依赖 .NET 定时器，也不依赖线程池。
     /// 距上一拍超过阈值 → 判定停摆，记日志并重启主循环；平时每 5 分钟写一条心跳日志。
     /// 诊断构建（-p:MuSyncNoWatchdog=true）下改为「只记录、不重启」，保留卡死现场供取证。
     /// </summary>
@@ -833,7 +859,7 @@ internal class RpcManager(SteamStatusManager steamManager)
         {
             try
             {
-                Thread.Sleep(StabilityConfig.WatchdogPollInterval);
+                if (_watchdogStop.WaitOne(StabilityConfig.WatchdogPollInterval)) return;
                 var loopCts = _loopCts;
                 if (!_loopStarted || loopCts == null || loopCts.IsCancellationRequested) return;
                 var sinceLastTick = SinceLastTick();
@@ -857,25 +883,41 @@ internal class RpcManager(SteamStatusManager steamManager)
     }
 
     /// <summary>重启主循环（自愈）：复位心跳 → 取消旧循环 → 放掉它的节拍等待 → 新起一份。</summary>
-    private void RestartLoop(TimeSpan sinceLastTick)
+    internal void RestartLoop(TimeSpan sinceLastTick)
     {
-        var attempt = Interlocked.Increment(ref _loopRestartCount);
-        Logger.Error(
-            $"[Watchdog] 主循环停摆 {sinceLastTick.TotalSeconds:F0} 秒（阈值 {StabilityConfig.LoopStallThreshold.TotalSeconds:F0} 秒），正在重启（第 {attempt} 次）");
-        MarkTick();
-        var oldCts = _loopCts;
-        _loopCts = new CancellationTokenSource();
-        try
+        lock (_loopLifecycleLock)
         {
-            oldCts?.Cancel();
+            if (!_loopStarted || _shutdownRequested) return;
+            // 不能强制终止卡在第三方调用中的线程；最多保留一份未退出的旧循环，防止无限恢复堆积。
+            if (_retiredLoopTask is { IsCompleted: false })
+            {
+                if (!_restartBlockedReported)
+                {
+                    _restartBlockedReported = true;
+                    Logger.Error("[Watchdog] 旧循环仍未退出，暂停继续创建循环以避免线程/任务堆积；请保存诊断并重启应用");
+                }
+                return;
+            }
+            _restartBlockedReported = false;
+            var attempt = Interlocked.Increment(ref _loopRestartCount);
+            Logger.Error(
+                $"[Watchdog] 主循环停摆 {sinceLastTick.TotalSeconds:F0} 秒（阈值 {StabilityConfig.LoopStallThreshold.TotalSeconds:F0} 秒），正在重启（第 {attempt} 次）");
+            MarkTick();
+            var oldCts = _loopCts;
+            _retiredLoopTask = _loopTask;
+            _loopCts = new CancellationTokenSource();
+            try
+            {
+                oldCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // 忽略
+            }
+            _ticker.Wake();
+            LaunchLoop(_loopCts);
+            Logger.Info("[Watchdog] 主循环已重启");
         }
-        catch (ObjectDisposedException)
-        {
-            // 忽略
-        }
-        _ticker.Wake();
-        LaunchLoop(_loopCts.Token);
-        Logger.Info("[Watchdog] 主循环已重启");
     }
 
 #if MUSYNC_NO_WATCHDOG_RESTART
@@ -1481,8 +1523,7 @@ internal class RpcManager(SteamStatusManager steamManager)
                     // AppRuleManager.Match 返回的是 (null, false) —— 规则本身不返回。
                     // 于是这里若只看 rule，待确认状态**永远不可达**，主界面不出蓝点、只显示"未检测到程序"。
                     // 因此按 exe 名回查一次配置，把待确认的前台程序记下来。
-                    var discovered = config.Apps.FirstOrDefault(r =>
-                        r.ExeName.Equals(foreground.ExeName, StringComparison.OrdinalIgnoreCase));
+                    var discovered = config.FindAppRule(foreground.ExeName);
                     if (discovered is { Enabled: false })
                     {
                         pendingForeground = foreground;
@@ -1500,8 +1541,7 @@ internal class RpcManager(SteamStatusManager steamManager)
             }
             // 待确认程序（命中规则但不参与推送）：仅当当前没有生效程序时才作状态展示用
             _pendingAppRule = !applied && pendingForeground != null && _activeAppDisplay == null
-                ? config.Apps.FirstOrDefault(r =>
-                    r.ExeName.Equals(pendingForeground.ExeName, StringComparison.OrdinalIgnoreCase))
+                ? config.FindAppRule(pendingForeground.ExeName)
                 : null;
         }
         if (previous == _activeAppDisplay) return false;

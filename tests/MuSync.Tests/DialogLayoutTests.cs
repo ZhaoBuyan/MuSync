@@ -82,7 +82,7 @@ public class DialogLayoutTests
     public void CropForm_UnsupportedImage_ThrowsSoCallerCanHandleIt()
     {
         // GDI+ 读不了的图（例如 webp）：裁剪窗口构造期就会抛，
-        // 设置页必须用 try/catch 兜住并提示用户（见 SettingsForm 的选图流程）。
+        // 设置页必须用 try/catch 兜住并提示用户（见 SettingsView 的选图流程）。
         var path = Path.Combine(Path.GetTempPath(), $"musync-test-{Guid.NewGuid():N}.webp");
         File.WriteAllText(path, "not an image");
         try

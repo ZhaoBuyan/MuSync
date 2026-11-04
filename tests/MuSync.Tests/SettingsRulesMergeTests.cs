@@ -1,5 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
+using System;
+using System.Reflection;
+using System.Windows.Forms;
 using MuSync;
 using MuSync.Models;
 using Xunit;
@@ -24,6 +27,7 @@ namespace MuSync.Tests;
 /// 现在由调用方先取快照、再用返回的合并结果整体替换，并在测试里钉住"入参不被改动"。
 /// </para>
 /// </summary>
+[Collection(LanguageSensitiveCollection.Name)]
 public class SettingsRulesMergeTests
 {
     private static AppRule Rule(string exe, string display = "", bool confirmed = true) => new()
@@ -36,13 +40,46 @@ public class SettingsRulesMergeTests
     private static string[] Names(IEnumerable<AppRule> rules) => rules.Select(r => r.ExeName).ToArray();
 
     [Fact]
+    public void ActualDeleteActionSurvivesSaveAndReloadClearsDraftDeletions()
+    {
+        var settings = Configurations.Instance.Settings;
+        var previous = settings.Apps;
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        try
+        {
+            settings.Apps = [Rule("a.exe"), Rule("b.exe")];
+            using var view = new SettingsView();
+            var type = typeof(SettingsView);
+            var grid = (DataGridView)type.GetField("_rulesGrid", flags)!.GetValue(view)!;
+            grid.ClearSelection();
+            grid.Rows[1].Selected = true;
+            type.GetMethod("RemoveButton_Click", flags)!.Invoke(view, [null, EventArgs.Empty]);
+            settings.Apps.Add(Rule("new.exe"));
+            var merge = type.GetMethod("MergeBackgroundDiscoveredRules", flags)!;
+            merge.Invoke(view, [settings]);
+            Assert.Equal(["a.exe", "new.exe"], Names(settings.Apps));
+            merge.Invoke(view, [settings]);
+            Assert.Equal(["a.exe", "new.exe"], Names(settings.Apps));
+
+            // Discard/reload starts a new draft, so an earlier removal must not leak into it.
+            settings.Apps = [Rule("b.exe")];
+            type.GetMethod("LoadSettings", flags)!.Invoke(view, null);
+            merge.Invoke(view, [settings]);
+            Assert.Equal(["b.exe"], Names(settings.Apps));
+            var removed = (HashSet<string>)type.GetField("_removedRuleNames", flags)!.GetValue(view)!;
+            Assert.Empty(removed);
+        }
+        finally { settings.Apps = previous; }
+    }
+
+    [Fact]
     public void BackgroundDiscoveredRules_AreKeptOnSave()
     {
         // 对话框里有 a.exe；对话框开着的时候后台发现了 b.exe
         var dialog = new List<AppRule> { Rule("a.exe") };
         var live = new List<AppRule> { Rule("a.exe"), Rule("b.exe") };
 
-        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsView.MergeDiscoveredRules(dialog, live);
 
         Assert.Single(kept);
         Assert.Equal("b.exe", kept[0].ExeName);
@@ -55,7 +92,7 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { Rule("a.exe") };
         var live = new List<AppRule> { Rule("a.exe"), Rule("b.exe"), Rule("c.exe"), Rule("d.exe") };
 
-        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsView.MergeDiscoveredRules(dialog, live);
 
         Assert.Equal(3, kept.Count);
         Assert.Equal(["a.exe", "b.exe", "c.exe", "d.exe"], Names(merged));
@@ -68,12 +105,31 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { Rule("a.exe") };
         var live = new List<AppRule> { Rule("a.exe"), Rule("b.exe") };
 
-        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsView.MergeDiscoveredRules(dialog, live, ["B.EXE"]);
 
-        // b.exe 在活列表里、对话框没显示过 → 会被当作"后台发现"保留（这是设计取舍：
-        // 无法区分"用户删的"与"后台新加的"，宁可保留也不静默丢数据）
-        Assert.Single(kept);
-        Assert.Equal(["a.exe", "b.exe"], Names(merged));
+        Assert.Empty(kept);
+        Assert.Equal(["a.exe"], Names(merged));
+    }
+
+    [Fact]
+    public void DeletedRulesStayDeletedAcrossSavesWithoutLosingNewDiscoveries()
+    {
+        var dialog = new[] { Rule("a.exe") };
+        var (first, discovered) = SettingsView.MergeDiscoveredRules(dialog,
+            new[] { Rule("a.exe"), Rule("b.exe"), Rule("new.exe") }, ["b.exe"]);
+        Assert.Equal(["new.exe"], Names(discovered));
+        var (second, _) = SettingsView.MergeDiscoveredRules(dialog, first, ["b.exe"]);
+        Assert.Equal(["a.exe", "new.exe"], Names(second));
+    }
+
+    [Fact]
+    public void ExplicitlyAddingRemovedRuleAgainKeepsTheNewEdits()
+    {
+        var edited = Rule("b.exe", "Added again");
+        var (merged, kept) = SettingsView.MergeDiscoveredRules(
+            new[] { edited }, new[] { Rule("B.EXE") }, ["b.exe"]);
+        Assert.Empty(kept);
+        Assert.Same(edited, Assert.Single(merged));
     }
 
     [Fact]
@@ -85,7 +141,7 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { edited };
         var live = new List<AppRule> { Rule("a.exe", "旧名字") };
 
-        var (merged, _) = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, _) = SettingsView.MergeDiscoveredRules(dialog, live);
 
         Assert.Equal("我改的名字", merged[0].DisplayName);
         Assert.Equal(AppCategory.Game, merged[0].Category);
@@ -98,7 +154,7 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { Rule("App.EXE") };
         var live = new List<AppRule> { Rule("app.exe") };
 
-        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsView.MergeDiscoveredRules(dialog, live);
 
         Assert.Empty(kept);
         Assert.Single(merged);
@@ -111,7 +167,7 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule> { Rule("a.exe"), Rule("b.exe") };
         var live = new List<AppRule> { Rule("a.exe") };
 
-        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsView.MergeDiscoveredRules(dialog, live);
 
         Assert.Empty(kept);
         Assert.Equal(["a.exe", "b.exe"], Names(merged));
@@ -124,7 +180,7 @@ public class SettingsRulesMergeTests
         var dialog = new List<AppRule>();
         var live = new List<AppRule> { Rule("auto.exe") };
 
-        var (merged, kept) = SettingsForm.MergeDiscoveredRules(dialog, live);
+        var (merged, kept) = SettingsView.MergeDiscoveredRules(dialog, live);
 
         Assert.Single(kept);
         Assert.Equal(["auto.exe"], Names(merged));
@@ -140,7 +196,7 @@ public class SettingsRulesMergeTests
         var dialogBefore = Names(dialog);
         var liveBefore = Names(live);
 
-        SettingsForm.MergeDiscoveredRules(dialog, live);
+        SettingsView.MergeDiscoveredRules(dialog, live);
 
         Assert.Equal(dialogBefore, Names(dialog));
         Assert.Equal(liveBefore, Names(live));
@@ -150,7 +206,7 @@ public class SettingsRulesMergeTests
     public void Merge_AcceptsSnapshotArray()
     {
         // 调用方传的是 ToArray() 快照（只读接口），合并必须照样工作
-        var (merged, kept) = SettingsForm.MergeDiscoveredRules(
+        var (merged, kept) = SettingsView.MergeDiscoveredRules(
             new[] { Rule("a.exe") },
             new[] { Rule("a.exe"), Rule("b.exe") });
 

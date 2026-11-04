@@ -364,14 +364,14 @@ internal class SteamSessionManager : IDisposable
     {
         if (_steamClient == null)
         {
-            LoginError = "Steam 客户端未初始化";
+            LoginError = Loc.L("Steam 连接尚未初始化", "The Steam connection is not initialized");
             return false;
         }
         if (!IsConnected)
         {
             if (!WaitForConnection())
             {
-                LoginError = "无法连接到 Steam 服务器";
+                LoginError = Loc.L("无法连接到 Steam 服务器", "Could not connect to the Steam servers");
                 return false;
             }
         }
@@ -383,7 +383,7 @@ internal class SteamSessionManager : IDisposable
         // 但此前只有令牌路径拿了锁）。
         if (!await _loginGate.WaitAsync(0).ConfigureAwait(false))
         {
-            LoginError = "已有登录流程在进行，请稍候重试";
+            LoginError = Loc.L("已有登录流程在进行，请稍候重试", "A sign-in is already in progress. Please wait.");
             Logger.Info("[SteamSession] 已有登录流程在跑，本次账号密码登录未发起");
             return false;
         }
@@ -440,7 +440,7 @@ internal class SteamSessionManager : IDisposable
             }
             if (waitResult == LogOnWaitResult.Timeout)
             {
-                LoginError = "登录超时";
+                LoginError = Loc.L("登录超时", "Sign-in timed out");
             }
             return false;
         }
@@ -454,8 +454,8 @@ internal class SteamSessionManager : IDisposable
         catch (Exception ex)
         {
             LoginError = ex is AsyncJobFailedException
-                ? "登录流程被中断，请重试"
-                : $"登录异常: {ex.Message}";
+                ? Loc.L("登录流程被中断，请重试", "Sign-in was interrupted. Please try again.")
+                : Loc.L($"登录异常: {ex.Message}", $"Sign-in error: {ex.Message}");
             Debug.WriteLine($"[SteamSession] {LoginError}");
             Logger.Error($"[SteamSession] {LoginError}");
             return false;
@@ -561,14 +561,14 @@ internal class SteamSessionManager : IDisposable
     {
         if (_steamClient == null)
         {
-            LoginError = "Steam 客户端未初始化";
+            LoginError = Loc.L("Steam 连接尚未初始化", "The Steam connection is not initialized");
             return false;
         }
         if (!IsConnected)
         {
             if (!WaitForConnection())
             {
-                LoginError = "无法连接到 Steam 服务器";
+                LoginError = Loc.L("无法连接到 Steam 服务器", "Could not connect to the Steam servers");
                 return false;
             }
         }

@@ -243,9 +243,9 @@ public class BrowserExtensionBridgeTests
     // ---- 设置页接线：控件与那句提示必须在 ----
 
     [Fact]
-    public void SettingsPage_ExposesExtensionControlsAndWinAHint()
+    public void SettingsPage_ExposesExtensionControlsAndMediaHint()
     {
-        using var form = new SettingsForm();
+        using var form = new SettingsView();
         var all = new System.Collections.Generic.List<System.Windows.Forms.Control>();
         var stack = new System.Collections.Generic.Stack<System.Windows.Forms.Control>();
         stack.Push(form);
@@ -259,8 +259,8 @@ public class BrowserExtensionBridgeTests
         // 扩展现在有独立分组（复选框文案只是"启用"），所以查分组标题
         Assert.Contains(all.OfType<System.Windows.Forms.GroupBox>(), g => g.Text.Contains("浏览器扩展"));
         Assert.Contains(all.OfType<System.Windows.Forms.Button>(), b => b.Text.Contains("获取扩展"));
-        // 那句提示是这条路线的"为什么"：用户按 Win+A 没控件时才知道该装扩展
-        Assert.Contains(all.OfType<System.Windows.Forms.Label>(), l => l.Text.Contains("Win+A"));
+        // 提示解释扩展的用途，不把特定 Windows 快捷键当成可靠的播放状态检测。
+        Assert.Contains(all.OfType<System.Windows.Forms.Label>(), l => l.Text.Contains("系统媒体控件") && l.Text.Contains("共享令牌"));
         // 端口输入框存在且有默认值
         Assert.Contains(all.OfType<System.Windows.Forms.TextBox>(), t => t.Text == "47564");
     }

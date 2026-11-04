@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -21,6 +21,7 @@ internal class BackgroundCropForm : Form
 
     public BackgroundCropForm(string imagePath, double[]? currentCrop)
     {
+        Theme.BeginForm(this);
         Text = Loc.L("裁剪背景图", "Crop background image");
         Size = new Size(880, 640);
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -41,8 +42,8 @@ internal class BackgroundCropForm : Form
 
         _pictureBox = new PictureBox
         {
-            Location = new Point(12, 12),
-            Size = new Size(ClientSize.Width - 24, ClientSize.Height - 96),
+            Location = new Point(16, 16),
+            Size = new Size(ClientSize.Width - 32, ClientSize.Height - 112),
             SizeMode = PictureBoxSizeMode.Zoom,
             Image = _image,
             BackColor = Color.FromArgb(32, 32, 32),
@@ -55,30 +56,30 @@ internal class BackgroundCropForm : Form
 
         var hint = new Label
         {
-            Location = new Point(12, ClientSize.Height - 74),
-            Size = new Size(ClientSize.Width - 24, 20),
+            Location = new Point(16, ClientSize.Height - 88),
+            Size = new Size(ClientSize.Width - 32, 24),
             ForeColor = Color.Gray,
             Text = Loc.L("在图上拖动画框选择要显示的区域；不画框 = 用整张图。", "Drag on the image to select the area to show; no selection = use the whole image.")
         };
-        var resetButton = new Button
+        var resetButton = new CueButton
         {
-            Text = Loc.L("重画", "Reset"),
-            Location = new Point(ClientSize.Width - 300, ClientSize.Height - 46),
-            Size = new Size(90, 30),
+            Text = Loc.L("重画", "Reset crop"),
+            Location = new Point(ClientSize.Width - 320, ClientSize.Height - 48),
+            Size = new Size(96, 32),
             BackColor = Color.White
         };
-        var okButton = new Button
+        var okButton = new CueButton
         {
             Text = Loc.L("确定", "OK"),
-            Location = new Point(ClientSize.Width - 200, ClientSize.Height - 46),
-            Size = new Size(90, 30),
+            Location = new Point(ClientSize.Width - 112, ClientSize.Height - 48),
+            Size = new Size(96, 32),
             BackColor = Color.White
         };
-        var cancelButton = new Button
+        var cancelButton = new CueButton
         {
             Text = Loc.L("取消", "Cancel"),
-            Location = new Point(ClientSize.Width - 100, ClientSize.Height - 46),
-            Size = new Size(90, 30),
+            Location = new Point(ClientSize.Width - 216, ClientSize.Height - 48),
+            Size = new Size(96, 32),
             BackColor = Color.White,
             DialogResult = DialogResult.Cancel
         };
@@ -97,6 +98,12 @@ internal class BackgroundCropForm : Form
         Controls.AddRange([_pictureBox, hint, resetButton, okButton, cancelButton]);
         AcceptButton = okButton;
         CancelButton = cancelButton;
+        Font = Theme.Body;
+        Theme.Apply(this);
+        Theme.PolishFields(this);
+        _pictureBox.BackColor = Theme.Inset;
+        Theme.Primary(okButton);
+        Theme.EndForm(this);
 
         // 已有裁剪区时显示出来（便于微调）
         Load += (_, _) => RestoreSelection();

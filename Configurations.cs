@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -20,6 +21,17 @@ internal enum SyncSpeedLevel
 /// <summary>配置数据模型：config.json 的全部设置字段（同步 / 外观 / 程序规则 / 语言等）。</summary>
 internal class ConfigData
 {
+    internal object AppsSync { get; } = new();
+    /// <summary>锁内复制集合；返回新数组，元素仍是活规则引用，只供读取。编辑时须另行克隆。</summary>
+    internal AppRule[] SnapshotAppRules()
+    {
+        lock (AppsSync) return Apps.ToArray();
+    }
+    internal AppRule? FindAppRule(string exeName)
+    {
+        lock (AppsSync) return Apps.FirstOrDefault(rule => rule.ExeName.Equals(exeName, StringComparison.OrdinalIgnoreCase));
+    }
+    public string UiTheme { get; set; } = "fog";
     /// <summary>进度同步频率档位（快速 0.25s / 标准 0.5s / 省流 1s）。</summary>
     public SyncSpeedLevel SyncSpeed { get; set; } = SyncSpeedLevel.Standard;
     public bool AutoStart { get; set; }
@@ -62,6 +74,7 @@ internal class ConfigData
 
     /// <summary>外观：主界面字号（0 = 默认）。</summary>
     public float AppearanceFontSize { get; set; }
+    public int AppearanceFontStyle { get; set; }
 
     /// <summary>外观：主界面背景色（ARGB；null = 默认）。</summary>
     public int? AppearanceBackgroundColorArgb { get; set; }
@@ -131,7 +144,7 @@ internal class ConfigData
     public string BrowserExtensionToken { get; set; } = "";
     /// <summary>
     /// 音乐播放器优先级顺序（NetEase/Tencent/LxMusic/KuGou/TTPlayer；正在播放的始终优先于暂停的）。
-    /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsForm.PlayerOrderKeys</c> 一致：
+    /// 默认值必须与 <c>RpcManager.DefaultPlayerOrder</c>、<c>SettingsView.PlayerOrderKeys</c> 一致：
     /// 三处口径不同时运行期靠 Concat(Distinct) 补齐不会出错，但读代码的人会被绊住。
     /// </summary>
     public List<string> PlayerPriority { get; set; } = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser"];
@@ -271,7 +284,9 @@ internal class Configurations
         }
         try
         {
-            var node = JsonSerializer.SerializeToNode(Settings, ConfigJson.Options);
+            var settings = Settings;
+            JsonNode? node;
+            lock (settings.AppsSync) node = JsonSerializer.SerializeToNode(settings, ConfigJson.Options);
             if (node is JsonObject root)
             {
                 ProtectField(root, nameof(ConfigData.SteamRefreshToken));

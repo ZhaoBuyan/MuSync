@@ -3,8 +3,10 @@ namespace MuSync.Utils;
 /// <summary>界面语言入口（本地化）：内联中英文案，按配置切换；切换后重启生效。</summary>
 internal static class Loc
 {
+    private static int? _startupLanguage;
+    internal static void InitializeForCurrentProcess() => _startupLanguage = Configurations.Instance.Settings.Language;
     /// <summary>当前是否英文界面（配置 Language：0 = 中文、1 = English）。</summary>
-    public static bool IsEnglish => Configurations.Instance.Settings.Language == 1;
+    public static bool IsEnglish => (_startupLanguage ?? Configurations.Instance.Settings.Language) == 1;
 
     /// <summary>按当前语言取文案：L(中文, English)。</summary>
     public static string L(string zh, string en) => IsEnglish ? en : zh;

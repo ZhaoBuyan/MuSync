@@ -10,7 +10,7 @@ namespace MuSync.Tests;
 /// 播放器接入的「角色完整性」守卫。
 /// <para>
 /// 为什么需要它：播放器信息散落在五处 —— <c>RpcManager.DefaultPlayerOrder</c>（数据层）、
-/// <c>ConfigData.PlayerPriority</c>（默认配置）、<c>SettingsForm.PlayerOrderKeys</c>（设置页键表）、
+/// <c>ConfigData.PlayerPriority</c>（默认配置）、<c>SettingsView.PlayerOrderKeys</c>（设置页键表）、
 /// <c>MainForm._playerKeys</c> + <c>MainForm._playerColors</c>（界面）、<c>Loc.PlayerName</c>（显示名映射）。
 /// 本测试把它们钉成"必须同时存在"。
 /// </para>
@@ -33,7 +33,7 @@ public class PlayerRegistryTests
         // 三处口径必须一致：默认配置的优先级列表 == 数据层内置顺序 == 设置页键表
         var configDefault = new ConfigData().PlayerPriority;
         Assert.Equal(RpcManager.DefaultPlayerOrder, configDefault);
-        Assert.Equal(RpcManager.DefaultPlayerOrder, SettingsForm.PlayerOrderKeys);
+        Assert.Equal(RpcManager.DefaultPlayerOrder, SettingsView.PlayerOrderKeys);
     }
 
     [Fact]

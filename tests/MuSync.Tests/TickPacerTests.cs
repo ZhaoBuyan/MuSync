@@ -13,7 +13,7 @@ public class TickPacerTests
     [Fact]
     public void Wait_NotWoken_ReturnsFalseAfterDelay()
     {
-        var pacer = new TickPacer();
+        using var pacer = new TickPacer();
         var sw = Stopwatch.StartNew();
         var woken = pacer.Wait(TimeSpan.FromMilliseconds(120), CancellationToken.None);
         sw.Stop();
@@ -25,7 +25,7 @@ public class TickPacerTests
     [Fact]
     public async Task Wait_WokenWhileWaiting_ReturnsTrueEarly()
     {
-        var pacer = new TickPacer();
+        using var pacer = new TickPacer();
         var wakeTask = Task.Run(() =>
         {
             Thread.Sleep(80);
@@ -43,7 +43,7 @@ public class TickPacerTests
     public void Wait_WakeBeforeWait_TakesEffectImmediately()
     {
         // 设置变化 / 重连正好发生在两拍之间：唤醒信号不许丢，下一拍立刻开始
-        var pacer = new TickPacer();
+        using var pacer = new TickPacer();
         pacer.Wake();
         var sw = Stopwatch.StartNew();
         var woken = pacer.Wait(TimeSpan.FromSeconds(30), CancellationToken.None);
@@ -55,7 +55,7 @@ public class TickPacerTests
     [Fact]
     public void Wait_AlreadyCanceled_Throws()
     {
-        var pacer = new TickPacer();
+        using var pacer = new TickPacer();
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         Assert.Throws<OperationCanceledException>(() => pacer.Wait(TimeSpan.FromSeconds(30), cts.Token));
@@ -64,7 +64,7 @@ public class TickPacerTests
     [Fact]
     public async Task Wait_CanceledWhileWaiting_Throws()
     {
-        var pacer = new TickPacer();
+        using var pacer = new TickPacer();
         using var cts = new CancellationTokenSource();
         var cancelTask = Task.Run(() =>
         {

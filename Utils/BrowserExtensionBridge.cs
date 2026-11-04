@@ -127,7 +127,7 @@ internal static class BrowserExtensionBridge
         if (port is < 1 or > 65535)
         {
             Stop();
-            lock (Gate) { _lastError = $"端口非法：{port}"; }
+            lock (Gate) { _lastError = Loc.L($"端口非法：{port}", $"Invalid port: {port}"); }
             Logger.Warn($"[浏览器扩展] 端口非法（{port}），已跳过监听");
             return;
         }
@@ -196,7 +196,7 @@ internal static class BrowserExtensionBridge
             {
                 _listener = null;
                 _port = port;
-                _lastError = lastError?.Message ?? "未知错误";
+                _lastError = lastError?.Message ?? Loc.L("未知错误", "Unknown error");
             }
             Logger.Warn($"[浏览器扩展] 监听 127.0.0.1:{port} 失败（已重试 3 次）：{lastError?.Message}。" +
                         $"60 秒后会再试；也可以换一个端口。");
@@ -702,7 +702,7 @@ internal static class BrowserExtensionBridge
             var title = _latest.Title.Length > 12 ? _latest.Title[..12] + "…" : _latest.Title;
             return age <= 5
                 ? Loc.L($"收到：{title}", $"Receiving: {title}")
-                : Loc.L($"已停止（{age:F0} 秒前）", $"Stopped ({age:F0}s ago)");
+                : Loc.L($"上次上报：{age:F0} 秒前", $"Last report: {age:F0}s ago");
         }
     }
 }

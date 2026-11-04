@@ -81,17 +81,20 @@ dotnet run --project MuSync.csproj -c Debug
 
 ### 界面（UI）重构的约定
 
-界面目前能用、但不够好看，**信息层次**尤其需要改进。欢迎改，但方向上有明确取舍：
+界面采用主窗口内切页与统一主题，欢迎改进信息层次、可读性和响应速度。
+The UI uses in-window page switching and shared themes. Improvements to hierarchy, readability and responsiveness are welcome.
 
 **要这样**：
 
-- 用 **Windows 原生窗口与控件**（`GroupBox`、`TabControl`、`TableLayoutPanel`、原生字体与间距）
+- 保留 Windows 窗口、输入和辅助功能语义，允许必要的轻量自绘；设置使用 `UserControl` 页面
+- Preserve Windows window/input/accessibility behavior; lightweight custom painting is allowed, and settings use a `UserControl` view
 - 靠**左导航、分组、间距、字号层级**把信息摆清楚
 - 保持现有的功能与快捷键不变，只改呈现
 
 **不要这样**：
 
-- 不要自绘边框 / 圆角 / 阴影，不要引入第三方 UI 库（如 Material、Antd 之类）来换观感
+- 不要引入整套重型 UI 库或持续动画来换观感；颜色使用共享主题，检查亮暗对比与 DPI
+- Avoid heavyweight UI frameworks and continuous animation; use shared theme colors and check light/dark contrast and DPI
 - 不要把设置窗口重写成"卡片流"式布局
 - 不要为了好看去掉功能入口（尤其是诊断类入口，它们是排障用的）
 

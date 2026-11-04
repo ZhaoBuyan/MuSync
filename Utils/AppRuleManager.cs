@@ -21,14 +21,15 @@ internal static class AppRuleManager
     /// 调用方应保持现状不动（不清状态、不切换）。
     /// </summary>
     public static (AppRule? Rule, bool IsIgnored) Match(ForegroundAppInfo app, ConfigData config)
+        => Match(app, config, static () => Configurations.Instance.Save());
+
+    internal static (AppRule? Rule, bool IsIgnored) Match(ForegroundAppInfo app, ConfigData config, Action persist)
     {
         if (AppClassifier.IsBuiltInIgnored(app.ExeName)) return (null, true);
-        var rule = config.Apps.FirstOrDefault(r =>
-            r.ExeName.Equals(app.ExeName, StringComparison.OrdinalIgnoreCase));
-        if (rule != null)
+        lock (config.AppsSync)
         {
-            if (rule.Category == AppCategory.Ignore) return (null, true);
-            return rule.Enabled ? (rule, false) : (null, false);
+            var rule = config.Apps.FirstOrDefault(r => r.ExeName.Equals(app.ExeName, StringComparison.OrdinalIgnoreCase));
+            if (rule != null) return MatchExisting(rule);
         }
         // 自动发现：本地分类器给初步分类与显示名
         // 带上 exe 路径：未收录的程序优先用文件版本信息里的产品名当建议名，比 "xxx.exe" 好认
@@ -43,8 +44,13 @@ internal static class AppRuleManager
             Enabled = fromDictionary,
             IsUserConfirmed = false
         };
-        config.Apps.Add(newRule);
-        Configurations.Instance.Save();
+        lock (config.AppsSync)
+        {
+            var existing = config.Apps.FirstOrDefault(r => r.ExeName.Equals(app.ExeName, StringComparison.OrdinalIgnoreCase));
+            if (existing != null) return MatchExisting(existing);
+            config.Apps.Add(newRule);
+        }
+        persist(); // 不持集合锁等待保存/磁盘写入。
         Logger.Info(fromDictionary
             ? $"[AppSync] 自动识别程序 {app.ExeName} -> {suggestedName}（{category}）"
             : $"[AppSync] 发现新程序 {app.ExeName}（建议 {category}/{suggestedName}），待用户确认");
@@ -52,6 +58,9 @@ internal static class AppRuleManager
             ? (newRule, false)
             : (null, false);
     }
+
+    private static (AppRule? Rule, bool IsIgnored) MatchExisting(AppRule rule) =>
+        rule.Category == AppCategory.Ignore ? (null, true) : rule.Enabled ? (rule, false) : (null, false);
 
     /// <summary>该规则当前是否允许显示（分类策略 + 单程序覆盖 + 总开关）。</summary>
     public static bool IsAllowedToDisplay(AppRule rule, ConfigData config)
@@ -94,13 +103,14 @@ internal static class AppRuleManager
     /// <summary>查找"运行即显示"模式下正在运行的规则（每 5 秒扫描一次进程，开销可控）。</summary>
     public static AppRule? FindRunningAlwaysRule(ConfigData config, DateTime nowUtc)
     {
+        // SyncRoot 只串行化本扫描器；进程检查不持 AppsSync，且受五秒间隔限制。
         lock (SyncRoot)
         {
             if (nowUtc - _lastAlwaysScan >= AlwaysScanInterval)
             {
                 _lastAlwaysScan = nowUtc;
                 _cachedAlwaysExe = null;
-                foreach (var rule in config.Apps)
+                foreach (var rule in config.SnapshotAppRules())
                 {
                     if (!rule.Enabled || rule.Mode != AppSyncMode.Always) continue;
                     if (!IsAllowedToDisplay(rule, config)) continue;
@@ -120,8 +130,9 @@ internal static class AppRuleManager
                 }
             }
             if (_cachedAlwaysExe == null) return null;
-            return config.Apps.FirstOrDefault(r =>
-                r.ExeName.Equals(_cachedAlwaysExe, StringComparison.OrdinalIgnoreCase));
+            var cached = config.FindAppRule(_cachedAlwaysExe);
+            return cached is not null && cached.Enabled && cached.Mode == AppSyncMode.Always &&
+                IsAllowedToDisplay(cached, config) ? cached : null;
         }
     }
 }

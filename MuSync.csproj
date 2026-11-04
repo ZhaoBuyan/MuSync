@@ -76,6 +76,7 @@
         <Compile Remove="reference-yySync\**\*.cs" />
         <None Remove="reference-yySync\**" />
         <Compile Remove="tests\**\*.cs" />
+        <Compile Remove="docs\archive\**\*.cs" />
     </ItemGroup>
 
     <ItemGroup>

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using MuSync.Utils;
 using Xunit;
@@ -10,7 +11,7 @@ namespace MuSync.Tests;
 
 /// <summary>
 /// 英文界面漏中文守卫：把语言切到 English，真实构造窗体，遍历所有可见文案断言不含中日韩字符。
-/// 这条守卫的由来：`SettingsForm.cs` 的「变量：{app}…」提示行曾是硬编码中文，英文界面直接露中文。
+/// 这条守卫的由来：`SettingsView.cs` 的「变量：{app}…」提示行曾是硬编码中文，英文界面直接露中文。
 /// 与源码正则扫描相比，走真实控件树天然跨行感知——`new Label { Text = Loc.L(第一行, 第二行) }`
 /// 这类跨行写法只要真的取了英文就不会误报（源码扫描踩过的坑）。
 /// ⚠️ 本类会临时改全局语言，必须与其它语言敏感测试串行（见 <see cref="LanguageSensitiveCollection"/>）。
@@ -37,7 +38,7 @@ public class EnglishUiGuardTests : IDisposable
         if (string.IsNullOrEmpty(text)) return false;
         // 路径类文案跳过：诊断行会显示配置目录，Windows 用户名本身可能是中文
         // （例如 C:\Users\赵不言\AppData\Local\MuSync），那是用户自己的名字，不是漏译。
-        if (text.Contains('\\', StringComparison.Ordinal) || text.Contains('/', StringComparison.Ordinal)) return false;
+        text = Regex.Replace(text, @"(?:[A-Za-z]:\\|\\\\)[^\r\n]*", "");
         foreach (var ch in text)
         {
             if ((ch >= '\u4E00' && ch <= '\u9FFF') ||
@@ -55,7 +56,7 @@ public class EnglishUiGuardTests : IDisposable
     /// <para>
     /// ⚠️ 跳过"承载用户内容的输入框"：格式模板与数据源名是**用户自己写的**（模板里当然可以出现
     /// 中文积木名，比如 <c>{心率}</c>），它们不是界面文案，不该由漏译守卫来判。
-    /// 只跳过这几类输入控件，Label / 按钮 / 页签等界面文案照常检查。
+    /// 输出预览同样承载用户模板内容；其余 Label / 按钮 / 页签等界面文案照常检查。
     /// </para>
     /// </summary>
     private static List<string> CollectVisibleText(Control root)
@@ -82,10 +83,13 @@ public class EnglishUiGuardTests : IDisposable
 
     /// <summary>
     /// 是否是"承载用户自由内容"的输入框（格式模板 / 数据源名）。
-    /// 判据用**控件名**（SettingsForm 里这几个字段是具名赋值的），而不是猜文本内容。
+    /// 判据用**控件名**（SettingsView 里这几个字段是具名赋值的），而不是猜文本内容。
     /// </summary>
     private static bool IsUserContentInput(Control control)
     {
+        if (control is Button && control.Name == "AppearanceFontSelector") return true;
+        if (control is Label && control.Name == "BackgroundImageName") return true;
+        if (control is Label && control.Name is "CombinedStatusPreview" or "MusicStatusPreview") return true;
         if (control is not TextBox && control is not ComboBox) return false;
         return control.Name is "MusicFormatBox" or "ProgramFormatBox" or "CombinedFormatBox"
             or "DataSourceNameBox" or "DataSourceFormatBox" or "BlockDataSourceBox"
@@ -100,17 +104,42 @@ public class EnglishUiGuardTests : IDisposable
     }
 
     [Fact]
-    public void SettingsForm_English_NoChineseLeaked()
+    public void PathExceptionDoesNotHideUntranslatedLabelsContainingSlashes()
     {
-        using var form = new SettingsForm();
+        Assert.True(HasChinese("Not translated / 未翻译"));
+        Assert.True(HasChinese(@"配置目录: C:\Users\用户\MuSync"));
+        Assert.False(HasChinese(@"Config folder: C:\Users\用户\MuSync"));
+    }
+
+    [Fact]
+    public void UserPreviewContentIsExcludedButInterfaceLabelsAreStillChecked()
+    {
+        using var root = new Panel();
+        root.Controls.Add(new Label { Name = "CombinedStatusPreview", Text = "用户自定义内容" });
+        root.Controls.Add(new Label { Name = "MusicStatusPreview", Text = "中文歌名" });
+        root.Controls.Add(new Label { Text = "未翻译的界面标签" });
+        root.Controls.Add(new Button { Name = "CombinedStatusPreview", Text = "未翻译的按钮" });
+        root.Controls.Add(new Button { Name = "AppearanceFontSelector", Text = "用户选择的字体" });
+        var texts = CollectVisibleText(root);
+        Assert.DoesNotContain("用户自定义内容", texts);
+        Assert.DoesNotContain("中文歌名", texts);
+        Assert.Contains("未翻译的界面标签", texts);
+        Assert.Contains("未翻译的按钮", texts);
+        Assert.DoesNotContain("用户选择的字体", texts);
+    }
+
+    [Fact]
+    public void SettingsView_English_NoChineseLeaked()
+    {
+        using var form = new SettingsView();
         AssertNoChinese(CollectVisibleText(form), "设置窗");
     }
 
     [Fact]
-    public void SettingsForm_English_VariablesHintIsLocalized()
+    public void SettingsView_English_VariablesHintIsLocalized()
     {
         // 定点守卫：正是漏译过的那一行（Loc.L 跨行写法，源码扫描会误报，控件树不会）
-        using var form = new SettingsForm();
+        using var form = new SettingsView();
         var hint = CollectVisibleText(form).FirstOrDefault(t => t.Contains("{artistPart}", StringComparison.Ordinal));
         Assert.NotNull(hint);
         Assert.Contains("Variables:", hint!, StringComparison.Ordinal);

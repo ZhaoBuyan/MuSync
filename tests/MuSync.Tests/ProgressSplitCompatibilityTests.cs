@@ -109,17 +109,17 @@ public class ProgressSplitCompatibilityTests
     public void PresetNormalization_TreatsSplitFormAsDefault()
     {
         Assert.Equal("{song}{artistPart}{progress}",
-            SettingsForm.NormalizeFormatForPreset("{song}{artistPart}{bar}{time}"));
+            SettingsView.NormalizeFormatForPreset("{song}{artistPart}{bar}{time}"));
     }
 
     [Fact]
     public void PresetNormalization_KeepsOtherFormatsUnchanged()
     {
-        Assert.Equal("{song}", SettingsForm.NormalizeFormatForPreset("{song}"));
-        Assert.Equal("{app} {sep} {song}", SettingsForm.NormalizeFormatForPreset("{app} {sep} {song}"));
+        Assert.Equal("{song}", SettingsView.NormalizeFormatForPreset("{song}"));
+        Assert.Equal("{app} {sep} {song}", SettingsView.NormalizeFormatForPreset("{app} {sep} {song}"));
         // 只有"相邻的 {bar}{time}"才等价于 {progress}；中间有文字时不能归一（否则会把用户的排版也抹掉）
-        Assert.Equal("{bar} {time}", SettingsForm.NormalizeFormatForPreset("{bar} {time}"));
-        Assert.Equal("", SettingsForm.NormalizeFormatForPreset(null));
+        Assert.Equal("{bar} {time}", SettingsView.NormalizeFormatForPreset("{bar} {time}"));
+        Assert.Equal("", SettingsView.NormalizeFormatForPreset(null));
     }
 
     // ---- 拆分等价性：覆盖各种状态（审计指出原来只测了正常播放）----
@@ -271,7 +271,7 @@ public class ProgressSplitCompatibilityTests
     [Fact]
     public void BuiltInNameWarning_MentionsActualNameAndSuggestion()
     {
-        var warning = SettingsForm.BuiltInNameWarning("time");
+        var warning = SettingsView.BuiltInNameWarning("time");
 
         Assert.Contains("{time}", warning);
         Assert.Contains("{Time}", warning);   // 建议的可用拼写
@@ -280,7 +280,7 @@ public class ProgressSplitCompatibilityTests
     [Fact]
     public void BuiltInNameWarning_EmptyNameIsEmpty()
     {
-        Assert.Equal("", SettingsForm.BuiltInNameWarning(""));
+        Assert.Equal("", SettingsView.BuiltInNameWarning(""));
     }
     // ---- 设置页接线：撞名保留 + 预设当场识别（审计指出这两处原来零回归守卫）----
 
@@ -297,8 +297,8 @@ public class ProgressSplitCompatibilityTests
                 new DataSourceConfig { Enabled = true, Name = "心率", Url = "http://127.0.0.1:1/b", ValuePath = "v", Format = "{v}" }
             ];
 
-            using var form = new SettingsForm();
-            var collect = typeof(SettingsForm).GetMethod("CollectDataSources",
+            using var form = new SettingsView();
+            var collect = typeof(SettingsView).GetMethod("CollectDataSources",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var kept = ((System.Collections.IEnumerable)collect!.Invoke(form, null)!)
                 .Cast<DataSourceConfig>().Select(s => s.Name).ToList();
@@ -318,12 +318,12 @@ public class ProgressSplitCompatibilityTests
     {
         // 审计复现：编辑器把 {progress} 改写成 {bar}{time} 后，同一次会话里预设会跳成「自定义」，
         // 只有重开设置才恢复。这里直接调真实接线（OpenBlockEditor 也走它）。
-        using var form = new SettingsForm();
+        using var form = new SettingsView();
         var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
-        var music = (TextBox)typeof(SettingsForm).GetField("_musicFormatBox", flags)!.GetValue(form)!;
-        var program = (TextBox)typeof(SettingsForm).GetField("_programFormatBox", flags)!.GetValue(form)!;
-        var combined = (TextBox)typeof(SettingsForm).GetField("_combinedFormatBox", flags)!.GetValue(form)!;
-        var combo = (ComboBox)typeof(SettingsForm).GetField("_templatePresetCombo", flags)!.GetValue(form)!;
+        var music = (TextBox)typeof(SettingsView).GetField("_musicFormatBox", flags)!.GetValue(form)!;
+        var program = (TextBox)typeof(SettingsView).GetField("_programFormatBox", flags)!.GetValue(form)!;
+        var combined = (TextBox)typeof(SettingsView).GetField("_combinedFormatBox", flags)!.GetValue(form)!;
+        var combo = (ComboBox)typeof(SettingsView).GetField("_templatePresetCombo", flags)!.GetValue(form)!;
 
         // 先摆成「简洁」的三个格式框
         music.Text = "{song}{artistPart}{progress}";

@@ -70,7 +70,7 @@ public class UpdateCheckerTests
     public void SelectAsset_SinglePackage_Works()
     {
         var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync-lite.exe") };
-        var selected = UpdateChecker.SelectAsset(assets, "full", "MuSync.exe");
+        var selected = UpdateChecker.SelectAsset(assets, "lite", "MuSync-lite.exe");
         Assert.NotNull(selected);
         Assert.Equal("MuSync-lite.exe", selected!.Name);
     }
@@ -127,13 +127,32 @@ public class UpdateCheckerTests
     }
 
     [Fact]
-    public void SelectAsset_SetupEdition_MissingSetupPackage_FallsBack()
+    public void SelectAsset_SetupEdition_MissingSetupPackage_DoesNotSwitchToPortable()
     {
-        // 发行方没有提供安装器包时，也要兜底拿到可用的包
+        // 安装器缺失时走发布页，不能将安装器版替换为绿色版而丢失升级语义。
         var assets = new List<UpdateChecker.UpdateAsset> { Asset("MuSync.exe") };
         var selected = UpdateChecker.SelectAsset(assets, "setup", "MuSync.exe");
-        Assert.NotNull(selected);
-        Assert.Equal("MuSync.exe", selected!.Name);
+        Assert.Null(selected);
+    }
+
+    [Theory]
+    [InlineData("full")]
+    [InlineData("lite")]
+    public void SelectAsset_PortableEdition_DoesNotUseInstallerAsReplacement(string edition)
+    {
+        Assert.Null(UpdateChecker.SelectAsset([Asset("MuSync-Setup.exe")], edition, "MuSync-Setup.exe"));
+    }
+
+    [Fact]
+    public void SelectAsset_PortableFallbackSkipsInstallerEvenWhenItIsFirst()
+    {
+        Assert.Equal("MuSync.exe", UpdateChecker.SelectAsset([Asset("MuSync-Setup.exe"), Asset("MuSync.exe")], "lite", "renamed.exe")!.Name);
+    }
+
+    [Fact]
+    public void SelectAsset_FullEditionDoesNotLoseBundledRuntimeByFallingBackToLite()
+    {
+        Assert.Null(UpdateChecker.SelectAsset([Asset("MuSync-lite.exe")], "full", "MuSync-lite.exe"));
     }
 
     [Fact]

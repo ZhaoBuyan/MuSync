@@ -7,8 +7,8 @@ namespace MuSync.Tests;
 /// <summary>
 /// 「浏览器扩展增强」的端口/令牌落库逻辑。
 /// <para>
-/// 这组用例刻意**不**走 SettingsForm.SaveSettings：那会把整份配置（含数据源列表）按界面回写，
-/// 污染后续测试。被测的是纯函数 <see cref="SettingsForm.ApplyExtensionSettings"/>。
+/// 这组用例刻意**不**走 SettingsView.SaveSettings：那会把整份配置（含数据源列表）按界面回写，
+/// 污染后续测试。被测的是纯函数 <see cref="SettingsView.ApplyExtensionSettings"/>。
 /// </para>
 /// <para>
 /// 曾经的 bug：令牌赋值被嵌在"端口合法才保存"的 if 里 —— 端口填错时令牌一起丢失，且无任何提示。
@@ -27,7 +27,7 @@ public class ExtensionSettingsApplyTests
     {
         var settings = NewConfig();
 
-        var warning = SettingsForm.ApplyExtensionSettings(settings, " 47570 ", "abc");
+        var warning = SettingsView.ApplyExtensionSettings(settings, " 47570 ", "abc");
 
         Assert.Null(warning);
         Assert.Equal(47570, settings.BrowserExtensionPort);
@@ -45,7 +45,7 @@ public class ExtensionSettingsApplyTests
     {
         var settings = NewConfig(port: 47564, token: "");
 
-        var warning = SettingsForm.ApplyExtensionSettings(settings, portText, "  token-要保存  ");
+        var warning = SettingsView.ApplyExtensionSettings(settings, portText, "  token-要保存  ");
 
         Assert.NotNull(warning);
         Assert.Contains(Loc.L("端口需", "Port must be"), warning);
@@ -58,7 +58,7 @@ public class ExtensionSettingsApplyTests
     {
         var settings = NewConfig(token: "旧令牌");
 
-        var warning = SettingsForm.ApplyExtensionSettings(settings, "47564", "   ");
+        var warning = SettingsView.ApplyExtensionSettings(settings, "47564", "   ");
 
         Assert.Null(warning);
         Assert.Equal("", settings.BrowserExtensionToken);
@@ -70,7 +70,7 @@ public class ExtensionSettingsApplyTests
     {
         var settings = NewConfig(port: 47600);
 
-        var warning = SettingsForm.ApplyExtensionSettings(settings, "abc", "");
+        var warning = SettingsView.ApplyExtensionSettings(settings, "abc", "");
 
         Assert.NotNull(warning);
         Assert.Contains("47600", warning);

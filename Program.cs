@@ -26,6 +26,8 @@ internal static class Program
 
     /// <summary>本次启动时间（诊断信息用）。</summary>
     public static DateTime StartedAt { get; } = DateTime.Now;
+    private static int _showingFatalDialog;
+    private static long _lastFatalDialogTick = long.MinValue / 2;
 
     /// <summary>全局异常兜底：写日志（同步、最小依赖）+ 用 MessageBox 提示（不用普通窗体，防二次崩溃）。</summary>
     private static void HandleFatalException(string source, Exception? exception)
@@ -38,6 +40,10 @@ internal static class Program
         {
             // 日志失败也要继续尝试提示
         }
+        var now = Environment.TickCount64;
+        if (now - Interlocked.Read(ref _lastFatalDialogTick) < 30000 ||
+            Interlocked.CompareExchange(ref _showingFatalDialog, 1, 0) != 0) return;
+        Interlocked.Exchange(ref _lastFatalDialogTick, now);
         try
         {
             MessageBox.Show(
@@ -50,11 +56,13 @@ internal static class Program
         {
             // 提示失败时静默
         }
+        finally { Interlocked.Exchange(ref _showingFatalDialog, 0); }
     }
 
     [STAThread]
     private static void Main(string[] args)
     {
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         // 全局异常兜底（UI 线程 / 后台线程 / 未观察任务）
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) => HandleFatalException("UI 线程", e.Exception);
@@ -75,6 +83,7 @@ internal static class Program
         Utils.ExceptionProbe.Install();
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        Loc.InitializeForCurrentProcess();
         using var mutex = new Mutex(true, "MuSyncMutex", out var isNewInstance);
         if (!isNewInstance)
         {
@@ -124,7 +133,7 @@ internal static class Program
         _mainForm = new MainForm();
         // 提前创建窗口句柄：托盘驻留（窗口从未显示过）时也能从后台线程安全唤醒
         _ = _mainForm.Handle;
-        StartActivationListener(activationEvent);
+        var activationListener = StartActivationListener(activationEvent, token);
         TrayIcon = CreateTrayIcon();
         _trayIconGuard = TrayIconGuard.Attach(TrayIcon);
         TrayIcon.Visible = true;
@@ -142,12 +151,13 @@ internal static class Program
           }
           if (wantsSettings)
           {
-              using var settingsForm = new SettingsForm();
-              settingsForm.StartPosition = FormStartPosition.CenterScreen;
-              settingsForm.ShowDialog();
+              ShowMainWindow();
+              _mainForm.ShowSettings();
           }
         Application.Run();
         cts.Cancel();
+        _rpcManager.Stop();
+        activationListener.Join(1000);
         _steamManager.ClearStatus();
         _sessionManager.Dispose();
         var uptime = DateTime.Now - StartedAt;
@@ -357,6 +367,12 @@ internal static class Program
         _mainForm.Activate();
     }
 
+    private static void ShowOverviewWindow()
+    {
+        _mainForm?.ShowOverview();
+        ShowMainWindow();
+    }
+
     /// <summary>把主窗口显示并移动到鼠标所在屏幕的工作区中央。</summary>
     private static void CenterMainWindow()
     {
@@ -394,27 +410,32 @@ internal static class Program
     }
 
     /// <summary>监听「唤起窗口」通知（后台线程，收到后切回 UI 线程显示主窗口）。</summary>
-    private static void StartActivationListener(EventWaitHandle activationEvent)
+    internal static Thread StartActivationListener(EventWaitHandle activationEvent, CancellationToken token)
     {
-        _ = Task.Run(() =>
+        // 长期内核等待不占用线程池；退出信号能唤醒监听，不依赖关闭一个仍在等待的句柄。
+        var listener = new Thread(() =>
         {
-            while (true)
+            var handles = new WaitHandle[] { activationEvent, token.WaitHandle };
+            while (!token.IsCancellationRequested)
             {
                 try
                 {
-                    activationEvent.WaitOne();
+                    if (WaitHandle.WaitAny(handles) != 0 || token.IsCancellationRequested) return;
                     ShowMainWindowFromBackground();
                 }
                 catch (ObjectDisposedException)
                 {
                     return; // 程序退出中
                 }
-                catch
+                catch (Exception error)
                 {
-                    // 单次失败不退出监听
+                    Logger.Error($"[Program] 唤起监听退出: {error.Message}");
+                    return;
                 }
             }
-        });
+        }) { IsBackground = true, Name = "MuSync.Activation" };
+        listener.Start();
+        return listener;
     }
 
     /// <summary>后台线程安全地显示主窗口（必要时切回 UI 线程）。</summary>
@@ -487,12 +508,10 @@ internal static class Program
             new ToolStripSeparator(), exitMenuItem);
         showSettingsItem.Click += (_, _) =>
         {
-            using var settingsForm = new SettingsForm();
-            settingsForm.StartPosition = FormStartPosition.CenterScreen;
-            settingsForm.ShowDialog();
-            _mainForm?.ApplyAppearance();
+            ShowMainWindow();
+            _mainForm?.ShowSettings();
         };
-        showMainWindowItem.Click += (_, _) => ShowMainWindow();
+        showMainWindowItem.Click += (_, _) => ShowOverviewWindow();
         centerWindowItem.Click += (_, _) => CenterMainWindow();
         exitMenuItem.Click += (_, _) => Application.Exit();
         var notifyIcon = new NotifyIcon
@@ -517,7 +536,7 @@ internal static class Program
             if (config.EnableSteamSync && config.PauseWhenPlayingGame &&
                 GetSteamManager()?.IsRealGameActive == true)
             {
-                text = Loc.L("游戏中，音乐同步已暂停", "In a game — music sync paused");
+                text = Loc.L("游戏中，状态同步已暂停", "Playing a Steam game — status sync paused");
             }
             else if (GetSteamManager()?.ManualPause == true)
             {

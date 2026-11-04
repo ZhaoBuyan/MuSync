@@ -23,9 +23,9 @@ public class AppIconWiringTests
     }
 
     [Fact]
-    public void SettingsForm_UsesAppIcon()
+    public void SettingsUseHostWindowIcon()
     {
-        using var form = new SettingsForm();
+        using var form = new MainForm();
 
         Assert.Same(AppResource.Icon, form.Icon);
     }

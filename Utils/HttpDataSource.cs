@@ -80,7 +80,7 @@ internal sealed class HttpDataSource
     private int _refreshInFlight;
 
     /// <summary>上一次见到的配置指纹（URL / 取值 / 显示 / 间隔）。变了就立刻重置调度。</summary>
-    private string _configFingerprint = "";
+    private SourceFingerprint _configFingerprint;
 
     /// <summary>配置代际：配置一变就 +1，用于丢弃"旧配置发出的请求"回来的结果。</summary>
     private int _generation;
@@ -135,7 +135,7 @@ internal sealed class HttpDataSource
         if (Interlocked.CompareExchange(ref _refreshInFlight, 1, 0) != 0) return Display;
 
         _nextAttemptUtc = now.AddSeconds(SourceIntervalSeconds(source));
-          var snapshot = source;
+          var snapshot = fingerprint;
           // ⚠️ 代际必须在**排队前**固定下来：如果等任务真正开跑时才读 _generation，
           // 期间用户改了配置（代际已 +1），旧任务会读到新代际 → 校验全部通过，
           // 于是"旧地址的响应"被写进新配置的显示缓存里。
@@ -176,20 +176,23 @@ internal sealed class HttpDataSource
         lastSuccessUtc != DateTime.MinValue && nowUtc - lastSuccessUtc > StaleWindowFor(refreshSeconds);
 
     /// <summary>
-    /// 影响"请求与显示"的配置指纹：URL / 取值表达式 / 显示格式 / 生效刷新间隔。
+    /// 请求与显示配置的不可变快照：启用/名称/URL/取值/格式/生效间隔；逐字段比较，避免分隔符碰撞。
     /// <para>
     /// 变了就说明用户改过这条数据源，必须立刻重置调度（<c>_nextAttemptUtc</c>）并丢掉旧值 ——
     /// 否则把 3600 秒改成 1 秒后仍要等一小时，界面上却已经显示新配置。
     /// </para>
     /// </summary>
-    internal static string ConfigFingerprint(DataSourceConfig source) =>
-        string.Join("|", source.Enabled, source.Url, source.ValuePath, source.Format, SourceIntervalSeconds(source));
+    internal readonly record struct SourceFingerprint(bool Enabled, string Name, string Url,
+        string ValuePath, string Format, int RefreshSeconds);
+
+    internal static SourceFingerprint ConfigFingerprint(DataSourceConfig source) =>
+        new(source.Enabled, source.Name, source.Url, source.ValuePath, source.Format, SourceIntervalSeconds(source));
 
     private static int SourceIntervalSeconds(DataSourceConfig source) =>
         source.RefreshSeconds > 0 ? source.RefreshSeconds : 1;
 
     /// <summary>真正的网络请求（只在后台任务里跑）。</summary>
-    private async Task FetchOnceAsync(DataSourceConfig source, int generation, CancellationToken token)
+    private async Task FetchOnceAsync(SourceFingerprint source, int generation, CancellationToken token)
     {
         // 代际由调用方在**排队时**固定并传入（不能在这里重新读 _generation，否则旧任务会认领新代际）。
         // 否则"旧配置的请求"回来会把新配置的值覆盖掉，而且用户完全看不出发生了什么。
@@ -212,8 +215,8 @@ internal sealed class HttpDataSource
             if (value == null)
             {
                 Fail(string.IsNullOrWhiteSpace(source.ValuePath)
-                    ? "响应里没有取到值"
-                    : $"按表达式 \"{source.ValuePath}\" 没有取到值");
+                    ? Loc.L("响应里没有取到值", "The response contains no usable value")
+                    : Loc.L($"按表达式 \"{source.ValuePath}\" 没有取到值", $"No value found at path \"{source.ValuePath}\""));
                 return;
             }
 
@@ -222,7 +225,7 @@ internal sealed class HttpDataSource
             LastSuccessUtc = DateTime.UtcNow;
             LastError = null;
             _loggedFailure = false;
-            _nextAttemptUtc = DateTime.UtcNow.AddSeconds(SourceIntervalSeconds(source));
+            _nextAttemptUtc = DateTime.UtcNow.AddSeconds(source.RefreshSeconds);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -231,7 +234,7 @@ internal sealed class HttpDataSource
         catch (Exception ex)
         {
             if (!IsCurrentGeneration(generation)) return;
-            Fail(ex is TaskCanceledException ? "请求超时" : ex.Message);
+            Fail(ex is TaskCanceledException ? Loc.L("请求超时", "Request timed out") : ex.Message);
         }
     }
 
@@ -253,14 +256,14 @@ internal sealed class HttpDataSource
     {
         if (string.IsNullOrWhiteSpace(source.Url))
         {
-            return new ProbeResult(false, null, null, null, "地址为空");
+            return new ProbeResult(false, null, null, null, Loc.L("地址为空", "Enter a source URL"));
         }
         // 先校验 URL：坏地址（"http://"、缺 scheme、含空格）会让 HttpRequestMessage 抛框架异常，
         // 那种错误文案对用户没有意义
         if (!Uri.TryCreate(source.Url, UriKind.Absolute, out var uri) ||
             (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
-            return new ProbeResult(false, null, null, null, "地址格式不正确（需要以 http:// 或 https:// 开头）");
+            return new ProbeResult(false, null, null, null, Loc.L("地址格式不正确（需要以 http:// 或 https:// 开头）", "Enter a valid URL starting with http:// or https://"));
         }
         try
         {
@@ -276,15 +279,15 @@ internal sealed class HttpDataSource
             {
                 return new ProbeResult(false, body, null, null,
                     string.IsNullOrWhiteSpace(source.ValuePath)
-                        ? "响应里没有取到值"
-                        : $"按表达式 \"{source.ValuePath}\" 没有取到值");
+                        ? Loc.L("响应里没有取到值", "The response contains no usable value")
+                        : Loc.L($"按表达式 \"{source.ValuePath}\" 没有取到值", $"No value found at path \"{source.ValuePath}\""));
             }
             return new ProbeResult(true, body, value, ApplyDisplayFormat(source.Format, value), null);
         }
         catch (Exception ex)
         {
             return new ProbeResult(false, null, null, null,
-                ex is TaskCanceledException ? "请求超时" : ex.Message);
+                ex is TaskCanceledException ? Loc.L("请求超时", "Request timed out") : ex.Message);
         }
     }
 

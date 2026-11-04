@@ -17,6 +17,7 @@ internal static class DiagnosticsReport
         var sb = new StringBuilder();
         sb.AppendLine(Loc.L($"—— MuSync 诊断信息（{DateTime.Now:yyyy-MM-dd HH:mm:ss}）——", $"—— MuSync diagnostics ({DateTime.Now:yyyy-MM-dd HH:mm:ss}) ——"));
         AppendVersionInfo(sb);
+        sb.AppendLine(Loc.L($"界面：主题 {Theme.Palette.Id} ｜ 已捕获界面异常 {UiHealth.Failures}", $"UI: theme {Theme.Palette.Id} | caught UI errors {UiHealth.Failures}"));
         AppendSteamInfo(sb);
         AppendPlayerInfo(sb);
         AppendBrowserMediaInfo(sb);
@@ -61,7 +62,7 @@ internal static class DiagnosticsReport
         var syncState = manager?.ManualPause == true
             ? Loc.L("已手动暂停", "Paused manually")
             : manager?.IsRealGameActive == true && config.PauseWhenPlayingGame
-                ? Loc.L("真实游戏中暂停", "Paused (real game running)")
+                ? Loc.L("真实游戏中暂停", "Paused (Steam game running)")
                 : Loc.L("正常", "Normal");
         var update = Program.PendingUpdate is { } pending ? Loc.L($"已发现 {pending.Tag}", $"Found {pending.Tag}") : Loc.L("未发现", "Not found");
         sb.AppendLine(Loc.L($"同步：{syncState} ｜ 更新：{update}", $"Sync: {syncState} | update: {update}"));
@@ -165,7 +166,7 @@ internal static class DiagnosticsReport
         var speed = config.SyncSpeed switch
         {
             SyncSpeedLevel.Fast => Loc.L("快速 0.25s", "Fast 0.25s"),
-            SyncSpeedLevel.Economic => Loc.L("省流 1s", "Data saver 1s"),
+            SyncSpeedLevel.Economic => Loc.L("省流 1s", "Low frequency 1s"),
             _ => Loc.L("标准 0.5s", "Standard 0.5s")
         };
         sb.AppendLine(

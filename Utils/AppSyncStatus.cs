@@ -76,7 +76,7 @@ internal static class AppSyncStatus
         if (hasActiveAppRule && !activeAppRuleConfirmed && !activeAppRuleEnabled)
         {
             return new AppSyncStatusResult(AppSyncPanelState.PendingConfirmation,
-                Loc.L("待确认：请在设置 → 程序中确认分类", "Pending — confirm it in Settings → Apps"));
+                Loc.L("待确认：请在设置 → 程序中确认分类", "Review the category in Settings → Apps"));
         }
         if (string.IsNullOrEmpty(activeAppDisplay))
         {

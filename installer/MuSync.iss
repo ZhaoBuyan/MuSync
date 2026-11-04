@@ -39,7 +39,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-CloseApplications=force
+CloseApplications=yes
 RestartApplications=no
 SetupIconFile=..\Resources\icon.ico
 UninstallDisplayIcon={app}\MuSync.exe
@@ -50,6 +50,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
+[CustomMessages]
+chinesesimplified.MuSyncStillRunning=MuSync 仍在退出，请稍后重新运行安装器。
+english.MuSyncStillRunning=MuSync is still shutting down. Please run the installer again shortly.
 
 [Files]
 Source: "..\setup-payload\*"; DestDir: "{app}"; Flags: ignoreversion
@@ -82,5 +86,22 @@ end;
 // 静默升级完成后自动重启新版；首次静默安装不启动
 function IsSilentUpgrade: Boolean;
 begin
-  Result := WizardSilent and WasUpgradeAtStart;
+  Result := WizardSilent and (WasUpgradeAtStart or
+    (ExpandConstant('{param:MUSYNCUPDATE|0}') = '1'));
+end;
+
+// 应用内更新先等待正常退出，避免安装器在清理状态/配置时强杀旧程序。
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Attempt: Integer;
+begin
+  Result := '';
+  if ExpandConstant('{param:MUSYNCUPDATE|0}') <> '1' then Exit;
+  for Attempt := 1 to 150 do
+  begin
+    if not CheckForMutexes('MuSyncMutex') then Exit;
+    Sleep(100);
+  end;
+  if CheckForMutexes('MuSyncMutex') then
+    Result := ExpandConstant('{cm:MuSyncStillRunning}');
 end;

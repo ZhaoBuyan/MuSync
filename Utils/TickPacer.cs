@@ -9,7 +9,7 @@ namespace MuSync.Utils;
 /// 设置变化 / 重连 / 看门狗复位都能立刻唤醒，不必等满一拍。
 /// </para>
 /// </summary>
-internal sealed class TickPacer
+internal sealed class TickPacer : IDisposable
 {
     /// <summary>内核事件：Wake() 之后正在等待的（或下一次）等待立刻返回（AutoReset 由系统自动复位）。</summary>
     private readonly AutoResetEvent _signal = new(false);
@@ -38,4 +38,5 @@ internal sealed class TickPacer
         if (index == WaitHandle.WaitTimeout) return false;
         throw new OperationCanceledException(token);
     }
+    public void Dispose() => _signal.Dispose();
 }

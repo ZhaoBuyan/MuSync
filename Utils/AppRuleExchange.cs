@@ -10,7 +10,7 @@ using MuSync.Models;
 namespace MuSync.Utils;
 
 /// <summary>
-/// 程序同步规则的导入 / 导出（纯函数，不碰界面、不碰 <see cref="Configurations"/> 单例，便于单测）。
+/// 程序同步规则的导入 / 导出；不操作界面，错误提示按当前语言生成。
 /// 文件格式：JSON + 一层信封，便于以后演进：
 /// <code>{ "format": "musync-app-rules", "version": 1, "exportedAt": "&lt;ISO8601&gt;", "rules": [ ... ] }</code>
 /// 容错口径（硬要求）：文件不是 JSON / 缺 rules / 枚举串不认识 / ExeName 为空 → 跳过该条并计入「忽略」，
@@ -87,7 +87,7 @@ internal static class AppRuleExchange
         }
         catch (Exception ex)
         {
-            return new ImportResult { Error = $"读取文件失败：{ex.Message}" };
+            return new ImportResult { Error = Loc.L($"读取文件失败：{ex.Message}", $"Could not read the rules file: {ex.Message}") };
         }
 
         ImportEnvelope? envelope;
@@ -97,12 +97,12 @@ internal static class AppRuleExchange
         }
         catch (Exception ex)
         {
-            return new ImportResult { Error = $"不是有效的规则文件（JSON 解析失败）：{ex.Message}" };
+            return new ImportResult { Error = Loc.L($"不是有效的规则文件（JSON 解析失败）：{ex.Message}", $"Invalid rules file (could not parse JSON): {ex.Message}") };
         }
 
         if (envelope?.Rules == null)
         {
-            return new ImportResult { Error = "文件里没有 rules 列表，可能不是本程序导出的规则文件。" };
+            return new ImportResult { Error = Loc.L("文件里没有 rules 列表，可能不是本程序导出的规则文件。", "The file has no rules list. Select a rules file exported by MuSync.") };
         }
 
         // 信封版本校验：Version 若只写不校验，将来格式升到 2 时，
@@ -114,8 +114,8 @@ internal static class AppRuleExchange
         {
             return new ImportResult
             {
-                Error = $"这份规则文件来自更新的 MuSync（规则格式版本 {fileVersion}，" +
-                        $"本程序只认到 {FormatVersion}）。请先升级 MuSync 再导入。"
+                Error = Loc.L($"这份规则文件来自更新的 MuSync（规则格式版本 {fileVersion}，本程序只认到 {FormatVersion}）。请先升级 MuSync 再导入。",
+                    $"This file uses rules format {fileVersion}; this version supports up to {FormatVersion}. Update MuSync before importing it.")
             };
         }
 
@@ -160,7 +160,7 @@ internal static class AppRuleExchange
         };
     }
 
-    /// <summary>逐字段拷贝，避免共享引用（与 SettingsForm.CloneRule 同一口径）。</summary>
+    /// <summary>逐字段拷贝，避免共享引用（与 SettingsView.CloneRule 同一口径）。</summary>
     private static AppRule CloneRule(AppRule source) => new()
     {
         ExeName = source.ExeName,
