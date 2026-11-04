@@ -18,7 +18,7 @@
 
 ### 支持
 
-- 如果 MuSync 帮到了你、手头也宽裕，欢迎赞助一下(https://github.com/ZhaoBuyan/MuSync#supporting-the-project)。
+- 如果 MuSync 帮到了你、手头也宽裕，欢迎赞助一下：https://github.com/ZhaoBuyan/MuSync#supporting-the-project
 
 ## [0.4.16] - 2026-11-04
 
