@@ -106,7 +106,7 @@ internal class RpcManager(SteamStatusManager steamManager)
     /// 浏览器媒体刻意不在这里：它在 ResolveActiveState 里固定排最后，也不出现在设置页的优先级列表中
     /// （放进来会与 SettingsView.PlayerOrderKeys 的口径冲突）。
     /// </summary>
-    internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Spotify", "Browser"];
+    internal static readonly string[] DefaultPlayerOrder = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser", "Spotify"];
     private const double JumpToleranceSeconds = 0.4;
     private const double DebounceWindowSeconds = 1.5;
     // 进度条推送间隔：跟随用户档位（快速 0.25s / 标准 0.5s / 省流 1s）

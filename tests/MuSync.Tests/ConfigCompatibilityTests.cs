@@ -176,7 +176,7 @@ public class ConfigCompatibilityTests
         Assert.True(config.AppSyncEnabled);
         Assert.True(config.AllowWebSocketFallback);
         // 缺字段时用默认优先级（与 RpcManager.DefaultPlayerOrder 同口径，含浏览器媒体）
-        Assert.Equal(["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Spotify", "Browser"], config.PlayerPriority);
+        Assert.Equal(["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser", "Spotify"], config.PlayerPriority);
         Assert.Empty(config.Apps);
     }
 }

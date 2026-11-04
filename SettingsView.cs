@@ -122,7 +122,7 @@ internal sealed partial class SettingsView : UserControl
     private TabControl _pages = null!;
 
     /// <summary>播放器键表。internal 供测试核对「与 RpcManager.DefaultPlayerOrder / ConfigData.PlayerPriority 三处一致」。</summary>
-    internal static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Spotify", "Browser"];
+    internal static readonly string[] PlayerOrderKeys = ["NetEase", "Tencent", "LxMusic", "KuGou", "TTPlayer", "Browser", "Spotify"];
 
     internal event Action? ReturnRequested;
     internal event Action? SettingsSaved;
