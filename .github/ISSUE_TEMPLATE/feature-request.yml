@@ -1,0 +1,82 @@
+name: 功能建议 / Feature request
+description: 新播放器、新数据源或其它功能建议 / New players, data sources or other features
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        可使用中文或英文。请先确认没有同类 issue（用关键词搜一下播放器名或功能名）。
+        Chinese and English are welcome. Please search existing issues first (by player or feature name).
+
+        想加播放器的话，最省事的方式是把下面"播放器信息"填全：MuSync 能读到哪些内容，
+        取决于该播放器有没有把当前曲目暴露给 **Windows 系统媒体控件（SMTC）**。
+        For a new player, fill in the "Player information" section: what MuSync can read depends on
+        whether the player exposes the current track to **Windows system media controls (SMTC)**.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 建议类型 / Type of request
+      options:
+        - 新播放器 / New music player
+        - 新数据源 / New data source
+        - 状态模板与显示 / Status template and display
+        - 程序同步 / App sync
+        - 快捷键、托盘或启动 / Hotkeys, tray or startup
+        - 其它 / Other
+      validations:
+        required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: 想要什么 / What would you like
+      description: 一句话说清要加什么，以及它现在为什么做不到。 / What should be added, and why can't it work today.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: 使用场景 / Use case
+      description: 你在什么情况下会用到它，现在是怎么绕过的。 / When would you use it, and how do you work around it now.
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        **播放器信息 / Player information**（只是播放器相关的建议才需要 / only for player requests）
+  - type: input
+    id: player
+    attributes:
+      label: 播放器名称与版本 / Player and version
+      placeholder: Spotify 1.2.45（Microsoft Store 版 / 官网安装包）
+    validations:
+      required: false
+  - type: dropdown
+    id: smtc
+    attributes:
+      label: 是否出现在 Windows 系统媒体控件 / Does it show in Windows media controls
+      description: |
+        按一次键盘上的播放/暂停键，或打开音量浮层，看有没有该播放器的曲目卡片。
+        Press the media play/pause key, or open the volume flyout, and check whether the player's card appears.
+      options:
+        - 有，能看到曲名和封面 / Yes, title and cover are shown
+        - 有，但信息不全（没有封面或进度）/ Yes, but incomplete (no cover or progress)
+        - 没有 / No
+        - 不确定 / Not sure
+      validations:
+        required: true
+  - type: input
+    id: system
+    attributes:
+      label: Windows 版本 / Windows version
+      placeholder: Windows 11 24H2 (26100)
+    validations:
+      required: false
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: 补充 / Additional information
+      options:
+        - label: 愿意帮忙测试（我会装新版本并反馈） / I can test a build and report back
+          required: false

@@ -12,15 +12,7 @@
 
 ![MuSync 主界面](docs/ui-preview.png)
 
-## 期待 UI 优化提案
-
-界面目前能用、但不够好看，**信息层次**尤其需要改进。如果你对界面有想法，非常欢迎提出来——一张改版图、一份布局意见、或者直接一个 Pull Request 都行。
-
-我们希望的方向是：**用 Windows 原生的窗口与控件**（不自己画边框、圆角、阴影），通过左导航、分组、间距和字号层级把信息摆清楚，而不是靠自绘控件堆观感。
-
-欢迎到 [Issues](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) 聊聊（有「界面改版提案」模板），或直接提交 PR。
-
-**想动代码的请先看 [CONTRIBUTING.md](CONTRIBUTING.md)**：里面有构建与测试命令、界面改动的取舍、以及几个会浪费时间的坑（杀软误删测试程序集、产物被运行中的程序锁住等）。
+**想动代码的请先看 [CONTRIBUTING.md](CONTRIBUTING.md)**：里面有构建与测试命令，以及几个会浪费时间的坑（杀软误删测试程序集、产物被运行中的程序锁住等）。
 
 1. 从 [Releases](https://github.com/ZhaoBuyan/MuSync/releases) 下载 **MuSync.exe**（完整版，推荐——免安装单文件，双击即用）
 2. 首次启动登录 Steam（支持手机令牌 / 邮箱验证码）。若遇到「异常登录」提示，按登录窗口中的指引操作：手机 Steam App → 选择「Steam 客户端」→ 确认实际所在地
@@ -201,7 +193,7 @@ Get-FileHash .\MuSync.exe -Algorithm SHA256
   配置读取失败时程序会自动备份（`config.json.bak`）并尽量保留其余设置。日志位于 `%LocalAppData%\MuSync\logs`（设置 → 诊断 → 「打开日志文件夹」一键直达）。
 
 - **遇到问题 / 想提建议**
-  欢迎到 [GitHub Issues](https://github.com/ZhaoBuyan/MuSync/issues) 反馈；附上设置 → 诊断 → 「复制诊断信息」的内容，定位会快很多。
+  欢迎到 [GitHub Issues](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) 反馈：缺陷和功能建议各有模板，附上设置 → 诊断 → 「复制诊断信息」的内容，定位会快很多。
 
 - **如何卸载**
   安装器版：从 Windows「设置 → 应用」或开始菜单的卸载项卸载；卸载只移除程序文件，配置与日志（`%LocalAppData%\MuSync`）会保留——想彻底清理再手动删除该文件夹。完整版 / lite 版：直接删除程序文件即可。

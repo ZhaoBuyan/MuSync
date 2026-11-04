@@ -12,17 +12,7 @@ Works with NetEase Cloud Music / QQ Music / LX Music / KuGou Music / TTPlayer �
 
 ![MuSync main window](docs/ui-preview-en.png)
 
-## UI redesign proposals welcome
-
-The interface works, but it is not good looking yet, and its **visual hierarchy** needs the most work. If you have ideas, we would love to hear them. A mockup, a layout suggestion, or a pull request are all welcome.
-
-The direction we want: **use native Windows window chrome and controls**. No hand drawn borders, rounded corners or shadows. Instead, make the information readable through a left navigation pane, grouping, spacing and a clear type scale.
-
-`docs/UI-REDESIGN.md` turns that direction into concrete tokens, components and per-screen wireframes ("ON AIR 播出单"). Read it if you want to follow the same visual language; ignore it if you would rather propose something different — the two paragraphs above are the actual constraints.
-
-Open an [issue](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) to discuss (there is a "UI proposal" template), or send a PR.
-
-**Planning to touch code? Read [CONTRIBUTING.md](CONTRIBUTING.md) first** — build/test commands, the UI constraints above, and a few pitfalls that will otherwise cost you an afternoon (antivirus deleting the test assembly, the release binary being locked while running, and so on).
+**Planning to touch code? Read [CONTRIBUTING.md](CONTRIBUTING.md) first** — build/test commands and a few pitfalls that will otherwise cost you an afternoon (antivirus deleting the test assembly, the release binary being locked while running, and so on).
 
 1. Download **MuSync.exe** (full edition, recommended — a portable single file, just double-click) from [Releases](https://github.com/ZhaoBuyan/MuSync/releases)
 2. Sign in to Steam on first launch (mobile authenticator / email code supported). If you hit an "unusual login" warning, follow the in-window instructions: Steam app on your phone → select "Steam Client" → confirm your location
@@ -211,7 +201,7 @@ Get-FileHash .\MuSync.exe -Algorithm SHA256
   If config parsing fails, the app backs it up automatically (`config.json.bak`) and keeps as much as it can. Logs are in `%LocalAppData%\MuSync\logs` (Settings → Diagnostics → "Open logs folder").
 
 - **Found a problem or have a suggestion?**
-  Please open a [GitHub Issue](https://github.com/ZhaoBuyan/MuSync/issues) — attaching the output of Settings → Diagnostics → "Copy diagnostics" helps a lot.
+  Please open a [GitHub Issue](https://github.com/ZhaoBuyan/MuSync/issues/new/choose) — bug reports and feature requests have their own templates; attaching the output of Settings → Diagnostics → "Copy diagnostics" helps a lot.
 
 - **How do I uninstall MuSync?**
   Installer edition: uninstall from Windows "Settings → Apps", or via the Start Menu shortcut. The uninstaller removes the program files only — your config and logs in `%LocalAppData%\MuSync` are kept; delete that folder for a complete cleanup. Full and lite editions: just delete the program file.
