@@ -607,6 +607,11 @@ internal static class BrowserExtensionBridge
 
             _latest = snapshot;
             _lastError = "";
+            if (snapshot.SourceId.Length > 0)
+            {
+                if (snapshot.IsPlaying) LastPlayingUtc[snapshot.SourceId] = DateTime.UtcNow;
+                if (LastPlayingUtc.Count > 32) PruneLastPlaying();
+            }
             if (snapshot.Title != _lastLoggedTitle)
             {
                 _lastLoggedTitle = snapshot.Title;
@@ -625,15 +630,79 @@ internal static class BrowserExtensionBridge
     /// <summary>在位者粘性窗口：这段时间内在位者一直有新上报，就不让"同样在播的另一个页面"顶掉它。</summary>
     private static readonly TimeSpan IncumbentStickiness = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// 暂停的快照，在"最近播过"多久之内仍然算数。
+    /// <para>
+    /// 为什么需要：扩展的兜底心跳会一直上报（后台标签页约每分钟一次），所以一个"很久以前看过、
+    /// 现在只是开着忘了关"的暂停页面，会无限期占着 Steam 状态 —— 用户明明没在看，状态里却一直挂着那个视频。
+    /// 规则：暂停 + 不在前台 + 超过这个窗口没播过 → 当作没有数据（回落到系统会话或清空）。
+    /// 前台的暂停页面不受限制（用户正在看它，暂停也是当前内容）。
+    /// </para>
+    /// </summary>
+    internal static readonly TimeSpan PausedHoldAfterPlayback = TimeSpan.FromMinutes(3);
+
+    /// <summary>每个页面实例最近一次"确实在播放"的时刻（SourceId → 时刻）。表很小（页面数级），超限时清理。</summary>
+    private static readonly Dictionary<string, DateTime> LastPlayingUtc = new(StringComparer.Ordinal);
+
     /// <summary>取"足够新"的快照；超过 <paramref name="maxAge"/> 视为没有数据。</summary>
-    public static BrowserExtensionSnapshot? TryGetFresh(TimeSpan maxAge)
+    public static BrowserExtensionSnapshot? TryGetFresh(TimeSpan maxAge) => TryGetFresh(maxAge, maxAge);
+
+    /// <summary>这个快照所在页面最近是否真的播放过（前台暂停不受此限制）。</summary>
+    private static bool WasRecentlyPlaying(BrowserExtensionSnapshot snapshot)
+    {
+        if (snapshot.SourceId.Length > 0)
+        {
+            return LastPlayingUtc.TryGetValue(snapshot.SourceId, out var last)
+                   && DateTime.UtcNow - last <= PausedHoldAfterPlayback;
+        }
+        // 老版本扩展没有 SourceId：退化成"按标题记录的最近播放"，无法精确定位时保守放行，
+        // 否则老扩展的暂停显示会被误杀（这项收紧只对 1.2.1+ 生效）。
+        return true;
+    }
+
+    /// <summary>清掉"最近播放"表里过期的条目（表很小，只在超过阈值时做一次）。</summary>
+    private static void PruneLastPlaying()
+    {
+        var cutoff = DateTime.UtcNow - PausedHoldAfterPlayback - TimeSpan.FromMinutes(2);
+        var stale = new List<string>();
+        foreach (var pair in LastPlayingUtc)
+        {
+            if (pair.Value < cutoff) stale.Add(pair.Key);
+        }
+        foreach (var key in stale) LastPlayingUtc.Remove(key);
+    }
+
+    /// <summary>取"足够新"的快照，并且**播放中与暂停用不同的过期窗口**。
+    /// <para>
+    /// 为什么必须分开：扩展在页面里用 1 秒兜底心跳上报，但浏览器会把**后台标签页**的定时器
+    /// 节流到 1 分钟一次。暂停中的视频不产生 timeupdate/play 事件，于是后台暂停页面每分钟才上报一次；
+    /// 若暂停也按播放的 5 秒窗口判过期，就会出现"视频标题 → 回落到系统会话里的另一首歌 → 又变回"
+    /// 的每分钟抖动（2026-11-04 在 0.4.16 上实测复现）。
+    /// </para>
+    /// <para>
+    /// 暂停数据本来就不会自己变，容忍久一点没有副作用；播放中的页面每秒都有事件，窗口仍保持 5 秒，
+    /// 页面真关掉时能立刻回落。
+    /// </para>
+    /// </summary>
+    public static BrowserExtensionSnapshot? TryGetFresh(TimeSpan playingMaxAge, TimeSpan pausedMaxAge)
     {
         lock (Gate)
         {
             if (_latest is null) return null;
-            return DateTime.UtcNow - _latest.ReceivedUtc <= maxAge ? _latest : null;
+            if (!IsFresh(_latest.ReceivedUtc, _latest.IsPlaying, DateTime.UtcNow, playingMaxAge, pausedMaxAge))
+            {
+                return null;
+            }
+            // 暂停 + 不在前台 + 很久没播过：这是"忘了关的标签页"，不是用户此刻在听的内容
+            if (!_latest.IsPlaying && !_latest.IsVisible && !WasRecentlyPlaying(_latest)) return null;
+            return _latest;
         }
     }
+
+    /// <summary>过期判定（纯函数，便于单测）：播放中按 <paramref name="playingMaxAge"/>，暂停按 <paramref name="pausedMaxAge"/>。</summary>
+    internal static bool IsFresh(DateTime receivedUtc, bool isPlaying, DateTime nowUtc,
+        TimeSpan playingMaxAge, TimeSpan pausedMaxAge) =>
+        nowUtc - receivedUtc <= (isPlaying ? playingMaxAge : pausedMaxAge);
 
     /// <summary>当前快照的 JSON（供 <c>GET /status</c> 与设置页诊断用）。</summary>
     /// <summary>当前快照的 JSON。internal 供测试在指定区域设置下直接调用（服务端文化）。

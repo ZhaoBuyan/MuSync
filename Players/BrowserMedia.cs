@@ -280,7 +280,7 @@ internal sealed class BrowserMedia : IMusicPlayer
         // 数据超过 FreshnessSeconds 未更新就视为过期，回落到下面的 SMTC 路径。
         if (Configurations.Instance.Settings.BrowserExtensionEnabled)
         {
-            var fromExtension = BrowserExtensionBridge.TryGetFresh(ExtensionFreshness);
+            var fromExtension = BrowserExtensionBridge.TryGetFresh(ExtensionFreshness, ExtensionFreshnessPaused);
             if (fromExtension is not null) return BuildInfoFromExtension(fromExtension);
         }
 
@@ -446,7 +446,15 @@ internal sealed class BrowserMedia : IMusicPlayer
     /// 扩展上报的有效期：扩展约每秒上报一次，超过这个时长没更新就当作"已停止"，
     /// 回落到 SMTC 路径（避免视频关掉后状态永远停在最后一帧）。
     /// </summary>
+    /// <summary>扩展数据在"播放中"的有效期：页面每秒都有事件，5 秒没更新就是真的没了。</summary>
     private static readonly TimeSpan ExtensionFreshness = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// 扩展数据在"暂停中"的有效期：必须大于浏览器对后台标签页的定时器节流（约 60 秒），
+    /// 否则后台暂停的视频每分钟只有一次上报，中间 55 秒会被判过期 → 状态回落到另一首歌、
+    /// 上报到达后又切回来，表现为每分钟抖两下（2026-11-04 实测）。
+    /// </summary>
+    private static readonly TimeSpan ExtensionFreshnessPaused = TimeSpan.FromSeconds(75);
 
     /// <summary>
     /// 把扩展上报的快照转成统一模型。
