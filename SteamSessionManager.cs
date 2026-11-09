@@ -44,6 +44,19 @@ internal class SteamSessionManager : IDisposable
     /// <summary>每次 Connect 调用的等待上限：WebSocket 回退后它可能长时间不返回。</summary>
     private const int ConnectTimeoutSeconds = 20;
 
+    /// <summary>
+    /// 令牌登录等待结果的轮询次数（每次 500ms）：60 次 = 30 秒。
+    /// <para>
+    /// 以前是 360 次 = 180 秒。实测（2026-11-09）：直连 CM 能连上、但认证包回不来时，
+    /// 一次尝试会干等整整 3 分钟，三轮下来就是 9 分钟"毫无反应"；而正常登录 1~2 秒就返回。
+    /// 30 秒足够区分"网络慢"和"这条线路不通"，把等待时间还给用户。
+    /// </para>
+    /// </summary>
+    internal const int TokenLogonWaitPolls = 60;
+
+    /// <summary>令牌登录超时的连续次数：达到 2 次才换线路，避免一次抖动就拆连接。</summary>
+    private int _authTimeouts;
+
     /// <summary>监督者检查间隔。</summary>
     private const int SupervisorIntervalSeconds = 30;
 
@@ -623,6 +636,34 @@ internal class SteamSessionManager : IDisposable
         }, _cts.Token);
     }
 
+    /// <summary>
+    /// 认证超时的恢复：换一条线路重建连接。
+    /// <para>
+    /// 超时意味着"CM 连上了、但认证包回不来"（实测：直连 CM 成功、登录静默 3 分钟）。
+    /// 在同一条线路上重试几乎必然再次超时，所以连续 2 次超时后切到另一条线路
+    /// （TCP ⇄ WebSocket），并主动发起连接，让后续的认证重试在新线路上进行。
+    /// </para>
+    /// </summary>
+    private void RecoverFromAuthTimeout()
+    {
+        // 一次抖动不算：连续两次超时才认为这条线路真的不通
+        if (Interlocked.Increment(ref _authTimeouts) < 2) return;
+        Interlocked.Exchange(ref _authTimeouts, 0);
+        if (!TrySwitchProtocolIfNeeded()) return;
+        Logger.Warn($"[SteamSession] 认证在旧线路上连续超时，已切到 {_currentProtocol}，重建连接后重试");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ConnectWithTimeoutAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[SteamSession] 换线路后连接异常: {ex.Message}");
+            }
+        }, _cts.Token);
+    }
+
 
     /// <summary>
     /// 用保存的令牌登录。
@@ -683,8 +724,12 @@ internal class SteamSessionManager : IDisposable
         TokenLoginRejected = false;   // 每次令牌尝试都重新判定，避免上一轮的结论影响本轮
         _lastLogOnDetails = logOnDetails;
         _steamUser!.LogOn(logOnDetails);
-        var waitResult = await WaitForLogOnResultAsync(logOnDetails, 360);
-        if (waitResult == LogOnWaitResult.Success) return true;
+        var waitResult = await WaitForLogOnResultAsync(logOnDetails, TokenLogonWaitPolls);
+        if (waitResult == LogOnWaitResult.Success)
+        {
+            Interlocked.Exchange(ref _authTimeouts, 0);   // 登录成功：清零超时计数
+            return true;
+        }
         if (waitResult == LogOnWaitResult.Rejected && _lastLogOnResult == EResult.TryAnotherCM)
         {
             // 多次换节点仍未成功：保留令牌，等待下一轮自动重连
@@ -698,6 +743,8 @@ internal class SteamSessionManager : IDisposable
             // 不会再发起认证 —— 表现为连接正常、却一直没登录，服务恢复后也不会自愈。
             // 所以这里自己安排一条带退避的认证重试链（连接断开时它会提前退出，交回重连循环）。
             ScheduleAuthRetry();
+            // 超时说明"连接在、认证回不来"：同一条线路再试通常还是超时，连续两次就换条线路
+            if (waitResult == LogOnWaitResult.Timeout) RecoverFromAuthTimeout();
             Logger.Warn($"[SteamSession] 令牌登录未完成 ({waitResult})，保留令牌稍后自动重试");
             return false;
         }
