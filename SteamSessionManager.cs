@@ -52,7 +52,8 @@ internal class SteamSessionManager : IDisposable
     /// 30 秒足够区分"网络慢"和"这条线路不通"，把等待时间还给用户。
     /// </para>
     /// </summary>
-    internal const int TokenLogonWaitPolls = 60;
+    internal const int TokenLogonWaitPollsFirst = 20;    // 首次 10 秒：覆盖 96% 的登录（历史中位 0.82 秒）
+    internal const int TokenLogonWaitPollsRetry = 60;    // 重试 30 秒：慢但能通的线路还有机会自己成功
 
     /// <summary>令牌登录超时的连续次数：达到 2 次才换线路，避免一次抖动就拆连接。</summary>
     private int _authTimeouts;
@@ -724,7 +725,9 @@ internal class SteamSessionManager : IDisposable
         TokenLoginRejected = false;   // 每次令牌尝试都重新判定，避免上一轮的结论影响本轮
         _lastLogOnDetails = logOnDetails;
         _steamUser!.LogOn(logOnDetails);
-        var waitResult = await WaitForLogOnResultAsync(logOnDetails, TokenLogonWaitPolls);
+        // 首次快速反馈，重试给慢线路留余地（实测有 15.8 秒才登录成功的案例）
+        var polls = Volatile.Read(ref _authTimeouts) == 0 ? TokenLogonWaitPollsFirst : TokenLogonWaitPollsRetry;
+        var waitResult = await WaitForLogOnResultAsync(logOnDetails, polls);
         if (waitResult == LogOnWaitResult.Success)
         {
             Interlocked.Exchange(ref _authTimeouts, 0);   // 登录成功：清零超时计数
