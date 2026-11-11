@@ -42,7 +42,7 @@ internal class SteamSessionManager : IDisposable
     private DateTime _reconnectActivityUtc = DateTime.MinValue;
 
     /// <summary>每次 Connect 调用的等待上限：WebSocket 回退后它可能长时间不返回。</summary>
-    private const int ConnectTimeoutSeconds = 20;
+    private const int ConnectTimeoutSeconds = 12;
 
     /// <summary>
     /// 令牌登录等待结果的轮询次数（每次 500ms）：60 次 = 30 秒。
@@ -151,7 +151,9 @@ internal class SteamSessionManager : IDisposable
             var serverListCachePath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "MuSync", "cm-serverlist.json");
-            builder.WithServerListProvider(new FileStorageServerListProvider(serverListCachePath));
+            // 包一层：读到非空缓存时报告"刚刷新过"，避免每次 Connect 都去撞不可达的 Steam Directory
+            builder.WithServerListProvider(new MuSync.Utils.CachedServerListProvider(
+                new FileStorageServerListProvider(serverListCachePath)));
         });
         _steamClient = new SteamClient(configuration);
         var callbackManager = new CallbackManager(_steamClient);
