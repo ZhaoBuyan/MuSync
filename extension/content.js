@@ -16,8 +16,15 @@
   const MIN_GAP_MS = 250;          // 任何两次上报之间的最小间隔（事件可能连发）
   const PROGRESS_GAP_MS = 900;     // 进度类事件（timeupdate）的间隔：位置上没必要更密
   const FALLBACK_INTERVAL_MS = 1000;
+  // 暂停且内容没变时的保活间隔：MuSync 侧把 75 秒内的暂停数据都算有效，
+  // 所以每 30 秒报一次"还在"足够，没必要每秒重复发同一份内容。
+  const IDLE_HEARTBEAT_MS = 30000;
+  // 进度量化粒度：timeupdate 每 250ms 触发一次，但位置以 2 秒为单位变化才值得上报。
+  const POSITION_BUCKET_SECONDS = 2;
 
   let lastSentAt = 0;
+  // 上一次真正发出去的内容指纹：没变化就不发（这正是"别每秒无脑推"的关键）
+  let lastSignature = "";
   const bound = new WeakSet();
 
   // 本页面的稳定标识：同一标签即使标题/换集变化也保持不变，用来把"同站点同标题的两个标签"
@@ -102,6 +109,21 @@
       return;
     }
     if (!payload) return;   // 没有媒体（或已结束）就不上报，MuSync 侧会因超时自动清掉
+
+    // 内容指纹：标题/歌手/专辑/播放状态/前台/量化后的进度/时长/站点
+    // 目的：只在内容真的变了才发，避免"每秒推一份一模一样的数据"
+    const bucket = Math.floor((payload.position || 0) / POSITION_BUCKET_SECONDS);
+    const signature = [
+      payload.title, payload.artist, payload.album,
+      payload.playing ? 1 : 0, payload.visible ? 1 : 0,
+      bucket, Math.round(payload.duration || 0), payload.site,
+    ].join("\u0001");
+
+    const changed = signature !== lastSignature;
+    // 没变化时：播放中靠进度桶自然变化；暂停中只保留 30 秒保活
+    if (!changed && !payload.playing && now - lastSentAt < IDLE_HEARTBEAT_MS) return;
+
+    lastSignature = signature;
 
     lastSentAt = now;
     try {
