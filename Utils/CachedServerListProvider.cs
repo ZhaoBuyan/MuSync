@@ -28,7 +28,13 @@ internal sealed class CachedServerListProvider : IServerListProvider
     /// <summary>最近一次我们亲眼读到非空列表的时刻（仅在内存里，不写盘）。</summary>
     private DateTime _servedAt = DateTime.MinValue;
 
-    public CachedServerListProvider(IServerListProvider inner) => _inner = inner;
+    private readonly CmReachabilityProbe? _probe;
+
+    public CachedServerListProvider(IServerListProvider inner, CmReachabilityProbe? probe = null)
+    {
+        _inner = inner;
+        _probe = probe;
+    }
 
     /// <summary>
     /// 列表非空时报告"刚刚刷新"，阻止 SteamKit 去连不可达的 Steam Directory；
@@ -42,6 +48,18 @@ internal sealed class CachedServerListProvider : IServerListProvider
         var servers = await _inner.FetchServerListAsync().ConfigureAwait(false);
         var list = servers as IList<ServerRecord> ?? new List<ServerRecord>(servers);
         if (list.Count > 0) _servedAt = DateTime.UtcNow;
+        // 有探测器时先挑"连得上"的排前面：SteamKit 每次只试一个，挑到被墙的要等满连接超时
+        if (_probe != null && list.Count > 1)
+        {
+            try
+            {
+                return await _probe.OrderAsync(list).ConfigureAwait(false);
+            }
+            catch
+            {
+                // 探测失败不该影响连接：退回原顺序（探测结果只是优化，不是必需）
+            }
+        }
         return list;
     }
 

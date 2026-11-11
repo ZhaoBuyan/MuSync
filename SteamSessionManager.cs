@@ -41,6 +41,9 @@ internal class SteamSessionManager : IDisposable
     /// <summary>重连循环最近一次活动（每轮开始连接前刷新）；监督者据此判断"卡死"。</summary>
     private DateTime _reconnectActivityUtc = DateTime.MinValue;
 
+    /// <summary>CM 可达性探测（跨客户端实例共用：结果缓存 10 分钟）。</summary>
+    private static readonly MuSync.Utils.CmReachabilityProbe _cmProbe = new();
+
     /// <summary>每次 Connect 调用的等待上限：WebSocket 回退后它可能长时间不返回。</summary>
     private const int ConnectTimeoutSeconds = 12;
 
@@ -153,7 +156,7 @@ internal class SteamSessionManager : IDisposable
                 "MuSync", "cm-serverlist.json");
             // 包一层：读到非空缓存时报告"刚刷新过"，避免每次 Connect 都去撞不可达的 Steam Directory
             builder.WithServerListProvider(new MuSync.Utils.CachedServerListProvider(
-                new FileStorageServerListProvider(serverListCachePath)));
+                new FileStorageServerListProvider(serverListCachePath), _cmProbe));
         });
         _steamClient = new SteamClient(configuration);
         var callbackManager = new CallbackManager(_steamClient);
